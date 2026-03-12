@@ -168,11 +168,58 @@ const watchMetrics = [
 ];
 
 /* ── Main Dashboard ── */
-export default function InVitroDashboard() {
-  const consolidatedRevGrowth = (annual[2026].consolidated.rev - annual[2025].consolidated.rev) / annual[2025].consolidated.rev;
-  const ebitdaSwing = annual[2026].consolidated.ebitda - annual[2025].consolidated.ebitda;
-  const monthlyBurn = cashflow2026.netCashMovement / 12;
-  const runwayMonths = cashflow2026.endingCashBalance / Math.abs(monthlyBurn);
+export default function InVitroDashboard({ liveData, fetchError }) {
+  // Use live data if available, otherwise fall back to hardcoded
+  const m2026 = liveData?.monthly2026 || monthly2026;
+  const ann = liveData?.annual || annual;
+  const cf2026 = liveData?.cashflow2026 || cashflow2026;
+  const lastUpdated = liveData?.lastUpdated;
+
+  // Recalculate derived data from potentially live values
+  const _revenueByMonth = months.map((m, i) => ({
+    month: m, AllRx: m2026.allrx.rev[i], AllCare: m2026.allcare.rev[i],
+    Osta: m2026.osta.rev[i], Needles: m2026.needles.rev[i],
+    Total: m2026.allrx.rev[i] + m2026.allcare.rev[i] + m2026.osta.rev[i] + m2026.needles.rev[i],
+  }));
+  const _ebitdaByMonth = months.map((m, i) => ({
+    month: m, AllRx: m2026.allrx.ebitda[i], AllCare: m2026.allcare.ebitda[i],
+    Osta: m2026.osta.ebitda[i], Needles: m2026.needles.ebitda[i],
+    "InVitro Studio": m2026.invitro.ebitda[i],
+    Total: m2026.allrx.ebitda[i] + m2026.allcare.ebitda[i] + m2026.osta.ebitda[i] + m2026.needles.ebitda[i] + m2026.invitro.ebitda[i],
+  }));
+  const _cashBalanceByMonth = months.map((m, i) => ({
+    month: m, balance: cf2026.monthlyBalance[i],
+    inflow: cf2026.monthlyInflow[i], outflow: Math.abs(cf2026.monthlyOutflow[i]),
+  }));
+  const _companyEbitda2026 = [
+    { name: "AllRx", value: Math.round(ann[2026].allrx.ebitda) },
+    { name: "InVitro Studio", value: Math.round(ann[2026].invitro.ebitda) },
+    { name: "AllCare", value: Math.round(ann[2026].allcare.ebitda) },
+    { name: "Needles", value: Math.round(ann[2026].needles.ebitda) },
+    { name: "Osta", value: Math.round(ann[2026].osta.ebitda) },
+  ];
+  const _revenuePie = [
+    { name: "AllRx", value: Math.round(ann[2026].allrx.rev), color: C.allrx },
+    { name: "AllCare", value: Math.round(ann[2026].allcare.rev), color: C.allcare },
+    { name: "Osta", value: Math.round(ann[2026].osta.rev), color: C.osta },
+    { name: "Needles", value: Math.round(ann[2026].needles.rev), color: C.needles },
+  ];
+  const _yoyComparison = [
+    { metric: "Revenue", y2025: ann[2025].consolidated.rev, y2026: ann[2026].consolidated.rev },
+    { metric: "EBITDA", y2025: ann[2025].consolidated.ebitda, y2026: ann[2026].consolidated.ebitda },
+  ];
+  const _companies = [
+    { name: "AllRx", rev: Math.round(ann[2026].allrx.rev), ebitda: Math.round(ann[2026].allrx.ebitda), grossMargin: ann[2026].consolidated.grossMargin || 0.72, color: C.allrx, revGrowth: ann[2025].allrx.rev > 0 ? (ann[2026].allrx.rev - ann[2025].allrx.rev) / ann[2025].allrx.rev : 0 },
+    { name: "AllCare", rev: Math.round(ann[2026].allcare.rev), ebitda: Math.round(ann[2026].allcare.ebitda), grossMargin: ann[2026].allcare.rev > 0 ? ann[2026].allcare.grossProfit / ann[2026].allcare.rev : 0, color: C.allcare, revGrowth: ann[2025].allcare.rev > 0 ? (ann[2026].allcare.rev - ann[2025].allcare.rev) / ann[2025].allcare.rev : 0 },
+    { name: "Osta", rev: Math.round(ann[2026].osta.rev), ebitda: Math.round(ann[2026].osta.ebitda), grossMargin: ann[2026].osta.rev > 0 ? ann[2026].osta.grossProfit / ann[2026].osta.rev : 0, color: C.osta, revGrowth: ann[2025].osta.rev > 0 ? (ann[2026].osta.rev - ann[2025].osta.rev) / ann[2025].osta.rev : 0 },
+    { name: "Needles", rev: Math.round(ann[2026].needles.rev), ebitda: Math.round(ann[2026].needles.ebitda), grossMargin: 0, color: C.needles, revGrowth: ann[2025].needles.rev > 0 ? (ann[2026].needles.rev - ann[2025].needles.rev) / ann[2025].needles.rev : 0 },
+    { name: "InVitro Studio", rev: Math.round(ann[2026].invitro.rev), ebitda: Math.round(ann[2026].invitro.ebitda), grossMargin: 1.0, color: C.invitro, revGrowth: ann[2025].invitro.rev > 0 ? (ann[2026].invitro.rev - ann[2025].invitro.rev) / ann[2025].invitro.rev : 0 },
+  ];
+
+  const consolidatedRevGrowth = ann[2025].consolidated.rev > 0 ? (ann[2026].consolidated.rev - ann[2025].consolidated.rev) / ann[2025].consolidated.rev : 0;
+  const ebitdaSwing = ann[2026].consolidated.ebitda - ann[2025].consolidated.ebitda;
+  const monthlyBurn = cf2026.netCashMovement / 12;
+  const runwayMonths = Math.abs(monthlyBurn) > 0 ? cf2026.endingCashBalance / Math.abs(monthlyBurn) : 999;
 
   return (
     <div className="min-h-screen bg-background text-foreground">
@@ -193,8 +240,9 @@ export default function InVitroDashboard() {
             </p>
           </div>
           <Card className="py-2 px-4 gap-0.5">
-            <p className="text-[10px] uppercase tracking-wider text-muted-foreground">Last Updated</p>
-            <p className="text-sm font-semibold">March 12, 2026</p>
+            <p className="text-[10px] uppercase tracking-wider text-muted-foreground">{lastUpdated ? "Live Data" : "Last Updated"}</p>
+            <p className="text-sm font-semibold">{lastUpdated ? new Date(lastUpdated).toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' }) : "March 12, 2026"}</p>
+            {lastUpdated && <p className="text-[9px] text-emerald-400 font-medium">● Auto-refreshing every 5 min</p>}
           </Card>
         </div>
       </header>
@@ -213,10 +261,10 @@ export default function InVitroDashboard() {
           {/* ────── OVERVIEW ────── */}
           <TabsContent value="overview">
             <div className="flex flex-wrap gap-4 mb-6">
-              <KPICard title="Total Revenue (2026)" value={fmt(annual[2026].consolidated.rev)} trend={`${(consolidatedRevGrowth * 100).toFixed(0)}% YoY`} trendUp={true} subtitle="excl. InVitro Studio" />
-              <KPICard title="Total EBITDA (2026)" value={fmt(annual[2026].consolidated.ebitda)} trend={`+${fmt(ebitdaSwing)} swing`} trendUp={true} subtitle="9% margin" />
-              <KPICard title="Cash Balance" value={fmt(cashflow2026.endingCashBalance)} trend={`~${runwayMonths.toFixed(1)} months`} trendUp={runwayMonths > 6} subtitle="runway at current burn" />
-              <KPICard title="Gross Margin" value={pct(annual[2026].consolidated.grossMargin)} trend="+5pp YoY" trendUp={true} subtitle="portfolio weighted" />
+              <KPICard title="Total Revenue (2026)" value={fmt(ann[2026].consolidated.rev)} trend={`${(consolidatedRevGrowth * 100).toFixed(0)}% YoY`} trendUp={true} subtitle="excl. InVitro Studio" />
+              <KPICard title="Total EBITDA (2026)" value={fmt(ann[2026].consolidated.ebitda)} trend={`+${fmt(ebitdaSwing)} swing`} trendUp={true} subtitle="9% margin" />
+              <KPICard title="Cash Balance" value={fmt(cf2026.endingCashBalance)} trend={`~${runwayMonths.toFixed(1)} months`} trendUp={runwayMonths > 6} subtitle="runway at current burn" />
+              <KPICard title="Gross Margin" value={pct(ann[2026].consolidated.grossMargin)} trend="+5pp YoY" trendUp={true} subtitle="portfolio weighted" />
             </div>
 
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-8">
@@ -226,7 +274,7 @@ export default function InVitroDashboard() {
                 </CardHeader>
                 <CardContent>
                   <ResponsiveContainer width="100%" height={260}>
-                    <AreaChart data={revenueByMonth}>
+                    <AreaChart data={_revenueByMonth}>
                       <CartesianGrid strokeDasharray="3 3" stroke={C.border} />
                       <XAxis dataKey="month" tick={{ fill: C.muted, fontSize: 11 }} />
                       <YAxis tick={{ fill: C.muted, fontSize: 11 }} tickFormatter={fmtShort} />
@@ -247,13 +295,13 @@ export default function InVitroDashboard() {
                 </CardHeader>
                 <CardContent>
                   <ResponsiveContainer width="100%" height={260}>
-                    <BarChart data={companyEbitda2026} layout="vertical">
+                    <BarChart data={_companyEbitda2026} layout="vertical">
                       <CartesianGrid strokeDasharray="3 3" stroke={C.border} />
                       <XAxis type="number" tick={{ fill: C.muted, fontSize: 11 }} tickFormatter={fmtShort} />
                       <YAxis type="category" dataKey="name" tick={{ fill: C.muted, fontSize: 11 }} width={100} />
                       <Tooltip content={<CustomTooltip />} />
                       <Bar dataKey="value" name="EBITDA" radius={[0, 4, 4, 0]}>
-                        {companyEbitda2026.map((e, i) => (
+                        {_companyEbitda2026.map((e, i) => (
                           <Cell key={i} fill={e.value >= 0 ? C.positive : C.negative} />
                         ))}
                       </Bar>
@@ -279,7 +327,7 @@ export default function InVitroDashboard() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {companies.map((co) => (
+                  {_companies.map((co) => (
                     <TableRow key={co.name}>
                       <TableCell className="font-semibold">
                         <span className="inline-block w-2 h-2 rounded-full mr-2" style={{ background: co.color }} />
@@ -328,7 +376,7 @@ export default function InVitroDashboard() {
               <CardHeader><CardTitle className="text-sm">Monthly Revenue by Company (2026)</CardTitle></CardHeader>
               <CardContent>
                 <ResponsiveContainer width="100%" height={340}>
-                  <ComposedChart data={revenueByMonth}>
+                  <ComposedChart data={_revenueByMonth}>
                     <CartesianGrid strokeDasharray="3 3" stroke={C.border} />
                     <XAxis dataKey="month" tick={{ fill: C.muted, fontSize: 11 }} />
                     <YAxis tick={{ fill: C.muted, fontSize: 11 }} tickFormatter={fmtShort} />
@@ -350,8 +398,8 @@ export default function InVitroDashboard() {
                 <CardContent>
                   <ResponsiveContainer width="100%" height={240}>
                     <PieChart>
-                      <Pie data={revenuePie} cx="50%" cy="50%" outerRadius={90} innerRadius={50} dataKey="value" label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}>
-                        {revenuePie.map((e, i) => <Cell key={i} fill={e.color} />)}
+                      <Pie data={_revenuePie} cx="50%" cy="50%" outerRadius={90} innerRadius={50} dataKey="value" label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}>
+                        {_revenuePie.map((e, i) => <Cell key={i} fill={e.color} />)}
                       </Pie>
                       <Tooltip formatter={(v) => fmt(v)} />
                     </PieChart>
@@ -363,7 +411,7 @@ export default function InVitroDashboard() {
                 <CardHeader><CardTitle className="text-sm">Year-over-Year Comparison</CardTitle></CardHeader>
                 <CardContent>
                   <ResponsiveContainer width="100%" height={240}>
-                    <BarChart data={yoyComparison}>
+                    <BarChart data={_yoyComparison}>
                       <CartesianGrid strokeDasharray="3 3" stroke={C.border} />
                       <XAxis dataKey="metric" tick={{ fill: C.muted, fontSize: 12 }} />
                       <YAxis tick={{ fill: C.muted, fontSize: 11 }} tickFormatter={fmtShort} />
@@ -391,7 +439,7 @@ export default function InVitroDashboard() {
               <CardHeader><CardTitle className="text-sm">Monthly EBITDA by Company (2026)</CardTitle></CardHeader>
               <CardContent>
                 <ResponsiveContainer width="100%" height={340}>
-                  <ComposedChart data={ebitdaByMonth}>
+                  <ComposedChart data={_ebitdaByMonth}>
                     <CartesianGrid strokeDasharray="3 3" stroke={C.border} />
                     <XAxis dataKey="month" tick={{ fill: C.muted, fontSize: 11 }} />
                     <YAxis tick={{ fill: C.muted, fontSize: 11 }} tickFormatter={fmtShort} />
@@ -430,17 +478,17 @@ export default function InVitroDashboard() {
           {/* ────── CASH FLOW ────── */}
           <TabsContent value="cashflow">
             <div className="flex flex-wrap gap-4 mb-6">
-              <KPICard title="Ending Cash Balance" value={fmt(cashflow2026.endingCashBalance)} trend={`${runwayMonths.toFixed(1)} months runway`} trendUp={runwayMonths > 3} subtitle="at current burn rate" />
-              <KPICard title="Total Cash Inflow" value={fmt(cashflow2026.totalCashInflow)} subtitle="collections from all entities" />
-              <KPICard title="Net Cash Movement" value={fmt(cashflow2026.netCashMovement)} trend="Ops deficit" trendUp={false} subtitle="before financing" />
-              <KPICard title="Financing Raised" value={fmt(cashflow2026.financingEquity + cashflow2026.financingDebt)} subtitle="equity + debt in 2026" />
+              <KPICard title="Ending Cash Balance" value={fmt(cf2026.endingCashBalance)} trend={`${runwayMonths.toFixed(1)} months runway`} trendUp={runwayMonths > 3} subtitle="at current burn rate" />
+              <KPICard title="Total Cash Inflow" value={fmt(cf2026.totalCashInflow)} subtitle="collections from all entities" />
+              <KPICard title="Net Cash Movement" value={fmt(cf2026.netCashMovement)} trend="Ops deficit" trendUp={false} subtitle="before financing" />
+              <KPICard title="Financing Raised" value={fmt(cf2026.financingEquity + cf2026.financingDebt)} subtitle="equity + debt in 2026" />
             </div>
 
             <Card className="mb-5">
               <CardHeader><CardTitle className="text-sm">Monthly Cash Balance &amp; Flows (2026)</CardTitle></CardHeader>
               <CardContent>
                 <ResponsiveContainer width="100%" height={320}>
-                  <ComposedChart data={cashBalanceByMonth}>
+                  <ComposedChart data={_cashBalanceByMonth}>
                     <CartesianGrid strokeDasharray="3 3" stroke={C.border} />
                     <XAxis dataKey="month" tick={{ fill: C.muted, fontSize: 11 }} />
                     <YAxis yAxisId="left" tick={{ fill: C.muted, fontSize: 11 }} tickFormatter={fmtShort} />
@@ -460,10 +508,10 @@ export default function InVitroDashboard() {
               <CardContent>
                 <ResponsiveContainer width="100%" height={220}>
                   <AreaChart data={(() => {
-                    const forecast = []; let bal = cashflow2026.endingCashBalance;
-                    const avgBurn = cashflow2026.netCashMovement / 12;
+                    const forecast = []; let bal = cf2026.endingCashBalance;
+                    const avgBurn = cf2026.netCashMovement / 12;
                     ["Jan'27","Feb'27","Mar'27","Apr'27","May'27","Jun'27"].forEach((m) => { bal += avgBurn; forecast.push({ month: m, balance: Math.max(0, bal) }); });
-                    return [{ month: "Dec'26", balance: cashflow2026.endingCashBalance }, ...forecast];
+                    return [{ month: "Dec'26", balance: cf2026.endingCashBalance }, ...forecast];
                   })()}>
                     <CartesianGrid strokeDasharray="3 3" stroke={C.border} />
                     <XAxis dataKey="month" tick={{ fill: C.muted, fontSize: 11 }} />
@@ -473,7 +521,7 @@ export default function InVitroDashboard() {
                   </AreaChart>
                 </ResponsiveContainer>
                 <p className="mt-3 text-xs italic text-muted-foreground">
-                  Projection assumes constant monthly burn of ~{fmt(Math.abs(cashflow2026.netCashMovement / 12))} with no additional financing.
+                  Projection assumes constant monthly burn of ~{fmt(Math.abs(cf2026.netCashMovement / 12))} with no additional financing.
                 </p>
               </CardContent>
             </Card>
@@ -490,7 +538,7 @@ export default function InVitroDashboard() {
             <InsightCard type="positive" icon={"\uD83D\uDCC8"} title="AllCare is the breakout growth story" body="AllCare revenue surged from ~$1.3M in 2025 to $4.9M in 2026 (+276%), representing the fastest growth in the portfolio. More importantly, AllCare turned EBITDA-positive in August 2026, reaching $50.9K/month by December. At this trajectory, AllCare could become the second largest EBITDA contributor by mid-2027." />
             <InsightCard type="positive" icon={"\uD83C\uDFC6"} title="AllRx remains the anchor \u2014 stable and profitable" body="AllRx continues as the portfolio's cash cow with $12.97M revenue (69% of total) and $2.81M EBITDA (21.6% margin). Revenue grew 5.5% YoY while maintaining 72% gross margins. This provides a stable foundation for the portfolio." />
             <InsightCard type="warning" icon={"\u26A0\uFE0F"} title="Osta's losses are persistent and need attention" body="Osta's EBITDA was -$1.29M in 2026 \u2014 unchanged from 2025 despite 78% revenue growth to $855K. The company's cost structure isn't scaling with revenue. At 48% gross margins and high SG&A + R&D ($789K), Osta needs either significantly higher revenue or cost restructuring to reach breakeven." />
-            <InsightCard type="danger" icon={"\uD83D\uDD34"} title="Cash runway is critically tight" body={`The consolidated cash balance is ${fmt(cashflow2026.endingCashBalance)} as of December 2026, with a monthly net operational burn of ~${fmt(Math.abs(monthlyBurn))}. Without additional financing, runway is approximately ${runwayMonths.toFixed(1)} months. A new capital raise or credit facility will be needed in early 2027.`} />
+            <InsightCard type="danger" icon={"\uD83D\uDD34"} title="Cash runway is critically tight" body={`The consolidated cash balance is ${fmt(cf2026.endingCashBalance)} as of December 2026, with a monthly net operational burn of ~${fmt(Math.abs(monthlyBurn))}. Without additional financing, runway is approximately ${runwayMonths.toFixed(1)} months. A new capital raise or credit facility will be needed in early 2027.`} />
             <InsightCard type="warning" icon={"\uD83C\uDF31"} title="Needles is pre-revenue but building momentum" body="Needles generated only $45K in 2026 revenue but showed exponential month-over-month growth from $1K in April to $10.7K in December. The EBITDA loss of -$504K is expected for this stage. Key watch: can Needles reach $30K+ MRR by mid-2027 to justify continued investment?" />
             <InsightCard type="info" icon={"\uD83D\uDCA1"} title="Revenue diversification is improving" body="AllRx's share of total revenue dropped from ~87% in 2025 to 69% in 2026 as AllCare scaled rapidly. This diversification reduces concentration risk. However, the portfolio still relies heavily on AllRx for positive EBITDA, so profitability diversification remains a 2027 priority." />
             <InsightCard type="info" icon={"\uD83D\uDCCA"} title="Cashflow forecast assumptions" body="The runway projection assumes no new financing and constant burn. In reality, AllCare's improving EBITDA trend (+$50K/mo in Dec) and Needles' revenue acceleration should improve the picture. However, the tight cash position suggests proactive fundraising is advisable." />
@@ -526,7 +574,7 @@ export default function InVitroDashboard() {
         {/* Footer */}
         <div className="mt-10 border-t border-border/50 pt-4 text-center">
           <p className="text-xs text-muted-foreground">
-            InVitro Capital &mdash; Confidential Shareholder Dashboard &bull; Data from &quot;InVitro Capital Consolidated - Actual&quot; &bull; Generated March 2026
+            InVitro Capital &mdash; Confidential Shareholder Dashboard &bull; Live data from &quot;InVitro Capital Consolidated - Actual&quot; &bull; Auto-refreshes every 5 minutes
           </p>
         </div>
       </main>
