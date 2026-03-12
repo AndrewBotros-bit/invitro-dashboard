@@ -1,4 +1,4 @@
-import { cn } from "@/lib/utils";
+import { cn } from "../../lib/utils";
 
 function Badge({ className, variant = "default", ...props }) {
   const variants = {

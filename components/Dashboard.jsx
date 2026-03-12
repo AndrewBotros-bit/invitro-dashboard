@@ -4,10 +4,10 @@ import {
   BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip,
   Legend, ResponsiveContainer, PieChart, Pie, Cell, AreaChart, Area, ComposedChart,
 } from "recharts";
-import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/components/ui/card";
-import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
-import { Badge } from "@/components/ui/badge";
-import { Table, TableHeader, TableBody, TableHead, TableRow, TableCell, TableFooter } from "@/components/ui/table";
+import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "./ui/card";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "./ui/tabs";
+import { Badge } from "./ui/badge";
+import { Table, TableHeader, TableBody, TableHead, TableRow, TableCell, TableFooter } from "./ui/table";
 
 /* ── Formatters ── */
 const fmt = (v) => {
