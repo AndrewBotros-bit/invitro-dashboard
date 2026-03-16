@@ -42,10 +42,11 @@ Plans:
   1. If a critical header is missing or the sheet structure is invalid, `next build` fails with a clear error message describing what is wrong -- it never silently deploys incorrect data
   2. If individual cell values are missing or non-numeric where numbers are expected, affected charts show an error indicator (not NaN, not $0, not a crash)
   3. A build log shows a manifest of discovered tabs, columns, and companies -- the CFO can verify the dashboard found the right data
-**Plans**: TBD
+**Plans:** 2 plans
 
 Plans:
-- [ ] 02-01: TBD
+- [ ] 02-01-PLAN.md — Validation module, null-safe parser updates, and test fixtures
+- [ ] 02-02-PLAN.md — Wire validation into fetchAllData with build manifest logging
 
 ### Phase 3: Display Integration
 **Goal**: Every existing chart type renders correctly from live sheet data with dynamic company colors, auto-populated timestamp, and a clear redeploy workflow for the CFO
@@ -70,5 +71,5 @@ Phases execute in numeric order: 1 -> 2 -> 3
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Data Pipeline | 1/3 | In Progress|  |
-| 2. Data Validation | 0/? | Not started | - |
+| 2. Data Validation | 0/2 | Not started | - |
 | 3. Display Integration | 0/? | Not started | - |
