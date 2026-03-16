@@ -56,6 +56,19 @@ describe('parseExpenses', () => {
     expect(result[0].category).toBe('HC');
   });
 
+  it('returns null for missing or non-numeric amounts (not 0)', () => {
+    const rows = [
+      EXPENSE_HEADERS,
+      ['Expense', 'HC', 'January', '2026-01-15', 5000, '2026-01-15', undefined, 6000, 'John', 'R&D', 'ADP', 'Salaries', 'Operating', 'AllRX', 2026, 'January', 1, 5000, '2026-01-15'],
+      ['Expense', 'HC', 'January', '2026-01-15', 5000, '2026-01-15', 'N/A', 6000, 'John', 'R&D', 'ADP', 'Salaries', 'Operating', 'AllRX', 2026, 'January', 1, 5000, '2026-01-15'],
+      ['Expense', 'HC', 'January', '2026-01-15', 5000, '2026-01-15', '', 6000, 'John', 'R&D', 'ADP', 'Salaries', 'Operating', 'AllRX', 2026, 'January', 1, 5000, '2026-01-15'],
+    ];
+    const result = parseExpenses(rows);
+    expect(result[0].amount).toBeNull();
+    expect(result[1].amount).toBeNull();
+    expect(result[2].amount).toBeNull();
+  });
+
   it('handles Direct Cost department (COGS, not SG&A)', () => {
     const result = parseExpenses(MOCK_EXPENSE_ROWS);
     const directCost = result.find(r => r.department === 'Direct Cost');

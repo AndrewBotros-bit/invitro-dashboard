@@ -54,6 +54,19 @@ describe('parsePnL', () => {
     expect(revenue[1]).toEqual({ year: 2025, month: 2, value: 1032373 });
   });
 
+  it('coerces non-numeric cell values to null', () => {
+    const rows = [
+      [null, null, null, null, 'Jan 2025', 'Feb 2025', 'Mar 2025'],
+      [null, 'TestCo', null, null],
+      [null, null, 'Revenue', null, 100, 'N/A', ''],
+    ];
+    const result = parsePnL(rows);
+    const rev = result[0].metrics['Revenue'];
+    expect(rev[0].value).toBe(100);
+    expect(rev[1].value).toBeNull(); // 'N/A' -> null
+    expect(rev[2].value).toBeNull(); // '' -> null
+  });
+
   it('handles missing trailing cell values as null', () => {
     // Company row with no values in month columns
     const rows = [
