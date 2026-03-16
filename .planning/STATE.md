@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: Completed 01-03-PLAN.md
-last_updated: "2026-03-16T21:22:58.613Z"
+stopped_at: Completed 02-01-PLAN.md
+last_updated: "2026-03-16T21:45:47.145Z"
 last_activity: 2026-03-16 -- Completed 01-01-PLAN.md
 progress:
   total_phases: 3
   completed_phases: 1
-  total_plans: 3
-  completed_plans: 3
-  percent: 33
+  total_plans: 5
+  completed_plans: 4
+  percent: 80
 ---
 
 # Project State
@@ -21,16 +21,16 @@ progress:
 See: .planning/PROJECT.md (updated 2026-03-12)
 
 **Core value:** Investors can view up-to-date, accurate financials for all InVitro Capital portfolio companies through a web dashboard that stays in sync with the master Google Sheet.
-**Current focus:** Phase 1: Data Pipeline
+**Current focus:** Phase 2: Data Validation
 
 ## Current Position
 
-Phase: 1 of 3 (Data Pipeline)
-Plan: 1 of 3 in current phase
+Phase: 2 of 3 (Data Validation)
+Plan: 1 of 2 in current phase
 Status: Executing
-Last activity: 2026-03-16 -- Completed 01-01-PLAN.md
+Last activity: 2026-03-16 -- Completed 02-01-PLAN.md
 
-Progress: [███░░░░░░░] 33%
+Progress: [████████░░] 80%
 
 ## Performance Metrics
 
@@ -52,6 +52,7 @@ Progress: [███░░░░░░░] 33%
 *Updated after each plan completion*
 | Phase 01-02 Psheet-parsers | 3min | 2 tasks | 6 files |
 | Phase 01-03 Pdata-orchestrator | 2min | 2 tasks | 4 files |
+| Phase 02-01 P01 | 3min | 2 tasks | 10 files |
 
 ## Accumulated Context
 
@@ -68,6 +69,8 @@ Recent decisions affecting current work:
 - [Phase 01-02]: Block-detection pattern: company in col B with empty col C, metrics in col C
 - [Phase 01-03]: P&L+Cashflow via batchGet and expenses separately, all in parallel with Promise.all
 - [Phase 01-03]: No error handling in fetchAllData -- build fails hard on API errors
+- [Phase 02-01]: toNumberOrNull duplicated in each parser file as internal helper to keep modules self-contained
+- [Phase 02-01]: Expense validation requires header + at least 1 data row (rows.length < 2 is empty)
 
 ### Pending Todos
 
@@ -80,6 +83,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-16T21:20:17.349Z
-Stopped at: Completed 01-03-PLAN.md
+Last session: 2026-03-16T21:45:47.142Z
+Stopped at: Completed 02-01-PLAN.md
 Resume file: None
