@@ -8,19 +8,7 @@ import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/com
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import { Table, TableHeader, TableBody, TableHead, TableRow, TableCell, TableFooter } from "@/components/ui/table";
-
-/* ── Formatters ── */
-const fmt = (v) => {
-  if (Math.abs(v) >= 1e6) return `$${(v / 1e6).toFixed(2)}M`;
-  if (Math.abs(v) >= 1e3) return `$${(v / 1e3).toFixed(0)}K`;
-  return `$${v.toFixed(0)}`;
-};
-const fmtShort = (v) => {
-  if (Math.abs(v) >= 1e6) return `${(v / 1e6).toFixed(1)}M`;
-  if (Math.abs(v) >= 1e3) return `${(v / 1e3).toFixed(0)}K`;
-  return `${v}`;
-};
-const pct = (v) => `${(v * 100).toFixed(1)}%`;
+import { fmt, fmtShort, pct } from "@/lib/formatters";
 
 /* ── Colors ── */
 const C = {
