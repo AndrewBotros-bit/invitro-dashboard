@@ -48,8 +48,7 @@ describe('parseExpenses', () => {
       }
       return newRow;
     });
-    // Also swap headers
-    [reordered[0][1], reordered[0][13]] = [reordered[0][13], reordered[0][1]];
+    // Headers are already swapped by the map above
 
     const result = parseExpenses(reordered);
     // Should still correctly find company and category despite reorder
