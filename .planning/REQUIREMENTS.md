@@ -10,7 +10,7 @@ Requirements for initial release. Each maps to roadmap phases.
 ### Data Pipeline
 
 - [ ] **DATA-01**: Dashboard fetches all financial data from Google Sheet "InVitro Capital Consolidated - Actual" at build time using a service account
-- [ ] **DATA-02**: Dashboard dynamically discovers all companies present in the sheet without hardcoded company names
+- [x] **DATA-02**: Dashboard dynamically discovers all companies present in the sheet without hardcoded company names
 - [ ] **DATA-03**: Dashboard dynamically renders charts and KPIs for whatever companies exist in the sheet
 - [x] **DATA-04**: Dashboard uses header-based sheet parsing (not hardcoded cell ranges) so column reordering doesn't break it
 - [ ] **DATA-05**: Dashboard validates sheet data at build time using schemas — build fails loudly if sheet structure is invalid
@@ -66,7 +66,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | Requirement | Phase | Status |
 |-------------|-------|--------|
 | DATA-01 | Phase 1 | Pending |
-| DATA-02 | Phase 1 | Pending |
+| DATA-02 | Phase 1 | Complete |
 | DATA-03 | Phase 3 | Pending |
 | DATA-04 | Phase 1 | Complete |
 | DATA-05 | Phase 2 | Pending |
