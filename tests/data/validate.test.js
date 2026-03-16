@@ -94,14 +94,13 @@ describe('validateSheetData', () => {
     expect(result.errors.length).toBeGreaterThanOrEqual(3);
   });
 
-  it('returns no errors and no warnings for valid data', () => {
+  it('returns no errors for valid data', () => {
     const result = validateSheetData({
       pnlRows: MOCK_PNL_ROWS,
       cashflowRows: MOCK_CASHFLOW_ROWS,
       expenseRows: MOCK_EXPENSE_ROWS,
     });
     expect(result.errors).toEqual([]);
-    expect(result.warnings).toEqual([]);
   });
 
   it('produces warnings (not errors) for optional metrics missing from a company block', () => {
@@ -113,8 +112,20 @@ describe('validateSheetData', () => {
     });
     // No errors for missing optional metrics
     expect(result.errors).toEqual([]);
-    // Warnings may exist for optional metrics (or may be empty if none triggered)
-    // Key: no errors from optional metric absence
+    // Warnings generated for Curenta missing optional metrics
+    expect(result.warnings.length).toBeGreaterThan(0);
+    expect(result.warnings).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          severity: 'warning',
+          tab: 'P&L',
+          message: expect.stringContaining('Curenta'),
+        }),
+      ]),
+    );
+    // AllRx has all optional metrics -- no warnings for AllRx
+    const allrxWarnings = result.warnings.filter(w => w.message.includes('AllRx'));
+    expect(allrxWarnings).toEqual([]);
   });
 
   it('validates minimal valid data passes without errors', () => {
