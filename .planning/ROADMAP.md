@@ -27,7 +27,7 @@ Decimal phases appear between their surrounding integers in numeric order.
   2. Adding a new company to the Google Sheet causes it to appear in the fetched data on next build without any code changes
   3. Reordering or adding columns in the sheet does not break parsing -- the parser finds data by header name, not column index
   4. Service account credentials exist only in environment variables -- no credentials committed to git, no `NEXT_PUBLIC_` prefixed Google variables
-**Plans:** 3 plans
+**Plans:** 1/3 plans executed
 
 Plans:
 - [ ] 01-01-PLAN.md — Test infrastructure, security foundations, types, company mapping, and googleSheets.js batchGet upgrade
@@ -69,6 +69,6 @@ Phases execute in numeric order: 1 -> 2 -> 3
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Data Pipeline | 0/3 | Planned | - |
+| 1. Data Pipeline | 1/3 | In Progress|  |
 | 2. Data Validation | 0/? | Not started | - |
 | 3. Display Integration | 0/? | Not started | - |
