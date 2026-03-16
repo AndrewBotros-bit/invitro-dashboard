@@ -1,7 +1,12 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { MOCK_PNL_ROWS } from '@/tests/fixtures/pnlRows';
 import { MOCK_CASHFLOW_ROWS } from '@/tests/fixtures/cashflowRows';
 import { MOCK_EXPENSE_ROWS } from '@/tests/fixtures/expenseRows';
+import {
+  EMPTY_PNL_ROWS,
+  MISSING_HEADER_EXPENSE_ROWS,
+  VALID_MINIMAL_EXPENSE_ROWS,
+} from '@/tests/fixtures/invalidRows';
 
 // Mock the googleSheets module
 vi.mock('@/lib/googleSheets', () => ({
@@ -94,5 +99,106 @@ describe('fetchAllData', () => {
 
     const { fetchAllData } = await import('@/lib/data/index');
     await expect(fetchAllData()).rejects.toThrow('API unreachable');
+  });
+
+  it('throws with [DATA VALIDATION] prefix when sheet structure is invalid', async () => {
+    const { batchGetSheetValues, getExpenseSheetValues } = await import('@/lib/googleSheets');
+    batchGetSheetValues.mockResolvedValue([
+      { range: "'P&L'!A1:ZZ", values: EMPTY_PNL_ROWS },
+      { range: "'Cashflow'!A1:ZZ", values: MOCK_CASHFLOW_ROWS },
+    ]);
+    getExpenseSheetValues.mockResolvedValue(MOCK_EXPENSE_ROWS);
+
+    const { fetchAllData } = await import('@/lib/data/index');
+    await expect(fetchAllData()).rejects.toThrow('[DATA VALIDATION]');
+  });
+
+  it('collects all validation errors in thrown message', async () => {
+    const { batchGetSheetValues, getExpenseSheetValues } = await import('@/lib/googleSheets');
+    // Empty P&L and Cashflow, bad expense headers
+    batchGetSheetValues.mockResolvedValue([
+      { range: "'P&L'!A1:ZZ", values: EMPTY_PNL_ROWS },
+      { range: "'Cashflow'!A1:ZZ", values: [] },
+    ]);
+    getExpenseSheetValues.mockResolvedValue(MISSING_HEADER_EXPENSE_ROWS);
+
+    const { fetchAllData } = await import('@/lib/data/index');
+    try {
+      await fetchAllData();
+      expect.unreachable('should have thrown');
+    } catch (err) {
+      expect(err.message).toContain('P&L');
+      expect(err.message).toContain('Cashflow');
+      expect(err.message).toContain('Expenses');
+    }
+  });
+
+  it('logs warnings to console.warn with [DATA WARNING] prefix', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+
+    const { batchGetSheetValues, getExpenseSheetValues } = await import('@/lib/googleSheets');
+    batchGetSheetValues.mockResolvedValue([
+      { range: "'P&L'!A1:ZZ", values: MOCK_PNL_ROWS },
+      { range: "'Cashflow'!A1:ZZ", values: MOCK_CASHFLOW_ROWS },
+    ]);
+    getExpenseSheetValues.mockResolvedValue(MOCK_EXPENSE_ROWS);
+
+    // We also mock validateSheetData to inject a warning
+    vi.doMock('@/lib/data/validate', () => ({
+      validateSheetData: () => ({
+        errors: [],
+        warnings: [{ severity: 'warning', tab: 'P&L', message: 'Test warning' }],
+      }),
+    }));
+
+    // Re-import after mocking validate
+    const { fetchAllData } = await import('@/lib/data/index');
+    await fetchAllData();
+
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('[DATA WARNING]'));
+
+    warnSpy.mockRestore();
+    logSpy.mockRestore();
+  });
+
+  it('logs build manifest after successful parse', async () => {
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+
+    const { batchGetSheetValues, getExpenseSheetValues } = await import('@/lib/googleSheets');
+    batchGetSheetValues.mockResolvedValue([
+      { range: "'P&L'!A1:ZZ", values: MOCK_PNL_ROWS },
+      { range: "'Cashflow'!A1:ZZ", values: MOCK_CASHFLOW_ROWS },
+    ]);
+    getExpenseSheetValues.mockResolvedValue(MOCK_EXPENSE_ROWS);
+
+    const { fetchAllData } = await import('@/lib/data/index');
+    await fetchAllData();
+
+    const allLogs = logSpy.mock.calls.map(c => c[0]).join('\n');
+    expect(allLogs).toContain('Build Manifest');
+    expect(allLogs).toContain('AllRx');
+
+    logSpy.mockRestore();
+  });
+
+  it('manifest includes per-company metrics detail', async () => {
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+
+    const { batchGetSheetValues, getExpenseSheetValues } = await import('@/lib/googleSheets');
+    batchGetSheetValues.mockResolvedValue([
+      { range: "'P&L'!A1:ZZ", values: MOCK_PNL_ROWS },
+      { range: "'Cashflow'!A1:ZZ", values: MOCK_CASHFLOW_ROWS },
+    ]);
+    getExpenseSheetValues.mockResolvedValue(MOCK_EXPENSE_ROWS);
+
+    const { fetchAllData } = await import('@/lib/data/index');
+    await fetchAllData();
+
+    const allLogs = logSpy.mock.calls.map(c => c[0]).join('\n');
+    // AllRx: has 3 months, 6 P&L metrics, 3 cashflow metrics, 2 expense rows
+    expect(allLogs).toMatch(/AllRx.*months.*P&L metrics.*expense rows/);
+
+    logSpy.mockRestore();
   });
 });
