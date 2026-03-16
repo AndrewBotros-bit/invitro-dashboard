@@ -32,6 +32,7 @@ const C = {
 const months = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
 
 /* ── Financial Data ── */
+// TODO: Phase 3 will replace hardcoded data below with data prop
 const monthly2026 = {
   allrx:    { rev: [1056168,1032373,958120,993232,1027993,1061672,1093499,1122689,1148474,1164718,1159141,1156380], ebitda: [240345,329155,206776,211866,220841,229444,226882,232795,237538,229187,223154,218088], grossMargin: [0.77,0.82,0.76,0.74,0.74,0.72,0.72,0.70,0.69,0.69,0.69,0.69] },
   allcare:  { rev: [202868,228543,274252,315389,356390,399157,447056,478349,526184,551433,562462,562462], ebitda: [-149106,-159782,-137009,-86756,-62356,-38605,-13889,4735,33202,44364,50927,50927], grossMargin: [0.55,0.58,0.60,0.60,0.60,0.60,0.60,0.60,0.60,0.60,0.60,0.60] },
@@ -168,7 +169,7 @@ const watchMetrics = [
 ];
 
 /* ── Main Dashboard ── */
-export default function InVitroDashboard() {
+export default function InVitroDashboard({ data }) {
   const consolidatedRevGrowth = (annual[2026].consolidated.rev - annual[2025].consolidated.rev) / annual[2025].consolidated.rev;
   const ebitdaSwing = annual[2026].consolidated.ebitda - annual[2025].consolidated.ebitda;
   const monthlyBurn = cashflow2026.netCashMovement / 12;
