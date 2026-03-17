@@ -18,9 +18,9 @@ Requirements for initial release. Each maps to roadmap phases.
 
 ### Display
 
-- [ ] **DISP-01**: Dashboard auto-populates "Last Updated" timestamp from build time
+- [x] **DISP-01**: Dashboard auto-populates "Last Updated" timestamp from build time
 - [x] **DISP-02**: Dashboard assigns consistent colors to dynamically discovered companies
-- [ ] **DISP-03**: All existing chart types (revenue, EBITDA, cash flow, KPIs, insights) render correctly from sheet data
+- [x] **DISP-03**: All existing chart types (revenue, EBITDA, cash flow, KPIs, insights) render correctly from sheet data
 
 ### Infrastructure
 
@@ -71,9 +71,9 @@ Which phases cover which requirements. Updated during roadmap creation.
 | DATA-04 | Phase 1 | Complete |
 | DATA-05 | Phase 2 | Complete |
 | DATA-06 | Phase 2 | Complete |
-| DISP-01 | Phase 3 | Pending |
+| DISP-01 | Phase 3 | Complete |
 | DISP-02 | Phase 3 | Complete |
-| DISP-03 | Phase 3 | Pending |
+| DISP-03 | Phase 3 | Complete |
 | INFR-01 | Phase 1 | Complete |
 | INFR-02 | Phase 3 | Complete |
 
