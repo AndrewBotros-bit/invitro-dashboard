@@ -8,99 +8,18 @@ import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/com
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import { Table, TableHeader, TableBody, TableHead, TableRow, TableCell, TableFooter } from "@/components/ui/table";
+import { fmt, fmtShort, pct } from "@/lib/formatters";
+import { buildColorMap, buildMonthlySeries, buildCashflowSeries, annualTotal, EXCLUDE_COMPANIES, PALETTE } from "@/lib/chartHelpers";
+import { generateInsights } from "@/lib/insights";
 
-/* ── Formatters ── */
-const fmt = (v) => {
-  if (Math.abs(v) >= 1e6) return `$${(v / 1e6).toFixed(2)}M`;
-  if (Math.abs(v) >= 1e3) return `$${(v / 1e3).toFixed(0)}K`;
-  return `$${v.toFixed(0)}`;
+/* ── Chart styling constants ── */
+const CHART_STYLE = {
+  positive: "#10b981",
+  negative: "#ef4444",
+  muted: "#94a3b8",
+  border: "#334155",
+  totalLine: "#f1f5f9",
 };
-const fmtShort = (v) => {
-  if (Math.abs(v) >= 1e6) return `${(v / 1e6).toFixed(1)}M`;
-  if (Math.abs(v) >= 1e3) return `${(v / 1e3).toFixed(0)}K`;
-  return `${v}`;
-};
-const pct = (v) => `${(v * 100).toFixed(1)}%`;
-
-/* ── Colors ── */
-const C = {
-  allrx: "#3b82f6", allcare: "#8b5cf6", osta: "#f59e0b",
-  needles: "#10b981", invitro: "#6366f1", positive: "#10b981",
-  negative: "#ef4444", muted: "#94a3b8", border: "#334155",
-};
-
-const months = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
-
-/* ── Financial Data ── */
-const monthly2026 = {
-  allrx:    { rev: [1056168,1032373,958120,993232,1027993,1061672,1093499,1122689,1148474,1164718,1159141,1156380], ebitda: [240345,329155,206776,211866,220841,229444,226882,232795,237538,229187,223154,218088], grossMargin: [0.77,0.82,0.76,0.74,0.74,0.72,0.72,0.70,0.69,0.69,0.69,0.69] },
-  allcare:  { rev: [202868,228543,274252,315389,356390,399157,447056,478349,526184,551433,562462,562462], ebitda: [-149106,-159782,-137009,-86756,-62356,-38605,-13889,4735,33202,44364,50927,50927], grossMargin: [0.55,0.58,0.60,0.60,0.60,0.60,0.60,0.60,0.60,0.60,0.60,0.60] },
-  osta:     { rev: [64344,44683,44683,58088,63316,68381,75219,79732,83671,87407,90956,94334], ebitda: [-114632,-111369,-111610,-107461,-106377,-105328,-107110,-106175,-105359,-105928,-105193,-104493], grossMargin: [0.45,0.48,0.48,0.48,0.48,0.48,0.48,0.48,0.48,0.48,0.48,0.48] },
-  needles:  { rev: [0,0,0,1000,1500,2250,3375,4388,5704,7415,8898,10677], ebitda: [-41827,-46504,-44327,-45327,-44827,-44077,-42952,-41940,-40623,-38912,-37429,-35650], grossMargin: [0,0,0,0,0,0,0,0,0,0,0,0] },
-  invitro:  { rev: [235601,240501,240501,233484,233484,235184,235184,235184,235184,235184,235184,235184], ebitda: [76754,85017,100017,93000,93000,94700,94700,94700,94700,94700,94700,94700], grossMargin: [1,1,1,1,1,1,1,1,1,1,1,1] },
-};
-
-const annual = {
-  2025: {
-    allrx:   { rev: 12299489, ebitda: 2515874, grossProfit: 8482844 },
-    allcare: { rev: 1305945, ebitda: -1713766, grossProfit: 802527 },
-    osta:    { rev: 479125, ebitda: -1291036, grossProfit: 169764 },
-    needles: { rev: 10206, ebitda: -504395, grossProfit: 0 },
-    invitro: { rev: 2283016, ebitda: 800000, grossProfit: 2283016 },
-    consolidated: { rev: 14094765, ebitda: -993323, grossMargin: 0.67 },
-  },
-  2026: {
-    allrx:   { rev: 12974460, ebitda: 2806072, grossProfit: 9382208 },
-    allcare: { rev: 4904545, ebitda: -463349, grossProfit: 2904800 },
-    osta:    { rev: 854815, ebitda: -1291036, grossProfit: 410311 },
-    needles: { rev: 45206, ebitda: -504395, grossProfit: 0 },
-    invitro: { rev: 2829859, ebitda: 1110691, grossProfit: 2829859 },
-    consolidated: { rev: 18779026, ebitda: 1657983, grossMargin: 0.72 },
-  },
-};
-
-const cashflow2026 = {
-  totalCashInflow: 15962595, totalCashOutflow: -16915344,
-  netCashMovement: -952749, financingEquity: 1110000, financingDebt: 148083,
-  cashedOut: -400000, endingCashBalance: 240961,
-  monthlyBalance: [142534,101646,74547,55130,67296,55130,94887,82171,274195,268279,240961,240961],
-  monthlyInflow: [1239745,962590,1321448,1132397,1210280,1036965,1555999,1410419,1475897,1524952,1404648,1687255],
-  monthlyOutflow: [-1398338,-1006478,-1261048,-1242329,-1298114,-1225699,-1516242,-1451852,-1497180,-1532927,-1560564,-1924573],
-};
-
-/* ── Derived Data ── */
-const revenueByMonth = months.map((m, i) => ({
-  month: m, AllRx: monthly2026.allrx.rev[i], AllCare: monthly2026.allcare.rev[i],
-  Osta: monthly2026.osta.rev[i], Needles: monthly2026.needles.rev[i],
-  Total: monthly2026.allrx.rev[i] + monthly2026.allcare.rev[i] + monthly2026.osta.rev[i] + monthly2026.needles.rev[i],
-}));
-
-const ebitdaByMonth = months.map((m, i) => ({
-  month: m, AllRx: monthly2026.allrx.ebitda[i], AllCare: monthly2026.allcare.ebitda[i],
-  Osta: monthly2026.osta.ebitda[i], Needles: monthly2026.needles.ebitda[i],
-  "InVitro Studio": monthly2026.invitro.ebitda[i],
-  Total: monthly2026.allrx.ebitda[i] + monthly2026.allcare.ebitda[i] + monthly2026.osta.ebitda[i] + monthly2026.needles.ebitda[i] + monthly2026.invitro.ebitda[i],
-}));
-
-const cashBalanceByMonth = months.map((m, i) => ({
-  month: m, balance: cashflow2026.monthlyBalance[i],
-  inflow: cashflow2026.monthlyInflow[i], outflow: Math.abs(cashflow2026.monthlyOutflow[i]),
-}));
-
-const companyEbitda2026 = [
-  { name: "AllRx", value: 2806072 }, { name: "InVitro Studio", value: 1110691 },
-  { name: "AllCare", value: -463349 }, { name: "Needles", value: -504395 }, { name: "Osta", value: -1291036 },
-];
-
-const revenuePie = [
-  { name: "AllRx", value: 12974460, color: C.allrx }, { name: "AllCare", value: 4904545, color: C.allcare },
-  { name: "Osta", value: 854815, color: C.osta }, { name: "Needles", value: 45206, color: C.needles },
-];
-
-const yoyComparison = [
-  { metric: "Revenue", y2025: annual[2025].consolidated.rev, y2026: annual[2026].consolidated.rev },
-  { metric: "EBITDA", y2025: annual[2025].consolidated.ebitda, y2026: annual[2026].consolidated.ebitda },
-];
 
 /* ── Sub-components ── */
 const CustomTooltip = ({ active, payload, label }) => {
@@ -149,25 +68,178 @@ function InsightCard({ icon, title, body, type = "info" }) {
   );
 }
 
-/* ── Company rows data ── */
-const companies = [
-  { name: "AllRx", rev: 12974460, ebitda: 2806072, grossMargin: 0.72, color: C.allrx, revGrowth: 0.055 },
-  { name: "AllCare", rev: 4904545, ebitda: -463349, grossMargin: 0.59, color: C.allcare, revGrowth: 2.76 },
-  { name: "Osta", rev: 854815, ebitda: -1291036, grossMargin: 0.48, color: C.osta, revGrowth: 0.78 },
-  { name: "Needles", rev: 45206, ebitda: -504395, grossMargin: 0, color: C.needles, revGrowth: 3.43 },
-  { name: "InVitro Studio", rev: 2829859, ebitda: 1110691, grossMargin: 1.0, color: C.invitro, revGrowth: 0.24 },
-];
-
-const watchMetrics = [
-  { label: "AllCare monthly EBITDA", target: ">$100K/mo by Q2", status: "On track" },
-  { label: "Osta path to breakeven", target: "Revenue >$150K/mo needed", status: "At risk" },
-  { label: "Needles MRR", target: ">$30K by Jun 2027", status: "Early" },
-  { label: "Cash runway", target: ">12 months secured", status: "Critical" },
-  { label: "Consolidated EBITDA margin", target: ">15% target", status: "Improving" },
-  { label: "Revenue diversification", target: "AllRx <60% of total", status: "On track" },
-];
-
 /* ── Main Dashboard ── */
+export default function InVitroDashboard({ data }) {
+  // Deploy state
+  const [deploying, setDeploying] = useState(false);
+  const [deployMsg, setDeployMsg] = useState(null);
+
+  // Color map from dynamic company list
+  const colorMap = buildColorMap(data.companies);
+
+  // Determine current and prior year from data
+  const allYears = data.pnl.flatMap(c =>
+    Object.values(c.metrics).flat().map(v => v.year)
+  );
+  const currentYear = Math.max(...allYears);
+  const priorYear = currentYear - 1;
+  const hasPriorYear = allYears.includes(priorYear);
+
+  // Revenue companies (excluding holdings)
+  const revenueCompanies = data.pnl
+    .filter(c => !EXCLUDE_COMPANIES.includes(c.name))
+    .map(c => c.name);
+
+  // All companies including holdings (for EBITDA charts)
+  const allCompanyNames = data.pnl.map(c => c.name);
+
+  // Build chart data series
+  const revenueByMonth = buildMonthlySeries(data.pnl, 'Revenue', EXCLUDE_COMPANIES);
+  const ebitdaByMonth = buildMonthlySeries(data.pnl, 'EBITDA');
+  const grossMarginByMonth = buildMonthlySeries(data.pnl, 'Gorss Margin, %', EXCLUDE_COMPANIES);
+  const cashBalanceByMonth = buildCashflowSeries(data.cashflow);
+
+  // Revenue by month with Total
+  const revenueByMonthWithTotal = revenueByMonth.map(point => ({
+    ...point,
+    Total: revenueCompanies.reduce((sum, name) => sum + (point[name] ?? 0), 0),
+  }));
+
+  // EBITDA by month with Total
+  const ebitdaByMonthWithTotal = ebitdaByMonth.map(point => ({
+    ...point,
+    Total: allCompanyNames.reduce((sum, name) => sum + (point[name] ?? 0), 0),
+  }));
+
+  // Annual totals
+  const totalRevCurrent = annualTotal(data.pnl, 'Revenue', currentYear, EXCLUDE_COMPANIES);
+  const totalRevPrior = annualTotal(data.pnl, 'Revenue', priorYear, EXCLUDE_COMPANIES);
+  const revGrowth = hasPriorYear && totalRevPrior > 0
+    ? (totalRevCurrent - totalRevPrior) / totalRevPrior
+    : null;
+
+  const totalEbitdaCurrent = annualTotal(data.pnl, 'EBITDA', currentYear);
+  const totalEbitdaPrior = annualTotal(data.pnl, 'EBITDA', priorYear);
+  const ebitdaSwing = hasPriorYear ? totalEbitdaCurrent - totalEbitdaPrior : null;
+  const ebitdaMargin = totalRevCurrent > 0 ? totalEbitdaCurrent / totalRevCurrent : null;
+
+  const totalGrossProfitCurrent = annualTotal(data.pnl, 'Gross Profit', currentYear, EXCLUDE_COMPANIES);
+  const grossMarginCurrent = totalRevCurrent > 0 ? totalGrossProfitCurrent / totalRevCurrent : null;
+  const totalGrossProfitPrior = annualTotal(data.pnl, 'Gross Profit', priorYear, EXCLUDE_COMPANIES);
+  const grossMarginPrior = totalRevPrior > 0 ? totalGrossProfitPrior / totalRevPrior : null;
+  const grossMarginChange = grossMarginCurrent !== null && grossMarginPrior !== null
+    ? grossMarginCurrent - grossMarginPrior
+    : null;
+
+  // Cashflow totals
+  const totalInflow = data.cashflow.reduce((sum, c) => {
+    const vals = c.metrics['Cash Inflow'] ?? [];
+    return sum + vals.reduce((s, v) => s + (v.value ?? 0), 0);
+  }, 0);
+  const totalNetCash = data.cashflow.reduce((sum, c) => {
+    const vals = c.metrics['Net Cash Flow'] ?? [];
+    return sum + vals.reduce((s, v) => s + (v.value ?? 0), 0);
+  }, 0);
+  const monthCount = cashBalanceByMonth.length || 1;
+  const avgMonthlyBurn = totalNetCash / monthCount;
+  const endingBalance = cashBalanceByMonth.length > 0
+    ? cashBalanceByMonth[cashBalanceByMonth.length - 1].balance
+    : 0;
+  const runwayMonths = avgMonthlyBurn < 0
+    ? endingBalance / Math.abs(avgMonthlyBurn)
+    : null; // cash positive
+
+  // EBITDA contribution by company (for horizontal bar chart)
+  const companyEbitdaData = data.pnl.map(c => {
+    const yearVals = (c.metrics['EBITDA'] ?? []).filter(v => v.year === currentYear);
+    const total = yearVals.reduce((s, v) => s + (v.value ?? 0), 0);
+    return { name: c.name, value: total };
+  }).sort((a, b) => b.value - a.value);
+
+  // Revenue pie (excluding holdings)
+  const revenuePieData = data.pnl
+    .filter(c => !EXCLUDE_COMPANIES.includes(c.name))
+    .map(c => {
+      const yearVals = (c.metrics['Revenue'] ?? []).filter(v => v.year === currentYear);
+      const total = yearVals.reduce((s, v) => s + (v.value ?? 0), 0);
+      return { name: c.name, value: total, color: colorMap[c.name] };
+    })
+    .filter(c => c.value > 0)
+    .sort((a, b) => b.value - a.value);
+
+  // YoY comparison data
+  const yoyData = hasPriorYear ? [
+    { metric: 'Revenue', y2025: totalRevPrior, y2026: totalRevCurrent },
+    { metric: 'EBITDA', y2025: totalEbitdaPrior, y2026: totalEbitdaCurrent },
+  ] : [];
+
+  // Company performance table rows
+  const companyRows = data.pnl.map(c => {
+    const revCurrent = (c.metrics['Revenue'] ?? []).filter(v => v.year === currentYear).reduce((s, v) => s + (v.value ?? 0), 0);
+    const revPrior = (c.metrics['Revenue'] ?? []).filter(v => v.year === priorYear).reduce((s, v) => s + (v.value ?? 0), 0);
+    const ebitda = (c.metrics['EBITDA'] ?? []).filter(v => v.year === currentYear).reduce((s, v) => s + (v.value ?? 0), 0);
+    const gp = (c.metrics['Gross Profit'] ?? []).filter(v => v.year === currentYear).reduce((s, v) => s + (v.value ?? 0), 0);
+    const grossMargin = revCurrent > 0 ? gp / revCurrent : null;
+    const companyRevGrowth = hasPriorYear && revPrior > 0 ? (revCurrent - revPrior) / revPrior : null;
+    return { name: c.name, rev: revCurrent, ebitda, grossMargin, revGrowth: companyRevGrowth, color: colorMap[c.name] };
+  });
+
+  // Totals row (excl holdings)
+  const totalRowRev = companyRows.filter(c => !EXCLUDE_COMPANIES.includes(c.name)).reduce((s, c) => s + c.rev, 0);
+  const totalRowEbitda = companyRows.reduce((s, c) => s + c.ebitda, 0);
+  const totalRowGrossMargin = totalRowRev > 0 ? totalGrossProfitCurrent / totalRevCurrent : null;
+
+  // Gross margin percentage by month
+  const grossMarginPctByMonth = grossMarginByMonth.map(point => {
+    const pctPoint = { month: point.month };
+    for (const key of Object.keys(point)) {
+      if (key === 'month') continue;
+      pctPoint[key] = point[key] !== null ? point[key] * 100 : null;
+    }
+    return pctPoint;
+  });
+  const gmCompanies = revenueCompanies.filter(name =>
+    grossMarginPctByMonth.some(p => p[name] !== null && p[name] > 0)
+  );
+
+  // Profitability: find breakeven company
+  let breakevenCompany = null;
+  if (hasPriorYear) {
+    for (const c of data.pnl) {
+      if (EXCLUDE_COMPANIES.includes(c.name)) continue;
+      const priorEbitda = (c.metrics['EBITDA'] ?? []).filter(v => v.year === priorYear).reduce((s, v) => s + (v.value ?? 0), 0);
+      const currEbitda = (c.metrics['EBITDA'] ?? []).filter(v => v.year === currentYear).reduce((s, v) => s + (v.value ?? 0), 0);
+      if (priorEbitda < 0 && currEbitda >= 0) {
+        breakevenCompany = c.name;
+        break;
+      }
+    }
+  }
+
+  // Timestamp formatting
+  const lastUpdated = new Date(data.fetchedAt).toLocaleDateString('en-US', {
+    year: 'numeric', month: 'long', day: 'numeric'
+  });
+  const lastUpdatedShort = new Date(data.fetchedAt).toLocaleDateString('en-US', {
+    year: 'numeric', month: 'long'
+  });
+
+  // Insights
+  const insights = generateInsights(data);
+
+  // Deploy handler
+  async function handleDeploy() {
+    setDeploying(true);
+    try {
+      const res = await fetch('/api/deploy', { method: 'POST' });
+      const json = await res.json();
+      setDeployMsg(res.ok ? 'Rebuild triggered!' : json.error || 'Deploy failed');
+    } catch {
+      setDeployMsg('Failed to trigger rebuild');
+    }
+    setDeploying(false);
+    setTimeout(() => setDeployMsg(null), 3000);
+  }
 export default function InVitroDashboard({ liveData, fetchError }) {
   // Use live data if available, otherwise fall back to hardcoded
   const m2026 = liveData?.monthly2026 || monthly2026;
@@ -236,10 +308,12 @@ export default function InVitroDashboard({ liveData, fetchError }) {
               </h1>
             </div>
             <p className="text-xs text-muted-foreground">
-              Consolidated Financial Performance &mdash; FY 2026 (Actuals) &bull; Source: InVitro Capital Consolidated - Actual
+              Consolidated Financial Performance &mdash; FY {currentYear} (Actuals) &bull; Source: InVitro Capital Consolidated - Actual
             </p>
           </div>
           <Card className="py-2 px-4 gap-0.5">
+            <p className="text-[10px] uppercase tracking-wider text-muted-foreground">Last Updated</p>
+            <p className="text-sm font-semibold">{lastUpdated}</p>
             <p className="text-[10px] uppercase tracking-wider text-muted-foreground">{lastUpdated ? "Live Data" : "Last Updated"}</p>
             <p className="text-sm font-semibold">{lastUpdated ? new Date(lastUpdated).toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' }) : "March 12, 2026"}</p>
             {lastUpdated && <p className="text-[9px] text-emerald-400 font-medium">● Auto-refreshing every 5 min</p>}
@@ -261,6 +335,10 @@ export default function InVitroDashboard({ liveData, fetchError }) {
           {/* ────── OVERVIEW ────── */}
           <TabsContent value="overview">
             <div className="flex flex-wrap gap-4 mb-6">
+              <KPICard title={`Total Revenue (${currentYear})`} value={fmt(totalRevCurrent)} trend={revGrowth !== null ? (revGrowth * 100).toFixed(0) + '% YoY' : 'N/A'} trendUp={revGrowth > 0} subtitle="excl. holdings" />
+              <KPICard title={`Total EBITDA (${currentYear})`} value={fmt(totalEbitdaCurrent)} trend={ebitdaSwing !== null ? (ebitdaSwing >= 0 ? '+' : '') + fmt(ebitdaSwing) + ' swing' : null} trendUp={ebitdaSwing >= 0} subtitle={ebitdaMargin !== null ? (ebitdaMargin * 100).toFixed(0) + '% margin' : ''} />
+              <KPICard title="Cash Balance" value={fmt(endingBalance)} trend={runwayMonths !== null ? '~' + runwayMonths.toFixed(1) + ' months' : 'Cash positive'} trendUp={runwayMonths === null || runwayMonths > 6} subtitle="runway at current burn" />
+              <KPICard title="Gross Margin" value={pct(grossMarginCurrent)} trend={grossMarginChange !== null ? (grossMarginChange > 0 ? '+' : '') + (grossMarginChange * 100).toFixed(0) + 'pp YoY' : null} trendUp={grossMarginChange > 0} subtitle="portfolio weighted" />
               <KPICard title="Total Revenue (2026)" value={fmt(ann[2026].consolidated.rev)} trend={`${(consolidatedRevGrowth * 100).toFixed(0)}% YoY`} trendUp={true} subtitle="excl. InVitro Studio" />
               <KPICard title="Total EBITDA (2026)" value={fmt(ann[2026].consolidated.ebitda)} trend={`+${fmt(ebitdaSwing)} swing`} trendUp={true} subtitle="9% margin" />
               <KPICard title="Cash Balance" value={fmt(cf2026.endingCashBalance)} trend={`~${runwayMonths.toFixed(1)} months`} trendUp={runwayMonths > 6} subtitle="runway at current burn" />
@@ -270,19 +348,23 @@ export default function InVitroDashboard({ liveData, fetchError }) {
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-8">
               <Card>
                 <CardHeader>
-                  <CardTitle className="text-sm">Monthly Revenue Trend (2026) &mdash; excl. InVitro Studio</CardTitle>
+                  <CardTitle className="text-sm">Monthly Revenue Trend ({currentYear}) &mdash; excl. Holdings</CardTitle>
                 </CardHeader>
                 <CardContent>
                   <ResponsiveContainer width="100%" height={260}>
+                    <AreaChart data={revenueByMonth}>
+                      <CartesianGrid strokeDasharray="3 3" stroke={CHART_STYLE.border} />
+                      <XAxis dataKey="month" tick={{ fill: CHART_STYLE.muted, fontSize: 11 }} />
+                      <YAxis tick={{ fill: CHART_STYLE.muted, fontSize: 11 }} tickFormatter={fmtShort} />
                     <AreaChart data={_revenueByMonth}>
                       <CartesianGrid strokeDasharray="3 3" stroke={C.border} />
                       <XAxis dataKey="month" tick={{ fill: C.muted, fontSize: 11 }} />
                       <YAxis tick={{ fill: C.muted, fontSize: 11 }} tickFormatter={fmtShort} />
                       <Tooltip content={<CustomTooltip />} />
-                      <Area type="monotone" dataKey="AllRx" stackId="1" stroke={C.allrx} fill={C.allrx} fillOpacity={0.6} />
-                      <Area type="monotone" dataKey="AllCare" stackId="1" stroke={C.allcare} fill={C.allcare} fillOpacity={0.6} />
-                      <Area type="monotone" dataKey="Osta" stackId="1" stroke={C.osta} fill={C.osta} fillOpacity={0.6} />
-                      <Area type="monotone" dataKey="Needles" stackId="1" stroke={C.needles} fill={C.needles} fillOpacity={0.6} />
+                      {revenueCompanies.map(name => (
+                        <Area key={name} type="monotone" dataKey={name} stackId="1"
+                          stroke={colorMap[name]} fill={colorMap[name]} fillOpacity={0.6} />
+                      ))}
                       <Legend />
                     </AreaChart>
                   </ResponsiveContainer>
@@ -291,10 +373,18 @@ export default function InVitroDashboard({ liveData, fetchError }) {
 
               <Card>
                 <CardHeader>
-                  <CardTitle className="text-sm">2026 EBITDA Contribution by Company</CardTitle>
+                  <CardTitle className="text-sm">{currentYear} EBITDA Contribution by Company</CardTitle>
                 </CardHeader>
                 <CardContent>
                   <ResponsiveContainer width="100%" height={260}>
+                    <BarChart data={companyEbitdaData} layout="vertical">
+                      <CartesianGrid strokeDasharray="3 3" stroke={CHART_STYLE.border} />
+                      <XAxis type="number" tick={{ fill: CHART_STYLE.muted, fontSize: 11 }} tickFormatter={fmtShort} />
+                      <YAxis type="category" dataKey="name" tick={{ fill: CHART_STYLE.muted, fontSize: 11 }} width={100} />
+                      <Tooltip content={<CustomTooltip />} />
+                      <Bar dataKey="value" name="EBITDA" radius={[0, 4, 4, 0]}>
+                        {companyEbitdaData.map((e, i) => (
+                          <Cell key={i} fill={e.value >= 0 ? CHART_STYLE.positive : CHART_STYLE.negative} />
                     <BarChart data={_companyEbitda2026} layout="vertical">
                       <CartesianGrid strokeDasharray="3 3" stroke={C.border} />
                       <XAxis type="number" tick={{ fill: C.muted, fontSize: 11 }} tickFormatter={fmtShort} />
@@ -314,7 +404,7 @@ export default function InVitroDashboard({ liveData, fetchError }) {
             {/* Company Performance Table */}
             <div className="mb-4">
               <h2 className="text-lg font-bold mb-1">Company Performance Summary</h2>
-              <p className="text-sm text-muted-foreground mb-4">All active portfolio companies &mdash; FY 2026</p>
+              <p className="text-sm text-muted-foreground mb-4">All active portfolio companies &mdash; FY {currentYear}</p>
             </div>
             <Card className="py-0 overflow-hidden">
               <Table>
@@ -327,6 +417,7 @@ export default function InVitroDashboard({ liveData, fetchError }) {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
+                  {companyRows.map((co) => (
                   {_companies.map((co) => (
                     <TableRow key={co.name}>
                       <TableCell className="font-semibold">
@@ -335,28 +426,30 @@ export default function InVitroDashboard({ liveData, fetchError }) {
                       </TableCell>
                       <TableCell className="text-right">
                         <div className="font-semibold">{fmt(co.rev)}</div>
-                        {co.revGrowth !== undefined && (
+                        {co.revGrowth !== null ? (
                           <div className={`text-[11px] ${co.revGrowth >= 0 ? "text-emerald-400" : "text-red-400"}`}>
                             {co.revGrowth >= 0 ? "+" : ""}{(co.revGrowth * 100).toFixed(0)}% YoY
                           </div>
+                        ) : (
+                          <div className="text-[11px] text-muted-foreground">New</div>
                         )}
                       </TableCell>
                       <TableCell className="text-right">
                         <div className={`font-semibold ${co.ebitda >= 0 ? "text-emerald-400" : "text-red-400"}`}>{fmt(co.ebitda)}</div>
-                        <div className="text-[11px] text-muted-foreground">{(co.ebitda / co.rev * 100).toFixed(1)}% margin</div>
+                        <div className="text-[11px] text-muted-foreground">{co.rev > 0 ? (co.ebitda / co.rev * 100).toFixed(1) + '% margin' : 'N/A'}</div>
                       </TableCell>
                       <TableCell className="text-right">
-                        {co.grossMargin > 0 ? `${(co.grossMargin * 100).toFixed(0)}%` : "N/A"}
+                        {co.grossMargin !== null && co.grossMargin > 0 ? `${(co.grossMargin * 100).toFixed(0)}%` : "N/A"}
                       </TableCell>
                     </TableRow>
                   ))}
                 </TableBody>
                 <TableFooter>
                   <TableRow className="bg-slate-800/80 hover:bg-slate-800/80">
-                    <TableCell className="font-bold">TOTAL (excl. InVitro Studio)</TableCell>
-                    <TableCell className="text-right font-bold">{fmt(18779026)}</TableCell>
-                    <TableCell className="text-right font-bold text-emerald-400">{fmt(1657983)}</TableCell>
-                    <TableCell className="text-right font-bold">72%</TableCell>
+                    <TableCell className="font-bold">TOTAL (excl. holdings)</TableCell>
+                    <TableCell className="text-right font-bold">{fmt(totalRowRev)}</TableCell>
+                    <TableCell className="text-right font-bold text-emerald-400">{fmt(totalRowEbitda)}</TableCell>
+                    <TableCell className="text-right font-bold">{totalRowGrossMargin !== null ? (totalRowGrossMargin * 100).toFixed(0) + '%' : 'N/A'}</TableCell>
                   </TableRow>
                 </TableFooter>
               </Table>
@@ -366,26 +459,38 @@ export default function InVitroDashboard({ liveData, fetchError }) {
           {/* ────── REVENUE ────── */}
           <TabsContent value="revenue">
             <div className="flex flex-wrap gap-4 mb-6">
-              <KPICard title="AllRx Revenue" value={fmt(12974460)} trend="+5.5% YoY" trendUp={true} subtitle="69% of total" />
-              <KPICard title="AllCare Revenue" value={fmt(4904545)} trend="+276% YoY" trendUp={true} subtitle="26% of total" />
-              <KPICard title="Osta Revenue" value={fmt(854815)} trend="+78% YoY" trendUp={true} subtitle="5% of total" />
-              <KPICard title="Needles Revenue" value={fmt(45206)} trend="Early stage" trendUp={true} subtitle="<1% of total" />
+              {revenueCompanies.map(name => {
+                const co = companyRows.find(c => c.name === name);
+                const share = totalRevCurrent > 0 ? (co.rev / totalRevCurrent * 100).toFixed(0) : 0;
+                return (
+                  <KPICard key={name} title={`${name} Revenue`}
+                    value={fmt(co.rev)}
+                    trend={co.revGrowth !== null ? `${co.revGrowth >= 0 ? '+' : ''}${(co.revGrowth * 100).toFixed(0)}% YoY` : 'New'}
+                    trendUp={co.revGrowth === null || co.revGrowth >= 0}
+                    subtitle={`${share}% of total`}
+                  />
+                );
+              })}
             </div>
 
             <Card className="mb-5">
-              <CardHeader><CardTitle className="text-sm">Monthly Revenue by Company (2026)</CardTitle></CardHeader>
+              <CardHeader><CardTitle className="text-sm">Monthly Revenue by Company ({currentYear})</CardTitle></CardHeader>
               <CardContent>
                 <ResponsiveContainer width="100%" height={340}>
+                  <ComposedChart data={revenueByMonthWithTotal}>
+                    <CartesianGrid strokeDasharray="3 3" stroke={CHART_STYLE.border} />
+                    <XAxis dataKey="month" tick={{ fill: CHART_STYLE.muted, fontSize: 11 }} />
+                    <YAxis tick={{ fill: CHART_STYLE.muted, fontSize: 11 }} tickFormatter={fmtShort} />
                   <ComposedChart data={_revenueByMonth}>
                     <CartesianGrid strokeDasharray="3 3" stroke={C.border} />
                     <XAxis dataKey="month" tick={{ fill: C.muted, fontSize: 11 }} />
                     <YAxis tick={{ fill: C.muted, fontSize: 11 }} tickFormatter={fmtShort} />
                     <Tooltip content={<CustomTooltip />} />
-                    <Bar dataKey="AllRx" stackId="1" fill={C.allrx} />
-                    <Bar dataKey="AllCare" stackId="1" fill={C.allcare} />
-                    <Bar dataKey="Osta" stackId="1" fill={C.osta} />
-                    <Bar dataKey="Needles" stackId="1" fill={C.needles} radius={[4, 4, 0, 0]} />
-                    <Line type="monotone" dataKey="Total" stroke="#f1f5f9" strokeWidth={2} dot={false} />
+                    {revenueCompanies.map((name, i) => (
+                      <Bar key={name} dataKey={name} stackId="1" fill={colorMap[name]}
+                        radius={i === revenueCompanies.length - 1 ? [4, 4, 0, 0] : [0, 0, 0, 0]} />
+                    ))}
+                    <Line type="monotone" dataKey="Total" stroke={CHART_STYLE.totalLine} strokeWidth={2} dot={false} />
                     <Legend />
                   </ComposedChart>
                 </ResponsiveContainer>
@@ -394,10 +499,12 @@ export default function InVitroDashboard({ liveData, fetchError }) {
 
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
               <Card>
-                <CardHeader><CardTitle className="text-sm">Revenue Mix (2026) &mdash; excl. InVitro Studio</CardTitle></CardHeader>
+                <CardHeader><CardTitle className="text-sm">Revenue Mix ({currentYear}) &mdash; excl. Holdings</CardTitle></CardHeader>
                 <CardContent>
                   <ResponsiveContainer width="100%" height={240}>
                     <PieChart>
+                      <Pie data={revenuePieData} cx="50%" cy="50%" outerRadius={90} innerRadius={50} dataKey="value" label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}>
+                        {revenuePieData.map((e, i) => <Cell key={i} fill={e.color} />)}
                       <Pie data={_revenuePie} cx="50%" cy="50%" outerRadius={90} innerRadius={50} dataKey="value" label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}>
                         {_revenuePie.map((e, i) => <Cell key={i} fill={e.color} />)}
                       </Pie>
@@ -407,6 +514,30 @@ export default function InVitroDashboard({ liveData, fetchError }) {
                 </CardContent>
               </Card>
 
+              {hasPriorYear ? (
+                <Card>
+                  <CardHeader><CardTitle className="text-sm">Year-over-Year Comparison</CardTitle></CardHeader>
+                  <CardContent>
+                    <ResponsiveContainer width="100%" height={240}>
+                      <BarChart data={yoyData}>
+                        <CartesianGrid strokeDasharray="3 3" stroke={CHART_STYLE.border} />
+                        <XAxis dataKey="metric" tick={{ fill: CHART_STYLE.muted, fontSize: 12 }} />
+                        <YAxis tick={{ fill: CHART_STYLE.muted, fontSize: 11 }} tickFormatter={fmtShort} />
+                        <Tooltip content={<CustomTooltip />} />
+                        <Bar dataKey="y2025" name={String(priorYear)} fill="#475569" radius={[4, 4, 0, 0]} />
+                        <Bar dataKey="y2026" name={String(currentYear)} fill="#3b82f6" radius={[4, 4, 0, 0]} />
+                        <Legend />
+                      </BarChart>
+                    </ResponsiveContainer>
+                  </CardContent>
+                </Card>
+              ) : (
+                <Card>
+                  <CardContent className="py-8 text-center text-muted-foreground text-sm">
+                    Year-over-year comparison requires data from two years
+                  </CardContent>
+                </Card>
+              )}
               <Card>
                 <CardHeader><CardTitle className="text-sm">Year-over-Year Comparison</CardTitle></CardHeader>
                 <CardContent>
@@ -429,27 +560,33 @@ export default function InVitroDashboard({ liveData, fetchError }) {
           {/* ────── PROFITABILITY ────── */}
           <TabsContent value="profitability">
             <div className="flex flex-wrap gap-4 mb-6">
-              <KPICard title="Consolidated EBITDA" value={fmt(1657983)} trend="Turned positive" trendUp={true} subtitle="vs -$993K in 2025" />
-              <KPICard title="EBITDA Margin" value="9%" trend="+16pp swing" trendUp={true} subtitle="from -7% in 2025" />
-              <KPICard title="Gross Margin" value="72%" trend="+5pp YoY" trendUp={true} subtitle="portfolio weighted" />
-              <KPICard title="AllCare Breakeven" value="Aug 2026" trend="First month positive" trendUp={true} subtitle="$4.7K EBITDA" />
+              <KPICard title="Consolidated EBITDA" value={fmt(totalEbitdaCurrent)} trend={ebitdaSwing !== null ? (ebitdaSwing >= 0 ? '+' : '') + fmt(ebitdaSwing) + ' swing' : null} trendUp={ebitdaSwing >= 0} />
+              <KPICard title="EBITDA Margin" value={ebitdaMargin !== null ? (ebitdaMargin * 100).toFixed(0) + '%' : 'N/A'} />
+              <KPICard title="Gross Margin" value={pct(grossMarginCurrent)} trend={grossMarginChange !== null ? (grossMarginChange > 0 ? '+' : '') + (grossMarginChange * 100).toFixed(0) + 'pp YoY' : null} trendUp={grossMarginChange > 0} />
+              {breakevenCompany ? (
+                <KPICard title={`${breakevenCompany} Breakeven`} value={`FY ${currentYear}`} trend="Reached EBITDA breakeven" trendUp={true} />
+              ) : (
+                <KPICard title="Portfolio Companies" value={String(revenueCompanies.length)} subtitle="active operating entities" />
+              )}
             </div>
 
             <Card className="mb-5">
-              <CardHeader><CardTitle className="text-sm">Monthly EBITDA by Company (2026)</CardTitle></CardHeader>
+              <CardHeader><CardTitle className="text-sm">Monthly EBITDA by Company ({currentYear})</CardTitle></CardHeader>
               <CardContent>
                 <ResponsiveContainer width="100%" height={340}>
+                  <ComposedChart data={ebitdaByMonthWithTotal}>
+                    <CartesianGrid strokeDasharray="3 3" stroke={CHART_STYLE.border} />
+                    <XAxis dataKey="month" tick={{ fill: CHART_STYLE.muted, fontSize: 11 }} />
+                    <YAxis tick={{ fill: CHART_STYLE.muted, fontSize: 11 }} tickFormatter={fmtShort} />
                   <ComposedChart data={_ebitdaByMonth}>
                     <CartesianGrid strokeDasharray="3 3" stroke={C.border} />
                     <XAxis dataKey="month" tick={{ fill: C.muted, fontSize: 11 }} />
                     <YAxis tick={{ fill: C.muted, fontSize: 11 }} tickFormatter={fmtShort} />
                     <Tooltip content={<CustomTooltip />} />
-                    <Bar dataKey="AllRx" fill={C.allrx} />
-                    <Bar dataKey="AllCare" fill={C.allcare} />
-                    <Bar dataKey="Osta" fill={C.osta} />
-                    <Bar dataKey="Needles" fill={C.needles} />
-                    <Bar dataKey="InVitro Studio" fill={C.invitro} />
-                    <Line type="monotone" dataKey="Total" stroke="#f1f5f9" strokeWidth={2.5} dot={{ fill: "#f1f5f9", r: 3 }} />
+                    {allCompanyNames.map(name => (
+                      <Bar key={name} dataKey={name} fill={colorMap[name]} />
+                    ))}
+                    <Line type="monotone" dataKey="Total" stroke={CHART_STYLE.totalLine} strokeWidth={2.5} dot={{ fill: CHART_STYLE.totalLine, r: 3 }} />
                     <Legend />
                   </ComposedChart>
                 </ResponsiveContainer>
@@ -457,17 +594,18 @@ export default function InVitroDashboard({ liveData, fetchError }) {
             </Card>
 
             <Card>
-              <CardHeader><CardTitle className="text-sm">Gross Margin Trends by Company (2026)</CardTitle></CardHeader>
+              <CardHeader><CardTitle className="text-sm">Gross Margin Trends by Company ({currentYear})</CardTitle></CardHeader>
               <CardContent>
                 <ResponsiveContainer width="100%" height={220}>
-                  <LineChart data={months.map((m, i) => ({ month: m, AllRx: monthly2026.allrx.grossMargin[i] * 100, AllCare: monthly2026.allcare.grossMargin[i] * 100, Osta: monthly2026.osta.grossMargin[i] * 100 }))}>
-                    <CartesianGrid strokeDasharray="3 3" stroke={C.border} />
-                    <XAxis dataKey="month" tick={{ fill: C.muted, fontSize: 11 }} />
-                    <YAxis tick={{ fill: C.muted, fontSize: 11 }} domain={[30, 90]} unit="%" />
+                  <LineChart data={grossMarginPctByMonth}>
+                    <CartesianGrid strokeDasharray="3 3" stroke={CHART_STYLE.border} />
+                    <XAxis dataKey="month" tick={{ fill: CHART_STYLE.muted, fontSize: 11 }} />
+                    <YAxis tick={{ fill: CHART_STYLE.muted, fontSize: 11 }} domain={['auto', 'auto']} unit="%" />
                     <Tooltip />
-                    <Line type="monotone" dataKey="AllRx" stroke={C.allrx} strokeWidth={2} dot={false} />
-                    <Line type="monotone" dataKey="AllCare" stroke={C.allcare} strokeWidth={2} dot={false} />
-                    <Line type="monotone" dataKey="Osta" stroke={C.osta} strokeWidth={2} dot={false} />
+                    {gmCompanies.map(name => (
+                      <Line key={name} type="monotone" dataKey={name} stroke={colorMap[name]}
+                        strokeWidth={2} dot={false} connectNulls={true} />
+                    ))}
                     <Legend />
                   </LineChart>
                 </ResponsiveContainer>
@@ -478,6 +616,10 @@ export default function InVitroDashboard({ liveData, fetchError }) {
           {/* ────── CASH FLOW ────── */}
           <TabsContent value="cashflow">
             <div className="flex flex-wrap gap-4 mb-6">
+              <KPICard title="Ending Cash Balance" value={fmt(endingBalance)} trend={runwayMonths !== null ? runwayMonths.toFixed(1) + ' months runway' : 'Cash positive'} trendUp={runwayMonths === null || runwayMonths > 3} subtitle="at current burn rate" />
+              <KPICard title="Total Cash Inflow" value={fmt(totalInflow)} subtitle="collections from all entities" />
+              <KPICard title="Net Cash Movement" value={fmt(totalNetCash)} trend={totalNetCash < 0 ? 'Ops deficit' : 'Cash positive'} trendUp={totalNetCash >= 0} subtitle="all entities" />
+              <KPICard title="Avg Monthly Burn" value={fmt(Math.abs(avgMonthlyBurn))} subtitle="average per month" />
               <KPICard title="Ending Cash Balance" value={fmt(cf2026.endingCashBalance)} trend={`${runwayMonths.toFixed(1)} months runway`} trendUp={runwayMonths > 3} subtitle="at current burn rate" />
               <KPICard title="Total Cash Inflow" value={fmt(cf2026.totalCashInflow)} subtitle="collections from all entities" />
               <KPICard title="Net Cash Movement" value={fmt(cf2026.netCashMovement)} trend="Ops deficit" trendUp={false} subtitle="before financing" />
@@ -485,9 +627,14 @@ export default function InVitroDashboard({ liveData, fetchError }) {
             </div>
 
             <Card className="mb-5">
-              <CardHeader><CardTitle className="text-sm">Monthly Cash Balance &amp; Flows (2026)</CardTitle></CardHeader>
+              <CardHeader><CardTitle className="text-sm">Monthly Cash Balance &amp; Flows</CardTitle></CardHeader>
               <CardContent>
                 <ResponsiveContainer width="100%" height={320}>
+                  <ComposedChart data={cashBalanceByMonth}>
+                    <CartesianGrid strokeDasharray="3 3" stroke={CHART_STYLE.border} />
+                    <XAxis dataKey="month" tick={{ fill: CHART_STYLE.muted, fontSize: 11 }} />
+                    <YAxis yAxisId="left" tick={{ fill: CHART_STYLE.muted, fontSize: 11 }} tickFormatter={fmtShort} />
+                    <YAxis yAxisId="right" orientation="right" tick={{ fill: CHART_STYLE.muted, fontSize: 11 }} tickFormatter={fmtShort} />
                   <ComposedChart data={_cashBalanceByMonth}>
                     <CartesianGrid strokeDasharray="3 3" stroke={C.border} />
                     <XAxis dataKey="month" tick={{ fill: C.muted, fontSize: 11 }} />
@@ -503,6 +650,35 @@ export default function InVitroDashboard({ liveData, fetchError }) {
               </CardContent>
             </Card>
 
+            {runwayMonths !== null && runwayMonths < 24 ? (
+              <Card>
+                <CardHeader><CardTitle className="text-sm">Cash Runway Forecast</CardTitle></CardHeader>
+                <CardContent>
+                  <ResponsiveContainer width="100%" height={220}>
+                    <AreaChart data={(() => {
+                      const forecast = [];
+                      let bal = endingBalance;
+                      const forecastMonths = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun'];
+                      const nextYear = currentYear + 1;
+                      forecastMonths.forEach(m => {
+                        bal += avgMonthlyBurn;
+                        forecast.push({ month: `${m}'${String(nextYear).slice(-2)}`, balance: Math.max(0, bal) });
+                      });
+                      return [{ month: `Dec'${String(currentYear).slice(-2)}`, balance: endingBalance }, ...forecast];
+                    })()}>
+                      <CartesianGrid strokeDasharray="3 3" stroke={CHART_STYLE.border} />
+                      <XAxis dataKey="month" tick={{ fill: CHART_STYLE.muted, fontSize: 11 }} />
+                      <YAxis tick={{ fill: CHART_STYLE.muted, fontSize: 11 }} tickFormatter={fmtShort} />
+                      <Tooltip content={<CustomTooltip />} />
+                      <Area type="monotone" dataKey="balance" stroke="#ef4444" fill="#ef4444" fillOpacity={0.2} strokeWidth={2} />
+                    </AreaChart>
+                  </ResponsiveContainer>
+                  <p className="mt-3 text-xs italic text-muted-foreground">
+                    Projection assumes constant monthly burn of ~{fmt(Math.abs(avgMonthlyBurn))} with no additional financing.
+                  </p>
+                </CardContent>
+              </Card>
+            ) : null}
             <Card>
               <CardHeader><CardTitle className="text-sm">Cash Runway Forecast</CardTitle></CardHeader>
               <CardContent>
@@ -531,9 +707,19 @@ export default function InVitroDashboard({ liveData, fetchError }) {
           <TabsContent value="insights">
             <div className="mb-4">
               <h2 className="text-lg font-bold mb-1">Executive Insights &amp; Analysis</h2>
-              <p className="text-sm text-muted-foreground mb-4">Key findings and strategic observations from the data</p>
+              <p className="text-sm text-muted-foreground mb-4">
+                Auto-generated findings from the latest financial data
+              </p>
             </div>
 
+            {insights.length > 0 ? (
+              insights.map((insight, i) => (
+                <InsightCard key={i} type={insight.type} icon={insight.icon}
+                  title={insight.title} body={insight.body} />
+              ))
+            ) : (
+              <p className="text-sm text-muted-foreground">No notable insights detected in current data.</p>
+            )}
             <InsightCard type="positive" icon={"\uD83D\uDFE2"} title="Portfolio EBITDA turned positive \u2014 a major milestone" body="Consolidated EBITDA swung from approximately -$993K in 2025 to +$1.66M in 2026, a ~$2.65M improvement. This was driven by AllRx's continued profitability ($2.81M EBITDA) and InVitro Studio ($1.11M EBITDA), which more than offset losses at AllCare, Osta, and Needles." />
             <InsightCard type="positive" icon={"\uD83D\uDCC8"} title="AllCare is the breakout growth story" body="AllCare revenue surged from ~$1.3M in 2025 to $4.9M in 2026 (+276%), representing the fastest growth in the portfolio. More importantly, AllCare turned EBITDA-positive in August 2026, reaching $50.9K/month by December. At this trajectory, AllCare could become the second largest EBITDA contributor by mid-2027." />
             <InsightCard type="positive" icon={"\uD83C\uDFC6"} title="AllRx remains the anchor \u2014 stable and profitable" body="AllRx continues as the portfolio's cash cow with $12.97M revenue (69% of total) and $2.81M EBITDA (21.6% margin). Revenue grew 5.5% YoY while maintaining 72% gross margins. This provides a stable foundation for the portfolio." />
@@ -574,8 +760,21 @@ export default function InVitroDashboard({ liveData, fetchError }) {
         {/* Footer */}
         <div className="mt-10 border-t border-border/50 pt-4 text-center">
           <p className="text-xs text-muted-foreground">
+            InVitro Capital &mdash; Confidential Shareholder Dashboard &bull;
+            Data from &quot;InVitro Capital Consolidated - Actual&quot; &bull;
+            Generated {lastUpdatedShort}
             InVitro Capital &mdash; Confidential Shareholder Dashboard &bull; Live data from &quot;InVitro Capital Consolidated - Actual&quot; &bull; Auto-refreshes every 5 minutes
           </p>
+          <button
+            onClick={handleDeploy}
+            disabled={deploying}
+            className="mt-2 text-xs text-blue-400 hover:text-blue-300 underline disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {deploying ? 'Triggering...' : 'Refresh Data'}
+          </button>
+          {deployMsg && (
+            <p className="mt-1 text-xs text-emerald-400">{deployMsg}</p>
+          )}
         </div>
       </main>
     </div>
