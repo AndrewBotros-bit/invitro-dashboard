@@ -11,7 +11,7 @@ Requirements for initial release. Each maps to roadmap phases.
 
 - [x] **DATA-01**: Dashboard fetches all financial data from Google Sheet "InVitro Capital Consolidated - Actual" at build time using a service account
 - [x] **DATA-02**: Dashboard dynamically discovers all companies present in the sheet without hardcoded company names
-- [ ] **DATA-03**: Dashboard dynamically renders charts and KPIs for whatever companies exist in the sheet
+- [x] **DATA-03**: Dashboard dynamically renders charts and KPIs for whatever companies exist in the sheet
 - [x] **DATA-04**: Dashboard uses header-based sheet parsing (not hardcoded cell ranges) so column reordering doesn't break it
 - [x] **DATA-05**: Dashboard validates sheet data at build time using schemas — build fails loudly if sheet structure is invalid
 - [x] **DATA-06**: Dashboard gracefully handles missing or malformed cell values without crashing charts (shows error indicators instead)
@@ -19,7 +19,7 @@ Requirements for initial release. Each maps to roadmap phases.
 ### Display
 
 - [ ] **DISP-01**: Dashboard auto-populates "Last Updated" timestamp from build time
-- [ ] **DISP-02**: Dashboard assigns consistent colors to dynamically discovered companies
+- [x] **DISP-02**: Dashboard assigns consistent colors to dynamically discovered companies
 - [ ] **DISP-03**: All existing chart types (revenue, EBITDA, cash flow, KPIs, insights) render correctly from sheet data
 
 ### Infrastructure
@@ -67,12 +67,12 @@ Which phases cover which requirements. Updated during roadmap creation.
 |-------------|-------|--------|
 | DATA-01 | Phase 1 | Complete |
 | DATA-02 | Phase 1 | Complete |
-| DATA-03 | Phase 3 | Pending |
+| DATA-03 | Phase 3 | Complete |
 | DATA-04 | Phase 1 | Complete |
 | DATA-05 | Phase 2 | Complete |
 | DATA-06 | Phase 2 | Complete |
 | DISP-01 | Phase 3 | Pending |
-| DISP-02 | Phase 3 | Pending |
+| DISP-02 | Phase 3 | Complete |
 | DISP-03 | Phase 3 | Pending |
 | INFR-01 | Phase 1 | Complete |
 | INFR-02 | Phase 3 | Complete |
