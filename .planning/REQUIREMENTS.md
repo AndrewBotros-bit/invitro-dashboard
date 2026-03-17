@@ -25,7 +25,7 @@ Requirements for initial release. Each maps to roadmap phases.
 ### Infrastructure
 
 - [x] **INFR-01**: Service account credentials stored as environment variables (never committed to git)
-- [ ] **INFR-02**: CFO can trigger a manual redeploy to refresh data from the sheet
+- [x] **INFR-02**: CFO can trigger a manual redeploy to refresh data from the sheet
 
 ## v2 Requirements
 
@@ -75,7 +75,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | DISP-02 | Phase 3 | Pending |
 | DISP-03 | Phase 3 | Pending |
 | INFR-01 | Phase 1 | Complete |
-| INFR-02 | Phase 3 | Pending |
+| INFR-02 | Phase 3 | Complete |
 
 **Coverage:**
 - v1 requirements: 11 total
