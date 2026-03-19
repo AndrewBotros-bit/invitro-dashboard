@@ -15,6 +15,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [ ] **Phase 1: Data Pipeline** - Connect to Google Sheets via service account with dynamic company discovery and header-based parsing
 - [ ] **Phase 2: Data Validation** - Build-time schema validation and graceful handling of malformed data
 - [x] **Phase 3: Display Integration** - All charts and KPIs render from live sheet data with dynamic colors and deploy workflow (completed 2026-03-17)
+- [ ] **Phase 4: shadcn redesign** - Redesign Dashboard.jsx UI composition using native shadcn components with proper layout, alignment, and light theme polish
 
 ## Phase Details
 
@@ -66,13 +67,31 @@ Plans:
 - [ ] 03-02-PLAN.md — Vercel deploy hook API route with tests
 - [ ] 03-03-PLAN.md — Wire Dashboard.jsx to live data: all tabs, dynamic charts, insights, timestamps, and deploy trigger
 
+### Phase 4: shadcn redesign
+**Goal:** Redesign Dashboard.jsx UI composition using native shadcn components with proper layout, alignment, and light theme polish for a professional CFO-facing financial report
+**Depends on:** Phase 3
+**Requirements**: Additive UI polish (no v1 requirement IDs — all v1 requirements already complete)
+**Success Criteria** (what must be TRUE):
+  1. All KPI rows use CSS grid layout with no orphan card wrapping on any screen size
+  2. Revenue tab displays a compact data table instead of a wall of KPI cards
+  3. Insight cards use shadcn Alert component with Lucide icons (no emoji)
+  4. Chart titles use default shadcn sizing with descriptive subtitles
+  5. Geist Sans is the primary rendered font
+  6. Dashboard looks like a professional financial report, not a generic SaaS template
+**Plans:** 2 plans
+
+Plans:
+- [ ] 04-01-PLAN.md — Foundation fixes: Geist font, formatter null handling, Alert component, insight icon migration
+- [ ] 04-02-PLAN.md — Dashboard.jsx UI composition redesign: grids, component hierarchy, charts, and visual verification
+
 ## Progress
 
 **Execution Order:**
-Phases execute in numeric order: 1 -> 2 -> 3
+Phases execute in numeric order: 1 -> 2 -> 3 -> 4
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Data Pipeline | 1/3 | In Progress|  |
 | 2. Data Validation | 2/4 | Gap closure | - |
 | 3. Display Integration | 3/3 | Complete   | 2026-03-17 |
+| 4. shadcn redesign | 0/2 | Planned | - |
