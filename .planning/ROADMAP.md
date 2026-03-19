@@ -78,7 +78,7 @@ Plans:
   4. Chart titles use default shadcn sizing with descriptive subtitles
   5. Geist Sans is the primary rendered font
   6. Dashboard looks like a professional financial report, not a generic SaaS template
-**Plans:** 2 plans
+**Plans:** 1/2 plans executed
 
 Plans:
 - [ ] 04-01-PLAN.md — Foundation fixes: Geist font, formatter null handling, Alert component, insight icon migration
@@ -94,4 +94,4 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4
 | 1. Data Pipeline | 1/3 | In Progress|  |
 | 2. Data Validation | 2/4 | Gap closure | - |
 | 3. Display Integration | 3/3 | Complete   | 2026-03-17 |
-| 4. shadcn redesign | 0/2 | Planned | - |
+| 4. shadcn redesign | 1/2 | In Progress|  |
