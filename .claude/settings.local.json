@@ -1,0 +1,35 @@
+{
+  "permissions": {
+    "allow": [
+      "WebFetch(domain:raw.githubusercontent.com)",
+      "WebSearch",
+      "Bash(node:*)",
+      "Skill(gsd:autonomous)",
+      "Skill(gsd:plan-phase)",
+      "Skill(gsd:execute-phase)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(ls /Users/andrewmaher/invitro-dashboard-1/.planning/phases/03-display-integration/*VERIFICATION*)",
+      "Bash(npx vitest:*)",
+      "Bash(npm run:*)",
+      "Bash(npx next:*)",
+      "Bash(grep \"^status:\" .planning/phases/03-display-integration/*-VERIFICATION.md)",
+      "Bash(npx vercel:*)",
+      "Bash(find /Users/andrewmaher -maxdepth 4 -name *.json)",
+      "Bash(git status:*)",
+      "Bash(git log:*)",
+      "Bash(git checkout:*)",
+      "Bash(git push:*)",
+      "Bash(gh auth:*)",
+      "Bash(ls /Users/andrewmaher/invitro-dashboard-1/.env*)",
+      "Bash(gws sheets:*)",
+      "Bash(gws drive:*)",
+      "Read(//Users/andrewmaher/**)",
+      "Read(//Users/andrewmaher/Downloads/**)",
+      "Bash(gcloud config:*)",
+      "Bash(git reset:*)",
+      "Bash(git fetch:*)",
+      "Bash(gh pr:*)"
+    ]
+  }
+}
