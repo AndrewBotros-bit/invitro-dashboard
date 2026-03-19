@@ -14,19 +14,19 @@ import { generateInsights } from "@/lib/insights";
 
 /* ── Chart styling constants ── */
 const CHART_STYLE = {
-  positive: "#10b981",
-  negative: "#ef4444",
-  muted: "#94a3b8",
-  border: "#334155",
-  totalLine: "#f1f5f9",
+  positive: "#16a34a",
+  negative: "#dc2626",
+  muted: "#64748b",
+  border: "#e2e8f0",
+  totalLine: "#0f172a",
 };
 
 /* ── Sub-components ── */
 const CustomTooltip = ({ active, payload, label }) => {
   if (!active || !payload) return null;
   return (
-    <div className="rounded-lg border border-slate-600 bg-slate-800 px-4 py-3 shadow-lg">
-      <p className="mb-2 text-sm font-semibold text-slate-200">{label}</p>
+    <div className="rounded-lg border border-border bg-popover px-4 py-3 shadow-lg">
+      <p className="mb-2 text-sm font-semibold text-popover-foreground">{label}</p>
       {payload.map((entry, i) => (
         <p key={i} className="my-0.5 text-xs" style={{ color: entry.color }}>
           {entry.name}: {fmt(entry.value)}
@@ -44,7 +44,7 @@ function KPICard({ title, value, subtitle, trend, trendUp }) {
         <p className="text-2xl font-bold text-foreground">{value}</p>
         <div className="flex items-center gap-2">
           {trend && (
-            <span className={`text-xs font-semibold ${trendUp ? "text-emerald-400" : "text-red-400"}`}>
+            <span className={`text-xs font-semibold ${trendUp ? "text-emerald-600" : "text-red-600"}`}>
               {trendUp ? "\u25B2" : "\u25BC"} {trend}
             </span>
           )}
@@ -56,7 +56,7 @@ function KPICard({ title, value, subtitle, trend, trendUp }) {
 }
 
 function InsightCard({ icon, title, body, type = "info" }) {
-  const bgMap = { positive: "bg-emerald-950/60 border-emerald-500/40", warning: "bg-amber-950/60 border-amber-500/40", danger: "bg-red-950/60 border-red-500/40", info: "bg-blue-950/60 border-blue-500/40" };
+  const bgMap = { positive: "bg-emerald-50 border-emerald-300", warning: "bg-amber-50 border-amber-300", danger: "bg-red-50 border-red-300", info: "bg-blue-50 border-blue-300" };
   return (
     <div className={`rounded-lg border p-4 mb-3 ${bgMap[type]}`}>
       <div className="flex items-center gap-2 mb-1.5">
@@ -244,7 +244,7 @@ export default function InVitroDashboard({ data }) {
   return (
     <div className="min-h-screen bg-background text-foreground">
       {/* Header */}
-      <header className="border-b border-border/50 bg-gradient-to-r from-slate-800 to-slate-900 px-8 py-6">
+      <header className="border-b border-border/50 bg-card px-8 py-6">
         <div className="mx-auto max-w-7xl flex flex-wrap items-center justify-between gap-4">
           <div>
             <div className="flex items-center gap-3 mb-1">
@@ -269,7 +269,7 @@ export default function InVitroDashboard({ data }) {
       {/* Content */}
       <main className="mx-auto max-w-7xl px-8 py-6">
         <Tabs defaultValue="overview">
-          <TabsList className="mb-6 flex-wrap bg-slate-800/80">
+          <TabsList className="mb-6 flex-wrap">
             <TabsTrigger value="overview">Overview</TabsTrigger>
             <TabsTrigger value="revenue">Revenue</TabsTrigger>
             <TabsTrigger value="profitability">Profitability</TabsTrigger>
@@ -355,7 +355,7 @@ export default function InVitroDashboard({ data }) {
                       <TableCell className="text-right">
                         <div className="font-semibold">{fmt(co.rev)}</div>
                         {co.revGrowth !== null ? (
-                          <div className={`text-[11px] ${co.revGrowth >= 0 ? "text-emerald-400" : "text-red-400"}`}>
+                          <div className={`text-[11px] ${co.revGrowth >= 0 ? "text-emerald-600" : "text-red-600"}`}>
                             {co.revGrowth >= 0 ? "+" : ""}{(co.revGrowth * 100).toFixed(0)}% YoY
                           </div>
                         ) : (
@@ -363,7 +363,7 @@ export default function InVitroDashboard({ data }) {
                         )}
                       </TableCell>
                       <TableCell className="text-right">
-                        <div className={`font-semibold ${co.ebitda >= 0 ? "text-emerald-400" : "text-red-400"}`}>{fmt(co.ebitda)}</div>
+                        <div className={`font-semibold ${co.ebitda >= 0 ? "text-emerald-600" : "text-red-600"}`}>{fmt(co.ebitda)}</div>
                         <div className="text-[11px] text-muted-foreground">{co.rev > 0 ? (co.ebitda / co.rev * 100).toFixed(1) + '% margin' : 'N/A'}</div>
                       </TableCell>
                       <TableCell className="text-right">
@@ -373,10 +373,10 @@ export default function InVitroDashboard({ data }) {
                   ))}
                 </TableBody>
                 <TableFooter>
-                  <TableRow className="bg-slate-800/80 hover:bg-slate-800/80">
+                  <TableRow className="bg-muted hover:bg-muted">
                     <TableCell className="font-bold">TOTAL (excl. holdings)</TableCell>
                     <TableCell className="text-right font-bold">{fmt(totalRowRev)}</TableCell>
-                    <TableCell className="text-right font-bold text-emerald-400">{fmt(totalRowEbitda)}</TableCell>
+                    <TableCell className="text-right font-bold text-emerald-600">{fmt(totalRowEbitda)}</TableCell>
                     <TableCell className="text-right font-bold">{totalRowGrossMargin !== null ? (totalRowGrossMargin * 100).toFixed(0) + '%' : 'N/A'}</TableCell>
                   </TableRow>
                 </TableFooter>
@@ -446,7 +446,7 @@ export default function InVitroDashboard({ data }) {
                         <XAxis dataKey="metric" tick={{ fill: CHART_STYLE.muted, fontSize: 12 }} />
                         <YAxis tick={{ fill: CHART_STYLE.muted, fontSize: 11 }} tickFormatter={fmtShort} />
                         <Tooltip content={<CustomTooltip />} />
-                        <Bar dataKey="y2025" name={String(priorYear)} fill="#475569" radius={[4, 4, 0, 0]} />
+                        <Bar dataKey="y2025" name={String(priorYear)} fill="#94a3b8" radius={[4, 4, 0, 0]} />
                         <Bar dataKey="y2026" name={String(currentYear)} fill="#3b82f6" radius={[4, 4, 0, 0]} />
                         <Legend />
                       </BarChart>
@@ -604,12 +604,12 @@ export default function InVitroDashboard({ data }) {
           <button
             onClick={handleDeploy}
             disabled={deploying}
-            className="mt-2 text-xs text-blue-400 hover:text-blue-300 underline disabled:opacity-50 disabled:cursor-not-allowed"
+            className="mt-2 text-xs text-blue-600 hover:text-blue-500 underline disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {deploying ? 'Triggering...' : 'Refresh Data'}
           </button>
           {deployMsg && (
-            <p className="mt-1 text-xs text-emerald-400">{deployMsg}</p>
+            <p className="mt-1 text-xs text-emerald-600">{deployMsg}</p>
           )}
         </div>
       </main>

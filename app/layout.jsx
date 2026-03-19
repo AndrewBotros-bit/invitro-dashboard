@@ -1,8 +1,8 @@
 import "./globals.css";
-import { Geist } from "next/font/google";
+import { GeistSans } from "geist/font/sans";
 import { cn } from "@/lib/utils";
 
-const geist = Geist({subsets:['latin'],variable:'--font-sans'});
+const geist = GeistSans;
 
 export const metadata = {
   title: "InVitro Capital — Shareholder Dashboard",
