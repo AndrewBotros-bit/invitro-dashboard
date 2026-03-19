@@ -18,8 +18,8 @@ describe('fmtShort', () => {
 });
 
 describe('pct', () => {
-  it('returns --- for null', () => expect(pct(null)).toBe('---'));
-  it('returns --- for undefined', () => expect(pct(undefined)).toBe('---'));
+  it('returns N/A for null', () => expect(pct(null)).toBe('N/A'));
+  it('returns N/A for undefined', () => expect(pct(undefined)).toBe('N/A'));
   it('formats percentage', () => expect(pct(0.77)).toBe('77.0%'));
   it('formats zero', () => expect(pct(0)).toBe('0.0%'));
 });
