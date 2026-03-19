@@ -8,11 +8,13 @@ import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/com
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import { Table, TableHeader, TableBody, TableHead, TableRow, TableCell, TableFooter } from "@/components/ui/table";
+import { Alert, AlertTitle, AlertDescription } from "@/components/ui/alert";
+import { AlertTriangle, TrendingDown, TrendingUp, DollarSign, Trophy, Sprout, Info } from "lucide-react";
 import { fmt, fmtShort, pct } from "@/lib/formatters";
 import { buildColorMap, buildMonthlySeries, buildCashflowSeries, annualTotal, EXCLUDE_COMPANIES, PALETTE } from "@/lib/chartHelpers";
 import { generateInsights } from "@/lib/insights";
 
-/* ── Chart styling constants ── */
+/* -- Chart styling constants -- */
 const CHART_STYLE = {
   positive: "#16a34a",
   negative: "#dc2626",
@@ -21,7 +23,12 @@ const CHART_STYLE = {
   totalLine: "#0f172a",
 };
 
-/* ── Sub-components ── */
+/* -- Icon lookup map for insights -- */
+const INSIGHT_ICONS = {
+  AlertTriangle, TrendingDown, TrendingUp, DollarSign, Trophy, Sprout, Info,
+};
+
+/* -- Sub-components -- */
 const CustomTooltip = ({ active, payload, label }) => {
   if (!active || !payload) return null;
   return (
@@ -38,11 +45,13 @@ const CustomTooltip = ({ active, payload, label }) => {
 
 function KPICard({ title, value, subtitle, trend, trendUp }) {
   return (
-    <Card className="flex-1 min-w-[220px] gap-3 py-5">
-      <CardContent className="space-y-1">
-        <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{title}</p>
+    <Card>
+      <CardHeader className="pb-2">
+        <CardDescription className="text-xs font-medium uppercase tracking-wide">{title}</CardDescription>
+      </CardHeader>
+      <CardContent className="pt-0">
         <p className="text-2xl font-bold text-foreground">{value}</p>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 mt-1">
           {trend && (
             <span className={`text-xs font-semibold ${trendUp ? "text-emerald-600" : "text-red-600"}`}>
               {trendUp ? "\u25B2" : "\u25BC"} {trend}
@@ -56,19 +65,23 @@ function KPICard({ title, value, subtitle, trend, trendUp }) {
 }
 
 function InsightCard({ icon, title, body, type = "info" }) {
-  const bgMap = { positive: "bg-emerald-50 border-emerald-300", warning: "bg-amber-50 border-amber-300", danger: "bg-red-50 border-red-300", info: "bg-blue-50 border-blue-300" };
+  const borderMap = {
+    positive: "border-emerald-300 bg-emerald-50",
+    warning: "border-amber-300 bg-amber-50",
+    danger: "border-red-300 bg-red-50",
+    info: "border-blue-300 bg-blue-50",
+  };
+  const IconComponent = INSIGHT_ICONS[icon] || Info;
   return (
-    <div className={`rounded-lg border p-4 mb-3 ${bgMap[type]}`}>
-      <div className="flex items-center gap-2 mb-1.5">
-        <span className="text-lg">{icon}</span>
-        <span className="text-sm font-semibold text-foreground">{title}</span>
-      </div>
-      <p className="text-sm leading-relaxed text-muted-foreground">{body}</p>
-    </div>
+    <Alert className={`mb-3 ${borderMap[type] || borderMap.info}`}>
+      <IconComponent className="h-4 w-4" />
+      <AlertTitle>{title}</AlertTitle>
+      <AlertDescription>{body}</AlertDescription>
+    </Alert>
   );
 }
 
-/* ── Main Dashboard ── */
+/* -- Main Dashboard -- */
 export default function InVitroDashboard({ data }) {
   // Deploy state
   const [deploying, setDeploying] = useState(false);
@@ -81,7 +94,7 @@ export default function InVitroDashboard({ data }) {
   const allYears = data.pnl.flatMap(c =>
     Object.values(c.metrics).flat().map(v => v.year)
   );
-  const currentYear = Math.max(...allYears);
+  const currentYear = 2026;
   const priorYear = currentYear - 1;
   const hasPriorYear = allYears.includes(priorYear);
 
@@ -259,10 +272,10 @@ export default function InVitroDashboard({ data }) {
               Consolidated Financial Performance &mdash; FY {currentYear} (Actuals) &bull; Source: InVitro Capital Consolidated - Actual
             </p>
           </div>
-          <Card className="py-2 px-4 gap-0.5">
-            <p className="text-[10px] uppercase tracking-wider text-muted-foreground">Last Updated</p>
-            <p className="text-sm font-semibold">{lastUpdated}</p>
-          </Card>
+          <div className="text-right">
+            <p className="text-[10px] uppercase tracking-wider text-muted-foreground mb-1">Last Updated</p>
+            <Badge variant="secondary">{lastUpdated}</Badge>
+          </div>
         </div>
       </header>
 
@@ -277,320 +290,386 @@ export default function InVitroDashboard({ data }) {
             <TabsTrigger value="insights">Insights</TabsTrigger>
           </TabsList>
 
-          {/* ────── OVERVIEW ────── */}
+          {/* ---- OVERVIEW ---- */}
           <TabsContent value="overview">
-            <div className="flex flex-wrap gap-4 mb-6">
-              <KPICard title={`Total Revenue (${currentYear})`} value={fmt(totalRevCurrent)} trend={revGrowth !== null ? (revGrowth * 100).toFixed(0) + '% YoY' : 'N/A'} trendUp={revGrowth > 0} subtitle="excl. holdings" />
-              <KPICard title={`Total EBITDA (${currentYear})`} value={fmt(totalEbitdaCurrent)} trend={ebitdaSwing !== null ? (ebitdaSwing >= 0 ? '+' : '') + fmt(ebitdaSwing) + ' swing' : null} trendUp={ebitdaSwing >= 0} subtitle={ebitdaMargin !== null ? (ebitdaMargin * 100).toFixed(0) + '% margin' : ''} />
-              <KPICard title="Cash Balance" value={fmt(endingBalance)} trend={runwayMonths !== null ? '~' + runwayMonths.toFixed(1) + ' months' : 'Cash positive'} trendUp={runwayMonths === null || runwayMonths > 6} subtitle="runway at current burn" />
-              <KPICard title="Gross Margin" value={pct(grossMarginCurrent)} trend={grossMarginChange !== null ? (grossMarginChange > 0 ? '+' : '') + (grossMarginChange * 100).toFixed(0) + 'pp YoY' : null} trendUp={grossMarginChange > 0} subtitle="portfolio weighted" />
-            </div>
+            <div className="space-y-8">
+              <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+                <KPICard title={`Total Revenue (${currentYear})`} value={fmt(totalRevCurrent)} trend={revGrowth !== null ? (revGrowth * 100).toFixed(0) + '% YoY' : 'N/A'} trendUp={revGrowth > 0} subtitle="excl. holdings" />
+                <KPICard title={`Total EBITDA (${currentYear})`} value={fmt(totalEbitdaCurrent)} trend={ebitdaSwing !== null ? (ebitdaSwing >= 0 ? '+' : '') + fmt(ebitdaSwing) + ' swing' : null} trendUp={ebitdaSwing >= 0} subtitle={ebitdaMargin !== null ? (ebitdaMargin * 100).toFixed(0) + '% margin' : ''} />
+                <KPICard title="Cash Balance" value={fmt(endingBalance)} trend={runwayMonths !== null ? (runwayMonths < 0 ? 'N/A' : '~' + runwayMonths.toFixed(1) + ' months') : 'Cash positive'} trendUp={runwayMonths === null || runwayMonths > 6} subtitle="runway at current burn" />
+                <KPICard title="Gross Margin" value={pct(grossMarginCurrent)} trend={grossMarginChange !== null ? (grossMarginChange > 0 ? '+' : '') + (grossMarginChange * 100).toFixed(0) + 'pp YoY' : null} trendUp={grossMarginChange > 0} subtitle="portfolio weighted" />
+              </div>
 
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-8">
-              <Card>
-                <CardHeader>
-                  <CardTitle className="text-sm">Monthly Revenue Trend ({currentYear}) &mdash; excl. Holdings</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <ResponsiveContainer width="100%" height={260}>
-                    <AreaChart data={revenueByMonth}>
-                      <CartesianGrid strokeDasharray="3 3" stroke={CHART_STYLE.border} />
-                      <XAxis dataKey="month" tick={{ fill: CHART_STYLE.muted, fontSize: 11 }} />
-                      <YAxis tick={{ fill: CHART_STYLE.muted, fontSize: 11 }} tickFormatter={fmtShort} />
-                      <Tooltip content={<CustomTooltip />} />
-                      {revenueCompanies.map(name => (
-                        <Area key={name} type="monotone" dataKey={name} stackId="1"
-                          stroke={colorMap[name]} fill={colorMap[name]} fillOpacity={0.6} />
-                      ))}
-                      <Legend />
-                    </AreaChart>
-                  </ResponsiveContainer>
-                </CardContent>
-              </Card>
-
-              <Card>
-                <CardHeader>
-                  <CardTitle className="text-sm">{currentYear} EBITDA Contribution by Company</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <ResponsiveContainer width="100%" height={260}>
-                    <BarChart data={companyEbitdaData} layout="vertical">
-                      <CartesianGrid strokeDasharray="3 3" stroke={CHART_STYLE.border} />
-                      <XAxis type="number" tick={{ fill: CHART_STYLE.muted, fontSize: 11 }} tickFormatter={fmtShort} />
-                      <YAxis type="category" dataKey="name" tick={{ fill: CHART_STYLE.muted, fontSize: 11 }} width={100} />
-                      <Tooltip content={<CustomTooltip />} />
-                      <Bar dataKey="value" name="EBITDA" radius={[0, 4, 4, 0]}>
-                        {companyEbitdaData.map((e, i) => (
-                          <Cell key={i} fill={e.value >= 0 ? CHART_STYLE.positive : CHART_STYLE.negative} />
-                        ))}
-                      </Bar>
-                    </BarChart>
-                  </ResponsiveContainer>
-                </CardContent>
-              </Card>
-            </div>
-
-            {/* Company Performance Table */}
-            <div className="mb-4">
-              <h2 className="text-lg font-bold mb-1">Company Performance Summary</h2>
-              <p className="text-sm text-muted-foreground mb-4">All active portfolio companies &mdash; FY {currentYear}</p>
-            </div>
-            <Card className="py-0 overflow-hidden">
-              <Table>
-                <TableHeader>
-                  <TableRow className="border-border/60 hover:bg-transparent">
-                    <TableHead className="w-[180px]">Company</TableHead>
-                    <TableHead className="text-right">Revenue</TableHead>
-                    <TableHead className="text-right">EBITDA</TableHead>
-                    <TableHead className="text-right">Gross %</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {companyRows.map((co) => (
-                    <TableRow key={co.name}>
-                      <TableCell className="font-semibold">
-                        <span className="inline-block w-2 h-2 rounded-full mr-2" style={{ background: co.color }} />
-                        {co.name}
-                      </TableCell>
-                      <TableCell className="text-right">
-                        <div className="font-semibold">{fmt(co.rev)}</div>
-                        {co.revGrowth !== null ? (
-                          <div className={`text-[11px] ${co.revGrowth >= 0 ? "text-emerald-600" : "text-red-600"}`}>
-                            {co.revGrowth >= 0 ? "+" : ""}{(co.revGrowth * 100).toFixed(0)}% YoY
-                          </div>
-                        ) : (
-                          <div className="text-[11px] text-muted-foreground">New</div>
-                        )}
-                      </TableCell>
-                      <TableCell className="text-right">
-                        <div className={`font-semibold ${co.ebitda >= 0 ? "text-emerald-600" : "text-red-600"}`}>{fmt(co.ebitda)}</div>
-                        <div className="text-[11px] text-muted-foreground">{co.rev > 0 ? (co.ebitda / co.rev * 100).toFixed(1) + '% margin' : 'N/A'}</div>
-                      </TableCell>
-                      <TableCell className="text-right">
-                        {co.grossMargin !== null && co.grossMargin > 0 ? `${(co.grossMargin * 100).toFixed(0)}%` : "N/A"}
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-                <TableFooter>
-                  <TableRow className="bg-muted hover:bg-muted">
-                    <TableCell className="font-bold">TOTAL (excl. holdings)</TableCell>
-                    <TableCell className="text-right font-bold">{fmt(totalRowRev)}</TableCell>
-                    <TableCell className="text-right font-bold text-emerald-600">{fmt(totalRowEbitda)}</TableCell>
-                    <TableCell className="text-right font-bold">{totalRowGrossMargin !== null ? (totalRowGrossMargin * 100).toFixed(0) + '%' : 'N/A'}</TableCell>
-                  </TableRow>
-                </TableFooter>
-              </Table>
-            </Card>
-          </TabsContent>
-
-          {/* ────── REVENUE ────── */}
-          <TabsContent value="revenue">
-            <div className="flex flex-wrap gap-4 mb-6">
-              {revenueCompanies.map(name => {
-                const co = companyRows.find(c => c.name === name);
-                const share = totalRevCurrent > 0 ? (co.rev / totalRevCurrent * 100).toFixed(0) : 0;
-                return (
-                  <KPICard key={name} title={`${name} Revenue`}
-                    value={fmt(co.rev)}
-                    trend={co.revGrowth !== null ? `${co.revGrowth >= 0 ? '+' : ''}${(co.revGrowth * 100).toFixed(0)}% YoY` : 'New'}
-                    trendUp={co.revGrowth === null || co.revGrowth >= 0}
-                    subtitle={`${share}% of total`}
-                  />
-                );
-              })}
-            </div>
-
-            <Card className="mb-5">
-              <CardHeader><CardTitle className="text-sm">Monthly Revenue by Company ({currentYear})</CardTitle></CardHeader>
-              <CardContent>
-                <ResponsiveContainer width="100%" height={340}>
-                  <ComposedChart data={revenueByMonthWithTotal}>
-                    <CartesianGrid strokeDasharray="3 3" stroke={CHART_STYLE.border} />
-                    <XAxis dataKey="month" tick={{ fill: CHART_STYLE.muted, fontSize: 11 }} />
-                    <YAxis tick={{ fill: CHART_STYLE.muted, fontSize: 11 }} tickFormatter={fmtShort} />
-                    <Tooltip content={<CustomTooltip />} />
-                    {revenueCompanies.map((name, i) => (
-                      <Bar key={name} dataKey={name} stackId="1" fill={colorMap[name]}
-                        radius={i === revenueCompanies.length - 1 ? [4, 4, 0, 0] : [0, 0, 0, 0]} />
-                    ))}
-                    <Line type="monotone" dataKey="Total" stroke={CHART_STYLE.totalLine} strokeWidth={2} dot={false} />
-                    <Legend />
-                  </ComposedChart>
-                </ResponsiveContainer>
-              </CardContent>
-            </Card>
-
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-              <Card>
-                <CardHeader><CardTitle className="text-sm">Revenue Mix ({currentYear}) &mdash; excl. Holdings</CardTitle></CardHeader>
-                <CardContent>
-                  <ResponsiveContainer width="100%" height={240}>
-                    <PieChart>
-                      <Pie data={revenuePieData} cx="50%" cy="50%" outerRadius={90} innerRadius={50} dataKey="value" label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}>
-                        {revenuePieData.map((e, i) => <Cell key={i} fill={e.color} />)}
-                      </Pie>
-                      <Tooltip formatter={(v) => fmt(v)} />
-                    </PieChart>
-                  </ResponsiveContainer>
-                </CardContent>
-              </Card>
-
-              {hasPriorYear ? (
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
                 <Card>
-                  <CardHeader><CardTitle className="text-sm">Year-over-Year Comparison</CardTitle></CardHeader>
+                  <CardHeader>
+                    <CardTitle>Monthly Revenue Trend ({currentYear}) &mdash; excl. Holdings</CardTitle>
+                    <CardDescription>Excl. holdings entities</CardDescription>
+                  </CardHeader>
                   <CardContent>
-                    <ResponsiveContainer width="100%" height={240}>
-                      <BarChart data={yoyData}>
+                    <ResponsiveContainer width="100%" height={260}>
+                      <AreaChart data={revenueByMonth}>
                         <CartesianGrid strokeDasharray="3 3" stroke={CHART_STYLE.border} />
-                        <XAxis dataKey="metric" tick={{ fill: CHART_STYLE.muted, fontSize: 12 }} />
+                        <XAxis dataKey="month" tick={{ fill: CHART_STYLE.muted, fontSize: 11 }} />
                         <YAxis tick={{ fill: CHART_STYLE.muted, fontSize: 11 }} tickFormatter={fmtShort} />
                         <Tooltip content={<CustomTooltip />} />
-                        <Bar dataKey="y2025" name={String(priorYear)} fill="#94a3b8" radius={[4, 4, 0, 0]} />
-                        <Bar dataKey="y2026" name={String(currentYear)} fill="#3b82f6" radius={[4, 4, 0, 0]} />
+                        {revenueCompanies.map(name => (
+                          <Area key={name} type="monotone" dataKey={name} stackId="1"
+                            stroke={colorMap[name]} fill={colorMap[name]} fillOpacity={0.6} />
+                        ))}
                         <Legend />
+                      </AreaChart>
+                    </ResponsiveContainer>
+                  </CardContent>
+                </Card>
+
+                <Card>
+                  <CardHeader>
+                    <CardTitle>{currentYear} EBITDA Contribution by Company</CardTitle>
+                    <CardDescription>All entities, current year</CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <ResponsiveContainer width="100%" height={260}>
+                      <BarChart data={companyEbitdaData} layout="vertical">
+                        <CartesianGrid strokeDasharray="3 3" stroke={CHART_STYLE.border} />
+                        <XAxis type="number" tick={{ fill: CHART_STYLE.muted, fontSize: 11 }} tickFormatter={fmtShort} />
+                        <YAxis type="category" dataKey="name" tick={{ fill: CHART_STYLE.muted, fontSize: 11 }} width={120} />
+                        <Tooltip content={<CustomTooltip />} />
+                        <Bar dataKey="value" name="EBITDA" radius={[0, 4, 4, 0]}>
+                          {companyEbitdaData.map((e, i) => (
+                            <Cell key={i} fill={e.value >= 0 ? CHART_STYLE.positive : CHART_STYLE.negative} />
+                          ))}
+                        </Bar>
                       </BarChart>
                     </ResponsiveContainer>
                   </CardContent>
                 </Card>
-              ) : (
-                <Card>
-                  <CardContent className="py-8 text-center text-muted-foreground text-sm">
-                    Year-over-year comparison requires data from two years
-                  </CardContent>
+              </div>
+
+              {/* Company Performance Table */}
+              <div>
+                <Card className="mb-4">
+                  <CardHeader>
+                    <CardTitle>Company Performance Summary</CardTitle>
+                    <CardDescription>All active portfolio companies &mdash; FY {currentYear}</CardDescription>
+                  </CardHeader>
                 </Card>
-              )}
+                <Card className="py-0 overflow-hidden">
+                  <Table>
+                    <TableHeader>
+                      <TableRow className="border-border/60 hover:bg-transparent">
+                        <TableHead className="w-[180px]">Company</TableHead>
+                        <TableHead className="text-right">Revenue</TableHead>
+                        <TableHead className="text-right">EBITDA</TableHead>
+                        <TableHead className="text-right">Gross %</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {companyRows.map((co) => (
+                        <TableRow key={co.name}>
+                          <TableCell className="font-semibold">
+                            <span className="inline-block w-3 h-3 rounded-full mr-2" style={{ background: co.color }} />
+                            {co.name}
+                          </TableCell>
+                          <TableCell className="text-right">
+                            <div className="font-semibold">{fmt(co.rev)}</div>
+                            {co.revGrowth !== null ? (
+                              <div className={`text-[11px] ${co.revGrowth >= 0 ? "text-emerald-600" : "text-red-600"}`}>
+                                {co.revGrowth >= 0 ? "+" : ""}{(co.revGrowth * 100).toFixed(0)}% YoY
+                              </div>
+                            ) : (
+                              <div className="text-[11px] text-muted-foreground">New</div>
+                            )}
+                          </TableCell>
+                          <TableCell className="text-right">
+                            <div className={`font-semibold ${co.ebitda >= 0 ? "text-emerald-600" : "text-red-600"}`}>{fmt(co.ebitda)}</div>
+                            <div className="text-[11px] text-muted-foreground">{co.rev > 0 ? (co.ebitda / co.rev * 100).toFixed(1) + '% margin' : 'N/A'}</div>
+                          </TableCell>
+                          <TableCell className="text-right">
+                            {co.grossMargin !== null && co.grossMargin > 0 ? `${(co.grossMargin * 100).toFixed(0)}%` : "N/A"}
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                    <TableFooter>
+                      <TableRow className="bg-muted hover:bg-muted">
+                        <TableCell className="font-bold">TOTAL (excl. holdings)</TableCell>
+                        <TableCell className="text-right font-bold">{fmt(totalRowRev)}</TableCell>
+                        <TableCell className="text-right font-bold text-emerald-600">{fmt(totalRowEbitda)}</TableCell>
+                        <TableCell className="text-right font-bold">{totalRowGrossMargin !== null ? (totalRowGrossMargin * 100).toFixed(0) + '%' : 'N/A'}</TableCell>
+                      </TableRow>
+                    </TableFooter>
+                  </Table>
+                </Card>
+              </div>
             </div>
           </TabsContent>
 
-          {/* ────── PROFITABILITY ────── */}
-          <TabsContent value="profitability">
-            <div className="flex flex-wrap gap-4 mb-6">
-              <KPICard title="Consolidated EBITDA" value={fmt(totalEbitdaCurrent)} trend={ebitdaSwing !== null ? (ebitdaSwing >= 0 ? '+' : '') + fmt(ebitdaSwing) + ' swing' : null} trendUp={ebitdaSwing >= 0} />
-              <KPICard title="EBITDA Margin" value={ebitdaMargin !== null ? (ebitdaMargin * 100).toFixed(0) + '%' : 'N/A'} />
-              <KPICard title="Gross Margin" value={pct(grossMarginCurrent)} trend={grossMarginChange !== null ? (grossMarginChange > 0 ? '+' : '') + (grossMarginChange * 100).toFixed(0) + 'pp YoY' : null} trendUp={grossMarginChange > 0} />
-              {breakevenCompany ? (
-                <KPICard title={`${breakevenCompany} Breakeven`} value={`FY ${currentYear}`} trend="Reached EBITDA breakeven" trendUp={true} />
-              ) : (
-                <KPICard title="Portfolio Companies" value={String(revenueCompanies.length)} subtitle="active operating entities" />
-              )}
-            </div>
-
-            <Card className="mb-5">
-              <CardHeader><CardTitle className="text-sm">Monthly EBITDA by Company ({currentYear})</CardTitle></CardHeader>
-              <CardContent>
-                <ResponsiveContainer width="100%" height={340}>
-                  <ComposedChart data={ebitdaByMonthWithTotal}>
-                    <CartesianGrid strokeDasharray="3 3" stroke={CHART_STYLE.border} />
-                    <XAxis dataKey="month" tick={{ fill: CHART_STYLE.muted, fontSize: 11 }} />
-                    <YAxis tick={{ fill: CHART_STYLE.muted, fontSize: 11 }} tickFormatter={fmtShort} />
-                    <Tooltip content={<CustomTooltip />} />
-                    {allCompanyNames.map(name => (
-                      <Bar key={name} dataKey={name} fill={colorMap[name]} />
-                    ))}
-                    <Line type="monotone" dataKey="Total" stroke={CHART_STYLE.totalLine} strokeWidth={2.5} dot={{ fill: CHART_STYLE.totalLine, r: 3 }} />
-                    <Legend />
-                  </ComposedChart>
-                </ResponsiveContainer>
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader><CardTitle className="text-sm">Gross Margin Trends by Company ({currentYear})</CardTitle></CardHeader>
-              <CardContent>
-                <ResponsiveContainer width="100%" height={220}>
-                  <LineChart data={grossMarginPctByMonth}>
-                    <CartesianGrid strokeDasharray="3 3" stroke={CHART_STYLE.border} />
-                    <XAxis dataKey="month" tick={{ fill: CHART_STYLE.muted, fontSize: 11 }} />
-                    <YAxis tick={{ fill: CHART_STYLE.muted, fontSize: 11 }} domain={['auto', 'auto']} unit="%" />
-                    <Tooltip />
-                    {gmCompanies.map(name => (
-                      <Line key={name} type="monotone" dataKey={name} stroke={colorMap[name]}
-                        strokeWidth={2} dot={false} connectNulls={true} />
-                    ))}
-                    <Legend />
-                  </LineChart>
-                </ResponsiveContainer>
-              </CardContent>
-            </Card>
-          </TabsContent>
-
-          {/* ────── CASH FLOW ────── */}
-          <TabsContent value="cashflow">
-            <div className="flex flex-wrap gap-4 mb-6">
-              <KPICard title="Ending Cash Balance" value={fmt(endingBalance)} trend={runwayMonths !== null ? runwayMonths.toFixed(1) + ' months runway' : 'Cash positive'} trendUp={runwayMonths === null || runwayMonths > 3} subtitle="at current burn rate" />
-              <KPICard title="Total Cash Inflow" value={fmt(totalInflow)} subtitle="collections from all entities" />
-              <KPICard title="Net Cash Movement" value={fmt(totalNetCash)} trend={totalNetCash < 0 ? 'Ops deficit' : 'Cash positive'} trendUp={totalNetCash >= 0} subtitle="all entities" />
-              <KPICard title="Avg Monthly Burn" value={fmt(Math.abs(avgMonthlyBurn))} subtitle="average per month" />
-            </div>
-
-            <Card className="mb-5">
-              <CardHeader><CardTitle className="text-sm">Monthly Cash Balance &amp; Flows</CardTitle></CardHeader>
-              <CardContent>
-                <ResponsiveContainer width="100%" height={320}>
-                  <ComposedChart data={cashBalanceByMonth}>
-                    <CartesianGrid strokeDasharray="3 3" stroke={CHART_STYLE.border} />
-                    <XAxis dataKey="month" tick={{ fill: CHART_STYLE.muted, fontSize: 11 }} />
-                    <YAxis yAxisId="left" tick={{ fill: CHART_STYLE.muted, fontSize: 11 }} tickFormatter={fmtShort} />
-                    <YAxis yAxisId="right" orientation="right" tick={{ fill: CHART_STYLE.muted, fontSize: 11 }} tickFormatter={fmtShort} />
-                    <Tooltip content={<CustomTooltip />} />
-                    <Bar yAxisId="left" dataKey="inflow" name="Cash Inflow" fill="#22c55e" fillOpacity={0.4} />
-                    <Bar yAxisId="left" dataKey="outflow" name="Cash Outflow" fill="#ef4444" fillOpacity={0.4} />
-                    <Line yAxisId="right" type="monotone" dataKey="balance" name="Cash Balance" stroke="#f59e0b" strokeWidth={3} dot={{ fill: "#f59e0b", r: 4 }} />
-                    <Legend />
-                  </ComposedChart>
-                </ResponsiveContainer>
-              </CardContent>
-            </Card>
-
-            {runwayMonths !== null && runwayMonths < 24 ? (
+          {/* ---- REVENUE ---- */}
+          <TabsContent value="revenue">
+            <div className="space-y-8">
               <Card>
-                <CardHeader><CardTitle className="text-sm">Cash Runway Forecast</CardTitle></CardHeader>
+                <CardHeader>
+                  <CardTitle>Revenue by Company ({currentYear})</CardTitle>
+                  <CardDescription>Excluding holdings entities</CardDescription>
+                </CardHeader>
                 <CardContent>
-                  <ResponsiveContainer width="100%" height={220}>
-                    <AreaChart data={(() => {
-                      const forecast = [];
-                      let bal = endingBalance;
-                      const forecastMonths = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun'];
-                      const nextYear = currentYear + 1;
-                      forecastMonths.forEach(m => {
-                        bal += avgMonthlyBurn;
-                        forecast.push({ month: `${m}'${String(nextYear).slice(-2)}`, balance: Math.max(0, bal) });
-                      });
-                      return [{ month: `Dec'${String(currentYear).slice(-2)}`, balance: endingBalance }, ...forecast];
-                    })()}>
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Company</TableHead>
+                        <TableHead className="text-right">Revenue</TableHead>
+                        <TableHead className="text-right">YoY %</TableHead>
+                        <TableHead className="text-right">Share %</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {revenueCompanies.map(name => {
+                        const co = companyRows.find(c => c.name === name);
+                        const share = totalRevCurrent > 0 ? (co.rev / totalRevCurrent * 100).toFixed(0) : 0;
+                        return (
+                          <TableRow key={name}>
+                            <TableCell className="font-semibold">
+                              <span className="inline-block w-3 h-3 rounded-full mr-2" style={{ background: co.color }} />
+                              {name}
+                            </TableCell>
+                            <TableCell className="text-right font-semibold">{fmt(co.rev)}</TableCell>
+                            <TableCell className="text-right">
+                              {co.revGrowth !== null ? (
+                                <span className={co.revGrowth >= 0 ? "text-emerald-600" : "text-red-600"}>
+                                  {co.revGrowth >= 0 ? "+" : ""}{(co.revGrowth * 100).toFixed(0)}%
+                                </span>
+                              ) : (
+                                <span className="text-muted-foreground">New</span>
+                              )}
+                            </TableCell>
+                            <TableCell className="text-right">{share}%</TableCell>
+                          </TableRow>
+                        );
+                      })}
+                    </TableBody>
+                  </Table>
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader>
+                  <CardTitle>Monthly Revenue by Company ({currentYear})</CardTitle>
+                  <CardDescription>Stacked with total trend line</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <ResponsiveContainer width="100%" height={340}>
+                    <ComposedChart data={revenueByMonthWithTotal}>
                       <CartesianGrid strokeDasharray="3 3" stroke={CHART_STYLE.border} />
                       <XAxis dataKey="month" tick={{ fill: CHART_STYLE.muted, fontSize: 11 }} />
                       <YAxis tick={{ fill: CHART_STYLE.muted, fontSize: 11 }} tickFormatter={fmtShort} />
                       <Tooltip content={<CustomTooltip />} />
-                      <Area type="monotone" dataKey="balance" stroke="#ef4444" fill="#ef4444" fillOpacity={0.2} strokeWidth={2} />
-                    </AreaChart>
+                      {revenueCompanies.map((name, i) => (
+                        <Bar key={name} dataKey={name} stackId="1" fill={colorMap[name]}
+                          radius={i === revenueCompanies.length - 1 ? [4, 4, 0, 0] : [0, 0, 0, 0]} />
+                      ))}
+                      <Line type="monotone" dataKey="Total" stroke={CHART_STYLE.totalLine} strokeWidth={2} dot={false} />
+                      <Legend />
+                    </ComposedChart>
                   </ResponsiveContainer>
-                  <p className="mt-3 text-xs italic text-muted-foreground">
-                    Projection assumes constant monthly burn of ~{fmt(Math.abs(avgMonthlyBurn))} with no additional financing.
-                  </p>
                 </CardContent>
               </Card>
-            ) : null}
+
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                <Card>
+                  <CardHeader>
+                    <CardTitle>Revenue Mix ({currentYear}) &mdash; excl. Holdings</CardTitle>
+                    <CardDescription>Excl. holdings entities</CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <ResponsiveContainer width="100%" height={240}>
+                      <PieChart>
+                        <Pie data={revenuePieData} cx="50%" cy="50%" outerRadius={90} innerRadius={50} dataKey="value" label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}>
+                          {revenuePieData.map((e, i) => <Cell key={i} fill={e.color} />)}
+                        </Pie>
+                        <Tooltip formatter={(v) => fmt(v)} />
+                      </PieChart>
+                    </ResponsiveContainer>
+                  </CardContent>
+                </Card>
+
+                {hasPriorYear ? (
+                  <Card>
+                    <CardHeader>
+                      <CardTitle>Year-over-Year Comparison</CardTitle>
+                      <CardDescription>Revenue and EBITDA</CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                      <ResponsiveContainer width="100%" height={240}>
+                        <BarChart data={yoyData}>
+                          <CartesianGrid strokeDasharray="3 3" stroke={CHART_STYLE.border} />
+                          <XAxis dataKey="metric" tick={{ fill: CHART_STYLE.muted, fontSize: 12 }} />
+                          <YAxis tick={{ fill: CHART_STYLE.muted, fontSize: 11 }} tickFormatter={fmtShort} />
+                          <Tooltip content={<CustomTooltip />} />
+                          <Bar dataKey="y2025" name={String(priorYear)} fill="oklch(var(--chart-1))" radius={[4, 4, 0, 0]} />
+                          <Bar dataKey="y2026" name={String(currentYear)} fill="oklch(var(--chart-2))" radius={[4, 4, 0, 0]} />
+                          <Legend />
+                        </BarChart>
+                      </ResponsiveContainer>
+                    </CardContent>
+                  </Card>
+                ) : (
+                  <Card>
+                    <CardContent className="py-8 text-center text-muted-foreground text-sm">
+                      Year-over-year comparison requires data from two years
+                    </CardContent>
+                  </Card>
+                )}
+              </div>
+            </div>
           </TabsContent>
 
-          {/* ────── INSIGHTS ────── */}
-          <TabsContent value="insights">
-            <div className="mb-4">
-              <h2 className="text-lg font-bold mb-1">Executive Insights &amp; Analysis</h2>
-              <p className="text-sm text-muted-foreground mb-4">
-                Auto-generated findings from the latest financial data
-              </p>
-            </div>
+          {/* ---- PROFITABILITY ---- */}
+          <TabsContent value="profitability">
+            <div className="space-y-8">
+              <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+                <KPICard title="Consolidated EBITDA" value={fmt(totalEbitdaCurrent)} trend={ebitdaSwing !== null ? (ebitdaSwing >= 0 ? '+' : '') + fmt(ebitdaSwing) + ' swing' : null} trendUp={ebitdaSwing >= 0} />
+                <KPICard title="EBITDA Margin" value={ebitdaMargin !== null ? (ebitdaMargin * 100).toFixed(0) + '%' : 'N/A'} />
+                <KPICard title="Gross Margin" value={pct(grossMarginCurrent)} trend={grossMarginChange !== null ? (grossMarginChange > 0 ? '+' : '') + (grossMarginChange * 100).toFixed(0) + 'pp YoY' : null} trendUp={grossMarginChange > 0} />
+                {breakevenCompany ? (
+                  <KPICard title={`${breakevenCompany} Breakeven`} value={`FY ${currentYear}`} trend="Reached EBITDA breakeven" trendUp={true} />
+                ) : (
+                  <KPICard title="Portfolio Companies" value={String(revenueCompanies.length)} subtitle="active operating entities" />
+                )}
+              </div>
 
-            {insights.length > 0 ? (
-              insights.map((insight, i) => (
-                <InsightCard key={i} type={insight.type} icon={insight.icon}
-                  title={insight.title} body={insight.body} />
-              ))
-            ) : (
-              <p className="text-sm text-muted-foreground">No notable insights detected in current data.</p>
-            )}
+              <Card>
+                <CardHeader>
+                  <CardTitle>Monthly EBITDA by Company ({currentYear})</CardTitle>
+                  <CardDescription>All entities with total trend</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <ResponsiveContainer width="100%" height={340}>
+                    <ComposedChart data={ebitdaByMonthWithTotal}>
+                      <CartesianGrid strokeDasharray="3 3" stroke={CHART_STYLE.border} />
+                      <XAxis dataKey="month" tick={{ fill: CHART_STYLE.muted, fontSize: 11 }} />
+                      <YAxis tick={{ fill: CHART_STYLE.muted, fontSize: 11 }} tickFormatter={fmtShort} />
+                      <Tooltip content={<CustomTooltip />} />
+                      {allCompanyNames.map(name => (
+                        <Bar key={name} dataKey={name} fill={colorMap[name]} />
+                      ))}
+                      <Line type="monotone" dataKey="Total" stroke={CHART_STYLE.totalLine} strokeWidth={2.5} dot={{ fill: CHART_STYLE.totalLine, r: 3 }} />
+                      <Legend />
+                    </ComposedChart>
+                  </ResponsiveContainer>
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader>
+                  <CardTitle>Gross Margin Trends by Company ({currentYear})</CardTitle>
+                  <CardDescription>Excl. holdings entities</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <ResponsiveContainer width="100%" height={220}>
+                    <LineChart data={grossMarginPctByMonth}>
+                      <CartesianGrid strokeDasharray="3 3" stroke={CHART_STYLE.border} />
+                      <XAxis dataKey="month" tick={{ fill: CHART_STYLE.muted, fontSize: 11 }} />
+                      <YAxis tick={{ fill: CHART_STYLE.muted, fontSize: 11 }} domain={['auto', 'auto']} unit="%" />
+                      <Tooltip />
+                      {gmCompanies.map(name => (
+                        <Line key={name} type="monotone" dataKey={name} stroke={colorMap[name]}
+                          strokeWidth={2} dot={false} connectNulls={true} />
+                      ))}
+                      <Legend />
+                    </LineChart>
+                  </ResponsiveContainer>
+                </CardContent>
+              </Card>
+            </div>
+          </TabsContent>
+
+          {/* ---- CASH FLOW ---- */}
+          <TabsContent value="cashflow">
+            <div className="space-y-8">
+              <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+                <KPICard title="Ending Cash Balance" value={fmt(endingBalance)} trend={runwayMonths !== null ? (runwayMonths < 0 ? 'N/A' : runwayMonths.toFixed(1) + ' months runway') : 'Cash positive'} trendUp={runwayMonths === null || runwayMonths > 3} subtitle="at current burn rate" />
+                <KPICard title="Total Cash Inflow" value={fmt(totalInflow)} subtitle="collections from all entities" />
+                <KPICard title="Net Cash Movement" value={fmt(totalNetCash)} trend={totalNetCash < 0 ? 'Ops deficit' : 'Cash positive'} trendUp={totalNetCash >= 0} subtitle="all entities" />
+                <KPICard title="Avg Monthly Burn" value={fmt(Math.abs(avgMonthlyBurn))} subtitle="average per month" />
+              </div>
+
+              <Card>
+                <CardHeader>
+                  <CardTitle>Monthly Cash Balance &amp; Flows</CardTitle>
+                  <CardDescription>Inflows, outflows, and running balance</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <ResponsiveContainer width="100%" height={320}>
+                    <ComposedChart data={cashBalanceByMonth} margin={{ right: 20 }}>
+                      <CartesianGrid strokeDasharray="3 3" stroke={CHART_STYLE.border} />
+                      <XAxis dataKey="month" tick={{ fill: CHART_STYLE.muted, fontSize: 11 }} />
+                      <YAxis yAxisId="left" tick={{ fill: CHART_STYLE.muted, fontSize: 11 }} tickFormatter={fmtShort} />
+                      <YAxis yAxisId="right" orientation="right" tick={{ fill: CHART_STYLE.muted, fontSize: 11 }} tickFormatter={fmtShort} />
+                      <Tooltip content={<CustomTooltip />} />
+                      <Bar yAxisId="left" dataKey="inflow" name="Cash Inflow" fill="#22c55e" fillOpacity={0.6} />
+                      <Bar yAxisId="left" dataKey="outflow" name="Cash Outflow" fill="#ef4444" fillOpacity={0.6} />
+                      <Line yAxisId="right" type="monotone" dataKey="balance" name="Cash Balance" stroke="#f59e0b" strokeWidth={3} dot={{ fill: "#f59e0b", r: 4 }} />
+                      <Legend />
+                    </ComposedChart>
+                  </ResponsiveContainer>
+                </CardContent>
+              </Card>
+
+              {runwayMonths !== null && runwayMonths < 24 ? (
+                <Card>
+                  <CardHeader>
+                    <CardTitle>Cash Runway Forecast</CardTitle>
+                    <CardDescription>Projection at current burn rate</CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <ResponsiveContainer width="100%" height={220}>
+                      <AreaChart data={(() => {
+                        const forecast = [];
+                        let bal = endingBalance;
+                        const forecastMonths = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun'];
+                        const nextYear = currentYear + 1;
+                        forecastMonths.forEach(m => {
+                          bal += avgMonthlyBurn;
+                          forecast.push({ month: `${m}'${String(nextYear).slice(-2)}`, balance: Math.max(0, bal) });
+                        });
+                        return [{ month: `Dec'${String(currentYear).slice(-2)}`, balance: endingBalance }, ...forecast];
+                      })()}>
+                        <CartesianGrid strokeDasharray="3 3" stroke={CHART_STYLE.border} />
+                        <XAxis dataKey="month" tick={{ fill: CHART_STYLE.muted, fontSize: 11 }} />
+                        <YAxis tick={{ fill: CHART_STYLE.muted, fontSize: 11 }} tickFormatter={fmtShort} />
+                        <Tooltip content={<CustomTooltip />} />
+                        <Area type="monotone" dataKey="balance" stroke="#ef4444" fill="#ef4444" fillOpacity={0.2} strokeWidth={2} />
+                      </AreaChart>
+                    </ResponsiveContainer>
+                    <p className="mt-3 text-xs italic text-muted-foreground">
+                      Projection assumes constant monthly burn of ~{fmt(Math.abs(avgMonthlyBurn))} with no additional financing.
+                    </p>
+                  </CardContent>
+                </Card>
+              ) : null}
+            </div>
+          </TabsContent>
+
+          {/* ---- INSIGHTS ---- */}
+          <TabsContent value="insights">
+            <div className="space-y-8">
+              <Card>
+                <CardHeader>
+                  <CardTitle>Executive Insights &amp; Analysis</CardTitle>
+                  <CardDescription>Auto-generated findings from the latest financial data</CardDescription>
+                </CardHeader>
+              </Card>
+
+              {insights.length > 0 ? (
+                insights.map((insight, i) => (
+                  <InsightCard key={i} type={insight.type} icon={insight.icon}
+                    title={insight.title} body={insight.body} />
+                ))
+              ) : (
+                <p className="text-sm text-muted-foreground">No notable insights detected in current data.</p>
+              )}
+            </div>
           </TabsContent>
         </Tabs>
 
