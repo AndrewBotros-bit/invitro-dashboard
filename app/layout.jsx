@@ -1,8 +1,6 @@
-import "./globals.css";
 import { GeistSans } from "geist/font/sans";
-import { cn } from "@/lib/utils";
-
-const geist = GeistSans;
+import { GeistMono } from "geist/font/mono";
+import "./globals.css";
 
 export const metadata = {
   title: "InVitro Capital — Shareholder Dashboard",
@@ -12,8 +10,8 @@ export const metadata = {
 
 export default function RootLayout({ children }) {
   return (
-    <html lang="en" className={cn("font-sans", geist.variable)}>
-      <body>{children}</body>
+    <html lang="en" className={`${GeistSans.variable} ${GeistMono.variable}`}>
+      <body className="font-sans">{children}</body>
     </html>
   );
 }

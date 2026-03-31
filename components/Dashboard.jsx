@@ -1,5 +1,6 @@
 "use client";
-import { useState } from "react";
+import { useState, Fragment } from "react";
+import { cn } from "@/lib/utils";
 import {
   BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip,
   Legend, ResponsiveContainer, PieChart, Pie, Cell, AreaChart, Area, ComposedChart,
@@ -8,13 +9,13 @@ import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/com
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import { Table, TableHeader, TableBody, TableHead, TableRow, TableCell, TableFooter } from "@/components/ui/table";
-import { Alert, AlertTitle, AlertDescription } from "@/components/ui/alert";
-import { AlertTriangle, TrendingDown, TrendingUp, DollarSign, Trophy, Sprout, Info } from "lucide-react";
 import { fmt, fmtShort, pct } from "@/lib/formatters";
-import { buildColorMap, buildMonthlySeries, buildCashflowSeries, annualTotal, EXCLUDE_COMPANIES, PALETTE } from "@/lib/chartHelpers";
+import { buildColorMap, buildMonthlySeries, buildCashflowSeries, annualTotal, monthlyTotal, getAvailableMonths, filterSeriesToRange, buildYearlySeries, rangeTotal, EXCLUDE_REVENUE, EXCLUDE_EBITDA, EXCLUDE_ALWAYS, PALETTE } from "@/lib/chartHelpers";
+import { Button } from "@/components/ui/button";
 import { generateInsights } from "@/lib/insights";
+import { Drawer, DrawerContent, DrawerHeader, DrawerTitle, DrawerDescription, DrawerClose } from "@/components/ui/drawer";
 
-/* -- Chart styling constants -- */
+/* ── Chart styling constants ── */
 const CHART_STYLE = {
   positive: "#16a34a",
   negative: "#dc2626",
@@ -23,21 +24,18 @@ const CHART_STYLE = {
   totalLine: "#0f172a",
 };
 
-/* -- Icon lookup map for insights -- */
-const INSIGHT_ICONS = {
-  AlertTriangle, TrendingDown, TrendingUp, DollarSign, Trophy, Sprout, Info,
-};
-
-/* -- Sub-components -- */
+/* ── Sub-components ── */
 const CustomTooltip = ({ active, payload, label }) => {
   if (!active || !payload) return null;
   return (
-    <div className="rounded-lg border border-border bg-popover px-4 py-3 shadow-lg">
-      <p className="mb-2 text-sm font-semibold text-popover-foreground">{label}</p>
+    <div className="rounded-lg border border-border bg-white px-4 py-3 shadow-lg min-w-[160px]">
+      <p className="mb-2 text-sm font-semibold text-foreground">{label}</p>
       {payload.map((entry, i) => (
-        <p key={i} className="my-0.5 text-xs" style={{ color: entry.color }}>
-          {entry.name}: {fmt(entry.value)}
-        </p>
+        <div key={i} className="flex items-center gap-2 my-0.5">
+          <span className="inline-block w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: entry.color }} />
+          <span className="text-xs text-muted-foreground">{entry.name}:</span>
+          <span className="text-xs font-semibold text-foreground ml-auto">{fmt(entry.value)}</span>
+        </div>
       ))}
     </div>
   );
@@ -45,19 +43,17 @@ const CustomTooltip = ({ active, payload, label }) => {
 
 function KPICard({ title, value, subtitle, trend, trendUp }) {
   return (
-    <Card>
-      <CardHeader className="pb-2">
-        <CardDescription className="text-xs font-medium uppercase tracking-wide">{title}</CardDescription>
-      </CardHeader>
-      <CardContent className="pt-0">
-        <p className="text-2xl font-bold text-foreground">{value}</p>
-        <div className="flex items-center gap-2 mt-1">
+    <Card className="flex-1 min-w-[220px] gap-2 py-4 shadow-sm hover:shadow-md transition-shadow">
+      <CardContent className="space-y-1 px-5">
+        <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">{title}</p>
+        <p className="text-2xl font-bold tracking-tight text-foreground">{value}</p>
+        <div className="flex items-center gap-2">
           {trend && (
-            <span className={`text-xs font-semibold ${trendUp ? "text-emerald-600" : "text-red-600"}`}>
+            <span className={`text-[11px] font-semibold ${trendUp ? "text-emerald-600" : "text-red-500"}`}>
               {trendUp ? "\u25B2" : "\u25BC"} {trend}
             </span>
           )}
-          {subtitle && <span className="text-xs text-muted-foreground">{subtitle}</span>}
+          {subtitle && <span className="text-[11px] text-muted-foreground">{subtitle}</span>}
         </div>
       </CardContent>
     </Card>
@@ -65,30 +61,76 @@ function KPICard({ title, value, subtitle, trend, trendUp }) {
 }
 
 function InsightCard({ icon, title, body, type = "info" }) {
-  const borderMap = {
-    positive: "border-emerald-300 bg-emerald-50",
-    warning: "border-amber-300 bg-amber-50",
-    danger: "border-red-300 bg-red-50",
-    info: "border-blue-300 bg-blue-50",
+  const styles = {
+    positive: "bg-emerald-50 border-emerald-200 text-emerald-900",
+    warning: "bg-amber-50 border-amber-200 text-amber-900",
+    danger: "bg-red-50 border-red-200 text-red-900",
+    info: "bg-blue-50 border-blue-200 text-blue-900",
   };
-  const IconComponent = INSIGHT_ICONS[icon] || Info;
+  const subtextStyles = {
+    positive: "text-emerald-700",
+    warning: "text-amber-700",
+    danger: "text-red-700",
+    info: "text-blue-700",
+  };
   return (
-    <Alert className={`mb-3 ${borderMap[type] || borderMap.info}`}>
-      <IconComponent className="h-4 w-4" />
-      <AlertTitle>{title}</AlertTitle>
-      <AlertDescription>{body}</AlertDescription>
-    </Alert>
+    <div className={`rounded-lg border p-4 mb-3 ${styles[type]}`}>
+      <div className="flex items-center gap-2 mb-1">
+        <span className="text-base">{icon}</span>
+        <span className="text-sm font-semibold">{title}</span>
+      </div>
+      <p className={`text-sm leading-relaxed ${subtextStyles[type]}`}>{body}</p>
+    </div>
   );
 }
 
-/* -- Main Dashboard -- */
+/* ── Main Dashboard ── */
 export default function InVitroDashboard({ data }) {
   // Deploy state
   const [deploying, setDeploying] = useState(false);
   const [deployMsg, setDeployMsg] = useState(null);
 
+  // Company selector state
+  const DISPLAY_COMPANIES = ['AllRx', 'AllCare', 'Osta', 'Needles', 'InVitro Studio'];
+  const [selectedCompany, setSelectedCompany] = useState(null); // null = consolidated
+  const [expenseDrilldown, setExpenseDrilldown] = useState(null); // { year, month } or null
+  const [expandedDept, setExpandedDept] = useState(null); // 'G&A' | 'GTM' | etc. or null
+  const [expandedGL, setExpandedGL] = useState(null); // GL name string or null
+
+  // View mode & date range state
+  const [viewMode, setViewMode] = useState('monthly'); // 'monthly' | 'yearly'
+  const availableMonths = getAvailableMonths(data.pnl);
+  // Available years (unique, sorted)
+  const availableYears = [...new Set(availableMonths.map(m => m.year))].sort();
+  // Default to current FY (Jan–Dec of currentYear)
+  const defaultFrom = availableMonths.find(m => m.year === 2026 && m.month === 1) ?? availableMonths[0] ?? { year: 2026, month: 1, key: '2026-1', label: 'Jan 26' };
+  const defaultTo = availableMonths.find(m => m.year === 2026 && m.month === 12) ?? availableMonths[availableMonths.length - 1] ?? { year: 2026, month: 12, key: '2026-12', label: 'Dec 26' };
+  const [rangeFromKey, setRangeFromKey] = useState(defaultFrom.key);
+  const [rangeToKey, setRangeToKey] = useState(defaultTo.key);
+  const [yearFrom, setYearFrom] = useState(2026);
+  const [yearTo, setYearTo] = useState(2026);
+  // Resolve range based on viewMode
+  const rangeFrom = viewMode === 'yearly'
+    ? { year: yearFrom, month: 1, key: `${yearFrom}-1`, label: `Jan ${String(yearFrom).slice(-2)}` }
+    : (availableMonths.find(m => m.key === rangeFromKey) ?? defaultFrom);
+  const rangeTo = viewMode === 'yearly'
+    ? { year: yearTo, month: 12, key: `${yearTo}-12`, label: `Dec ${String(yearTo).slice(-2)}` }
+    : (availableMonths.find(m => m.key === rangeToKey) ?? defaultTo);
+  const rangeLabel = viewMode === 'yearly'
+    ? (yearFrom === yearTo ? String(yearFrom) : `${yearFrom}–${yearTo}`)
+    : `${rangeFrom.label}–${rangeTo.label}`;
+
   // Color map from dynamic company list
   const colorMap = buildColorMap(data.companies);
+
+  // Dynamic exclude lists based on selectedCompany
+  const allNames = data.pnl.map(c => c.name);
+  const dynExcludeRevenue = selectedCompany
+    ? allNames.filter(n => n !== selectedCompany)
+    : EXCLUDE_REVENUE;
+  const dynExcludeEbitda = selectedCompany
+    ? allNames.filter(n => n !== selectedCompany)
+    : EXCLUDE_EBITDA;
 
   // Determine current and prior year from data
   const allYears = data.pnl.flatMap(c =>
@@ -98,19 +140,115 @@ export default function InVitroDashboard({ data }) {
   const priorYear = currentYear - 1;
   const hasPriorYear = allYears.includes(priorYear);
 
-  // Revenue companies (excluding holdings)
+  // Monthly KPI logic: show previous month actual + current month expected
+  const now = new Date();
+  const currentMonth = now.getMonth() + 1; // 1-12
+  const prevMonth = currentMonth - 1 || 12;
+  const prevMonthYear = prevMonth === 12 ? currentYear - 1 : currentYear;
+  const MONTH_NAMES = ['', 'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  const prevMonthLabel = MONTH_NAMES[prevMonth];
+  const currMonthLabel = MONTH_NAMES[currentMonth];
+
+  // Previous month actuals
+  const prevRevenue = monthlyTotal(data.pnl, 'Revenues', prevMonthYear, prevMonth, dynExcludeRevenue);
+  const currRevenue = monthlyTotal(data.pnl, 'Revenues', currentYear, currentMonth, dynExcludeRevenue);
+  const prevEbitda = monthlyTotal(data.pnl, 'EBITDA', prevMonthYear, prevMonth, dynExcludeEbitda);
+  const currEbitda = monthlyTotal(data.pnl, 'EBITDA', currentYear, currentMonth, dynExcludeEbitda);
+  const prevGrossProfit = monthlyTotal(data.pnl, 'Gross Profit', prevMonthYear, prevMonth, dynExcludeRevenue);
+  const prevGrossMargin = prevRevenue > 0 ? prevGrossProfit / prevRevenue : null;
+  const currGrossProfit = monthlyTotal(data.pnl, 'Gross Profit', currentYear, currentMonth, dynExcludeRevenue);
+  const currGrossMargin = currRevenue > 0 ? currGrossProfit / currRevenue : null;
+
+  // Range-based KPI totals (used when viewMode === 'yearly')
+  const rangeRevenue = rangeTotal(data.pnl, 'Revenues', rangeFrom, rangeTo, dynExcludeRevenue);
+  const rangeEbitda = rangeTotal(data.pnl, 'EBITDA', rangeFrom, rangeTo, dynExcludeEbitda);
+  const rangeGrossProfit = rangeTotal(data.pnl, 'Gross Profit', rangeFrom, rangeTo, dynExcludeRevenue);
+  const rangeGrossMargin = rangeRevenue > 0 ? rangeGrossProfit / rangeRevenue : null;
+
+  // Cashflow: use selected company's data, or consolidated "ALL Holdings"
+  const consolidatedCF = selectedCompany
+    ? data.cashflow.find(c => c.name === selectedCompany)
+    : data.cashflow.find(c => c.name === 'ALL Holdings');
+  const cfMonthVal = (metric, year, month) => {
+    if (!consolidatedCF) return 0;
+    // Try exact metric name first, then fallbacks for per-company variants
+    const fallbacks = {
+      'Total Cash Inflow': ['Cash Inflow'],
+      'Total Cash Outflow': ['Cash Outflow'],
+      'Total net cash movement': ['Net Cash Flow', 'Direct Operational Cash Flow', 'Operational Cash Flow'],
+      'Consolidated Cash balance': ['Cash Balance'],
+    };
+    let vals = consolidatedCF.metrics[metric];
+    if (!vals && fallbacks[metric]) {
+      for (const fb of fallbacks[metric]) {
+        if (consolidatedCF.metrics[fb]) { vals = consolidatedCF.metrics[fb]; break; }
+      }
+    }
+    vals = vals ?? [];
+    const mv = vals.find(v => v.year === year && v.month === month);
+    return mv?.value ?? 0;
+  };
+  const prevInflow = cfMonthVal('Total Cash Inflow', prevMonthYear, prevMonth);
+  const currInflow = cfMonthVal('Total Cash Inflow', currentYear, currentMonth);
+  const prevNetCash = cfMonthVal('Total net cash movement', prevMonthYear, prevMonth);
+  const currNetCash = cfMonthVal('Total net cash movement', currentYear, currentMonth);
+
+  // Revenue companies (excl. InVitro Studio + always-hidden)
   const revenueCompanies = data.pnl
-    .filter(c => !EXCLUDE_COMPANIES.includes(c.name))
+    .filter(c => !dynExcludeRevenue.includes(c.name))
     .map(c => c.name);
 
-  // All companies including holdings (for EBITDA charts)
-  const allCompanyNames = data.pnl.map(c => c.name);
+  // EBITDA companies (InVitro Studio included)
+  const allCompanyNames = data.pnl
+    .filter(c => !dynExcludeEbitda.includes(c.name))
+    .map(c => c.name);
 
-  // Build chart data series
-  const revenueByMonth = buildMonthlySeries(data.pnl, 'Revenue', EXCLUDE_COMPANIES);
-  const ebitdaByMonth = buildMonthlySeries(data.pnl, 'EBITDA');
-  const grossMarginByMonth = buildMonthlySeries(data.pnl, 'Gorss Margin, %', EXCLUDE_COMPANIES);
-  const cashBalanceByMonth = buildCashflowSeries(data.cashflow);
+  // Build chart data series — responsive to viewMode + dateRange
+  const rawRevenueByMonth = buildMonthlySeries(data.pnl, 'Revenues', dynExcludeRevenue, null);
+  const rawEbitdaByMonth = buildMonthlySeries(data.pnl, 'EBITDA', dynExcludeEbitda, null);
+  const revenueByMonth = viewMode === 'yearly'
+    ? buildYearlySeries(data.pnl, 'Revenues', dynExcludeRevenue, yearFrom, yearTo)
+    : filterSeriesToRange(rawRevenueByMonth, rangeFrom, rangeTo, availableMonths);
+  const ebitdaByMonth = viewMode === 'yearly'
+    ? buildYearlySeries(data.pnl, 'EBITDA', dynExcludeEbitda, yearFrom, yearTo)
+    : filterSeriesToRange(rawEbitdaByMonth, rangeFrom, rangeTo, availableMonths);
+  // grossMarginByMonth is now computed inline from Revenue & Gross Profit
+  // Build cashflow series — metric names differ between consolidated and per-company
+  const cashBalanceByMonth = (() => {
+    if (!consolidatedCF) return [];
+    const fromVal = rangeFrom.year * 100 + rangeFrom.month;
+    const toVal = rangeTo.year * 100 + rangeTo.month;
+    // Consolidated uses "Total Cash Inflow", per-company uses "Cash Inflow"
+    // Find first available metric name from a priority list
+    const findMetric = (...keys) => keys.find(k => consolidatedCF.metrics[k]) || keys[0];
+    const inflowKey = findMetric('Total Cash Inflow', 'Cash Inflow');
+    const outflowKey = findMetric('Total Cash Outflow', 'Cash Outflow');
+    const opsCFKey = findMetric('Holdings net cash movement', 'Operating Cash Flow', 'Operational Cash Flow', 'Direct Operational Cash Flow', 'Operational Cash Flow (Internal budget)');
+    const netKey = findMetric('Total net cash movement', 'Net Cash Flow', 'Direct Operational Cash Flow', 'Operational Cash Flow');
+    const inRangeCF = (v) => {
+      const pv = v.year * 100 + v.month;
+      return pv >= fromVal && pv <= toVal;
+    };
+    const inflowMetric = (consolidatedCF.metrics[inflowKey] ?? []).filter(inRangeCF);
+    const outflowMetric = (consolidatedCF.metrics[outflowKey] ?? []).filter(inRangeCF);
+    const opsCFMetric = (consolidatedCF.metrics[opsCFKey] ?? []).filter(inRangeCF);
+    const netMetric = (consolidatedCF.metrics[netKey] ?? []).filter(inRangeCF);
+    const MONTHS = ['', 'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    return inflowMetric
+      .map((mv, i) => ({
+        month: `${MONTHS[mv.month]} ${String(mv.year).slice(-2)}`,
+        inflow: mv.value ?? 0,
+        outflow: Math.abs(outflowMetric[i]?.value ?? 0),
+        opsCashFlow: opsCFMetric[i]?.value ?? 0,
+        net: netMetric[i]?.value ?? 0,
+        _year: mv.year,
+        _month: mv.month,
+      }))
+      .filter(p => {
+        const pVal = p._year * 100 + p._month;
+        return pVal >= fromVal && pVal <= toVal;
+      });
+  })();
 
   // Revenue by month with Total
   const revenueByMonthWithTotal = revenueByMonth.map(point => ({
@@ -124,90 +262,194 @@ export default function InVitroDashboard({ data }) {
     Total: allCompanyNames.reduce((sum, name) => sum + (point[name] ?? 0), 0),
   }));
 
+  // Expenses data — InVitro Studio uses "Fixed Expenses" + "Direct Expenses"; others use "SG&A + R&D Expenses"
+  // Helper: get expense values for a company (handles InVitro Studio's different metric names)
+  const getCompanyExpenseValues = (co) => {
+    if (!co) return [];
+    if (co.name === 'InVitro Studio') {
+      // Merge Fixed + Direct expenses by month
+      const fixed = co.metrics['Fixed Expenses'] ?? [];
+      const direct = co.metrics['Direct Expenses'] ?? [];
+      const byKey = {};
+      for (const v of [...fixed, ...direct]) {
+        const k = `${v.year}-${v.month}`;
+        byKey[k] = byKey[k] || { year: v.year, month: v.month, value: 0 };
+        byKey[k].value += v.value ?? 0;
+      }
+      return Object.values(byKey);
+    }
+    return co.metrics['SG&A + R&D Expenses'] ?? [];
+  };
+  const getExpenseLabel = () => {
+    if (!selectedCompany) return 'Total Expenses';
+    if (selectedCompany === 'InVitro Studio') return 'Fixed + Direct Expenses';
+    return 'SG&A + R&D';
+  };
+  // For the chart: consolidated shows per-company breakdown, individual shows single company
+  const expenseChartCompanies = selectedCompany
+    ? [selectedCompany]
+    : data.pnl.filter(c => !dynExcludeEbitda.includes(c.name)).map(c => c.name);
+  // Build expense chart series — handles InVitro Studio's different metric names
+  const expenseByMonth = (() => {
+    const MONTHS = ['','Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+    // If single company is InVitro Studio, build series from Fixed+Direct
+    if (selectedCompany === 'InVitro Studio') {
+      const studio = data.pnl.find(c => c.name === 'InVitro Studio');
+      if (!studio) return [];
+      const vals = getCompanyExpenseValues(studio);
+      const fromVal = rangeFrom.year * 100 + rangeFrom.month;
+      const toVal = rangeTo.year * 100 + rangeTo.month;
+      if (viewMode === 'yearly') {
+        const byYear = {};
+        for (const v of vals) {
+          if (v.year < yearFrom || v.year > yearTo) continue;
+          byYear[v.year] = byYear[v.year] || { month: String(v.year), 'InVitro Studio': 0 };
+          byYear[v.year]['InVitro Studio'] += v.value ?? 0;
+        }
+        return Object.values(byYear).sort((a, b) => a.month - b.month);
+      }
+      return vals
+        .filter(v => { const pv = v.year * 100 + v.month; return pv >= fromVal && pv <= toVal; })
+        .map(v => ({ month: `${MONTHS[v.month]} ${String(v.year).slice(-2)}`, 'InVitro Studio': v.value ?? 0 }));
+    }
+    // Standard: use SG&A + R&D Expenses, then merge InVitro Studio
+    const rawSgna = buildMonthlySeries(data.pnl, 'SG&A + R&D Expenses', dynExcludeEbitda, null);
+    const base = viewMode === 'yearly'
+      ? buildYearlySeries(data.pnl, 'SG&A + R&D Expenses', dynExcludeEbitda, yearFrom, yearTo)
+      : filterSeriesToRange(rawSgna, rangeFrom, rangeTo, availableMonths);
+    // Merge InVitro Studio's Fixed+Direct into the consolidated series
+    const studio = data.pnl.find(c => c.name === 'InVitro Studio');
+    if (studio && !dynExcludeEbitda.includes('InVitro Studio')) {
+      const studioVals = getCompanyExpenseValues(studio);
+      for (const point of base) {
+        const match = studioVals.find(v => {
+          if (viewMode === 'yearly') return String(v.year) === point.month;
+          return `${MONTHS[v.month]} ${String(v.year).slice(-2)}` === point.month;
+        });
+        if (match) point['InVitro Studio'] = match.value;
+      }
+    }
+    return base;
+  })();
+  const expenseByMonthWithTotal = expenseByMonth.map(point => ({
+    ...point,
+    Total: expenseChartCompanies.reduce((sum, name) => sum + (point[name] ?? 0), 0),
+  }));
+
   // Annual totals
-  const totalRevCurrent = annualTotal(data.pnl, 'Revenue', currentYear, EXCLUDE_COMPANIES);
-  const totalRevPrior = annualTotal(data.pnl, 'Revenue', priorYear, EXCLUDE_COMPANIES);
+  const totalRevCurrent = annualTotal(data.pnl, 'Revenues', currentYear, dynExcludeRevenue);
+  const totalRevPrior = annualTotal(data.pnl, 'Revenues', priorYear, dynExcludeRevenue);
   const revGrowth = hasPriorYear && totalRevPrior > 0
     ? (totalRevCurrent - totalRevPrior) / totalRevPrior
     : null;
 
-  const totalEbitdaCurrent = annualTotal(data.pnl, 'EBITDA', currentYear);
-  const totalEbitdaPrior = annualTotal(data.pnl, 'EBITDA', priorYear);
+  const totalEbitdaCurrent = annualTotal(data.pnl, 'EBITDA', currentYear, dynExcludeEbitda);
+  const totalEbitdaPrior = annualTotal(data.pnl, 'EBITDA', priorYear, dynExcludeEbitda);
   const ebitdaSwing = hasPriorYear ? totalEbitdaCurrent - totalEbitdaPrior : null;
   const ebitdaMargin = totalRevCurrent > 0 ? totalEbitdaCurrent / totalRevCurrent : null;
 
-  const totalGrossProfitCurrent = annualTotal(data.pnl, 'Gross Profit', currentYear, EXCLUDE_COMPANIES);
+  const totalGrossProfitCurrent = annualTotal(data.pnl, 'Gross Profit', currentYear, dynExcludeRevenue);
   const grossMarginCurrent = totalRevCurrent > 0 ? totalGrossProfitCurrent / totalRevCurrent : null;
-  const totalGrossProfitPrior = annualTotal(data.pnl, 'Gross Profit', priorYear, EXCLUDE_COMPANIES);
+  const totalGrossProfitPrior = annualTotal(data.pnl, 'Gross Profit', priorYear, dynExcludeRevenue);
   const grossMarginPrior = totalRevPrior > 0 ? totalGrossProfitPrior / totalRevPrior : null;
   const grossMarginChange = grossMarginCurrent !== null && grossMarginPrior !== null
     ? grossMarginCurrent - grossMarginPrior
     : null;
 
-  // Cashflow totals
-  const totalInflow = data.cashflow.reduce((sum, c) => {
-    const vals = c.metrics['Cash Inflow'] ?? [];
-    return sum + vals.reduce((s, v) => s + (v.value ?? 0), 0);
-  }, 0);
-  const totalNetCash = data.cashflow.reduce((sum, c) => {
-    const vals = c.metrics['Net Cash Flow'] ?? [];
-    return sum + vals.reduce((s, v) => s + (v.value ?? 0), 0);
-  }, 0);
+  // Cashflow totals from consolidated "ALL Holdings"
+  const totalInflow = cashBalanceByMonth.reduce((s, m) => s + m.inflow, 0);
+  const totalOutflow = cashBalanceByMonth.reduce((s, m) => s + m.outflow, 0);
+  const totalNetCash = cashBalanceByMonth.reduce((s, m) => s + m.net, 0);
   const monthCount = cashBalanceByMonth.length || 1;
-  const avgMonthlyBurn = totalNetCash / monthCount;
-  const endingBalance = cashBalanceByMonth.length > 0
-    ? cashBalanceByMonth[cashBalanceByMonth.length - 1].balance
+  const totalOpsCF = cashBalanceByMonth.reduce((s, m) => s + m.opsCashFlow, 0);
+  const avgMonthlyBurn = totalOpsCF / monthCount;
+  const endingOpsCF = cashBalanceByMonth.length > 0
+    ? cashBalanceByMonth[cashBalanceByMonth.length - 1].opsCashFlow
     : 0;
-  const runwayMonths = avgMonthlyBurn < 0
-    ? endingBalance / Math.abs(avgMonthlyBurn)
-    : null; // cash positive
 
-  // EBITDA contribution by company (for horizontal bar chart)
-  const companyEbitdaData = data.pnl.map(c => {
-    const yearVals = (c.metrics['EBITDA'] ?? []).filter(v => v.year === currentYear);
-    const total = yearVals.reduce((s, v) => s + (v.value ?? 0), 0);
-    return { name: c.name, value: total };
-  }).sort((a, b) => b.value - a.value);
+  // Range-aware metric filter: returns values within selected range
+  const inRange = (v) => {
+    const pv = v.year * 100 + v.month;
+    return pv >= rangeFrom.year * 100 + rangeFrom.month && pv <= rangeTo.year * 100 + rangeTo.month;
+  };
 
-  // Revenue pie (excluding holdings)
-  const revenuePieData = data.pnl
-    .filter(c => !EXCLUDE_COMPANIES.includes(c.name))
+  // Expense breakdown per company for pie chart
+  const expensePieData = data.pnl
+    .filter(c => !dynExcludeEbitda.includes(c.name))
     .map(c => {
-      const yearVals = (c.metrics['Revenue'] ?? []).filter(v => v.year === currentYear);
-      const total = yearVals.reduce((s, v) => s + (v.value ?? 0), 0);
+      const vals = getCompanyExpenseValues(c).filter(inRange);
+      const total = vals.reduce((s, v) => s + Math.abs(v.value ?? 0), 0);
       return { name: c.name, value: total, color: colorMap[c.name] };
     })
     .filter(c => c.value > 0)
     .sort((a, b) => b.value - a.value);
 
-  // YoY comparison data
-  const yoyData = hasPriorYear ? [
-    { metric: 'Revenue', y2025: totalRevPrior, y2026: totalRevCurrent },
-    { metric: 'EBITDA', y2025: totalEbitdaPrior, y2026: totalEbitdaCurrent },
-  ] : [];
+  // Expense range totals (depend on inRange)
+  const rangeExpenses = (() => {
+    if (selectedCompany) {
+      const co = data.pnl.find(c => c.name === selectedCompany);
+      return getCompanyExpenseValues(co).filter(inRange).reduce((s, v) => s + (v.value ?? 0), 0);
+    }
+    const allH = data.pnl.find(c => c.name === 'ALL Holdings');
+    return (allH?.metrics['Total Expenses'] ?? []).filter(inRange).reduce((s, v) => s + (v.value ?? 0), 0);
+  })();
+  const avgMonthlyExpense = monthCount > 0 ? rangeExpenses / monthCount : 0;
 
-  // Company performance table rows
-  const companyRows = data.pnl.map(c => {
-    const revCurrent = (c.metrics['Revenue'] ?? []).filter(v => v.year === currentYear).reduce((s, v) => s + (v.value ?? 0), 0);
-    const revPrior = (c.metrics['Revenue'] ?? []).filter(v => v.year === priorYear).reduce((s, v) => s + (v.value ?? 0), 0);
-    const ebitda = (c.metrics['EBITDA'] ?? []).filter(v => v.year === currentYear).reduce((s, v) => s + (v.value ?? 0), 0);
-    const gp = (c.metrics['Gross Profit'] ?? []).filter(v => v.year === currentYear).reduce((s, v) => s + (v.value ?? 0), 0);
+  // Cash runway from consolidated sheet row 180 (only for consolidated view)
+  const cashRunwayValues = !selectedCompany ? (data.cashRunwayRow ?? []).filter(inRange) : [];
+  const runwayMonths = cashRunwayValues.length > 0
+    ? cashRunwayValues.reduce((s, v) => s + (v.value ?? 0), 0) / cashRunwayValues.length
+    : null;
+
+  // EBITDA contribution by company (InVitro Studio included)
+  const companyEbitdaData = data.pnl
+    .filter(c => !dynExcludeEbitda.includes(c.name))
+    .map(c => {
+      const vals = (c.metrics['EBITDA'] ?? []).filter(inRange);
+      const total = vals.reduce((s, v) => s + (v.value ?? 0), 0);
+      return { name: c.name, value: total };
+    }).sort((a, b) => b.value - a.value);
+
+  // Revenue pie (excl. InVitro Studio)
+  const revenuePieData = data.pnl
+    .filter(c => !dynExcludeRevenue.includes(c.name))
+    .map(c => {
+      const vals = (c.metrics['Revenues'] ?? []).filter(inRange);
+      const total = vals.reduce((s, v) => s + (v.value ?? 0), 0);
+      return { name: c.name, value: total, color: colorMap[c.name] };
+    })
+    .filter(c => c.value > 0)
+    .sort((a, b) => b.value - a.value);
+
+  // Company performance table rows (EBITDA scope — includes InVitro Studio)
+  // Uses range filter so table respects the selected date range
+  const companyRows = data.pnl.filter(c => !dynExcludeEbitda.includes(c.name)).map(c => {
+    const revCurrent = (c.metrics['Revenues'] ?? []).filter(inRange).reduce((s, v) => s + (v.value ?? 0), 0);
+    const revPrior = (c.metrics['Revenues'] ?? []).filter(v => v.year === priorYear).reduce((s, v) => s + (v.value ?? 0), 0);
+    const ebitda = (c.metrics['EBITDA'] ?? []).filter(inRange).reduce((s, v) => s + (v.value ?? 0), 0);
+    const gp = (c.metrics['Gross Profit'] ?? []).filter(inRange).reduce((s, v) => s + (v.value ?? 0), 0);
     const grossMargin = revCurrent > 0 ? gp / revCurrent : null;
     const companyRevGrowth = hasPriorYear && revPrior > 0 ? (revCurrent - revPrior) / revPrior : null;
     return { name: c.name, rev: revCurrent, ebitda, grossMargin, revGrowth: companyRevGrowth, color: colorMap[c.name] };
   });
 
   // Totals row (excl holdings)
-  const totalRowRev = companyRows.filter(c => !EXCLUDE_COMPANIES.includes(c.name)).reduce((s, c) => s + c.rev, 0);
+  const totalRowRev = companyRows.filter(c => !dynExcludeRevenue.includes(c.name)).reduce((s, c) => s + c.rev, 0);
   const totalRowEbitda = companyRows.reduce((s, c) => s + c.ebitda, 0);
   const totalRowGrossMargin = totalRowRev > 0 ? totalGrossProfitCurrent / totalRevCurrent : null;
 
-  // Gross margin percentage by month
-  const grossMarginPctByMonth = grossMarginByMonth.map(point => {
-    const pctPoint = { month: point.month };
-    for (const key of Object.keys(point)) {
-      if (key === 'month') continue;
-      pctPoint[key] = point[key] !== null ? point[key] * 100 : null;
+  // Gross margin percentage by month — computed from Revenue & Gross Profit
+  const rawGpByMonth = buildMonthlySeries(data.pnl, 'Gross Profit', dynExcludeRevenue, null);
+  const gpByMonth = viewMode === 'yearly'
+    ? buildYearlySeries(data.pnl, 'Gross Profit', dynExcludeRevenue, yearFrom, yearTo)
+    : filterSeriesToRange(rawGpByMonth, rangeFrom, rangeTo, availableMonths);
+  const grossMarginPctByMonth = revenueByMonth.map((revPoint, i) => {
+    const gpPoint = gpByMonth[i] || {};
+    const pctPoint = { month: revPoint.month };
+    for (const name of revenueCompanies) {
+      const rev = revPoint[name] ?? 0;
+      const gp = gpPoint[name] ?? 0;
+      pctPoint[name] = rev > 0 ? (gp / rev) * 100 : null;
     }
     return pctPoint;
   });
@@ -219,7 +461,7 @@ export default function InVitroDashboard({ data }) {
   let breakevenCompany = null;
   if (hasPriorYear) {
     for (const c of data.pnl) {
-      if (EXCLUDE_COMPANIES.includes(c.name)) continue;
+      if (dynExcludeEbitda.includes(c.name)) continue;
       const priorEbitda = (c.metrics['EBITDA'] ?? []).filter(v => v.year === priorYear).reduce((s, v) => s + (v.value ?? 0), 0);
       const currEbitda = (c.metrics['EBITDA'] ?? []).filter(v => v.year === currentYear).reduce((s, v) => s + (v.value ?? 0), 0);
       if (priorEbitda < 0 && currEbitda >= 0) {
@@ -238,77 +480,176 @@ export default function InVitroDashboard({ data }) {
   });
 
   // Insights
-  const insights = generateInsights(data);
+  const insights = generateInsights(data, rangeFrom, rangeTo, selectedCompany);
 
   // Deploy handler
+  const [reloadCountdown, setReloadCountdown] = useState(null);
   async function handleDeploy() {
     setDeploying(true);
+    setDeployMsg(null);
     try {
       const res = await fetch('/api/deploy', { method: 'POST' });
       const json = await res.json();
-      setDeployMsg(res.ok ? 'Rebuild triggered!' : json.error || 'Deploy failed');
+      if (res.ok) {
+        setDeployMsg('Rebuild started — page will reload in 90s with fresh data...');
+        setDeploying(false);
+        let remaining = 90;
+        setReloadCountdown(remaining);
+        const interval = setInterval(() => {
+          remaining--;
+          setReloadCountdown(remaining);
+          if (remaining <= 0) {
+            clearInterval(interval);
+            window.location.reload();
+          }
+        }, 1000);
+      } else {
+        setDeployMsg(json.error || 'Deploy failed');
+        setDeploying(false);
+      }
     } catch {
       setDeployMsg('Failed to trigger rebuild');
+      setDeploying(false);
     }
-    setDeploying(false);
-    setTimeout(() => setDeployMsg(null), 3000);
   }
 
   return (
     <div className="min-h-screen bg-background text-foreground">
       {/* Header */}
-      <header className="border-b border-border/50 bg-card px-8 py-6">
+      <header className="border-b border-border bg-white px-8 py-5">
         <div className="mx-auto max-w-7xl flex flex-wrap items-center justify-between gap-4">
-          <div>
-            <div className="flex items-center gap-3 mb-1">
-              <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-gradient-to-br from-blue-500 to-violet-500 text-sm font-extrabold text-white">
-                IV
-              </div>
-              <h1 className="text-xl font-bold tracking-tight">
-                InVitro Capital &mdash; Shareholder Dashboard
-              </h1>
+          <div className="flex items-center gap-3">
+            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-600 text-sm font-extrabold text-white shadow-sm">
+              IV
             </div>
-            <p className="text-xs text-muted-foreground">
-              Consolidated Financial Performance &mdash; FY {currentYear} (Actuals) &bull; Source: InVitro Capital Consolidated - Actual
-            </p>
+            <div>
+              <h1 className="text-lg font-semibold tracking-tight text-foreground">
+                InVitro Capital
+              </h1>
+              <p className="text-[11px] text-muted-foreground">
+                Shareholder Dashboard &bull; Actuals till {prevMonthLabel} {prevMonthYear}
+              </p>
+            </div>
           </div>
-          <div className="text-right">
-            <p className="text-[10px] uppercase tracking-wider text-muted-foreground mb-1">Last Updated</p>
-            <Badge variant="secondary">{lastUpdated}</Badge>
+
+          <div className="flex items-center gap-2.5 flex-wrap">
+            {/* Monthly / Yearly toggle */}
+            <div className="flex bg-muted rounded-lg p-0.5">
+              <button
+                onClick={() => { setViewMode('monthly'); setExpenseDrilldown(null); }}
+                className={`px-3 py-1.5 text-xs font-medium rounded-md transition-all ${viewMode === 'monthly' ? 'bg-white text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'}`}
+              >
+                Monthly
+              </button>
+              <button
+                onClick={() => { setViewMode('yearly'); setExpenseDrilldown(null); }}
+                className={`px-3 py-1.5 text-xs font-medium rounded-md transition-all ${viewMode === 'yearly' ? 'bg-white text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'}`}
+              >
+                Yearly
+              </button>
+            </div>
+
+            {/* Date range selectors */}
+            <div className="flex items-center gap-1.5 bg-muted/60 rounded-lg px-2 py-1">
+              {viewMode === 'monthly' ? (
+                <>
+                  <select value={rangeFromKey} onChange={e => { setRangeFromKey(e.target.value); setExpenseDrilldown(null); }}
+                    className="h-7 rounded-md bg-white border border-border/60 px-2 text-xs font-medium text-foreground shadow-sm focus:outline-none focus:ring-2 focus:ring-ring/30">
+                    {availableMonths.map(m => (<option key={m.key} value={m.key}>{m.label}</option>))}
+                  </select>
+                  <span className="text-[10px] text-muted-foreground font-medium">to</span>
+                  <select value={rangeToKey} onChange={e => { setRangeToKey(e.target.value); setExpenseDrilldown(null); }}
+                    className="h-7 rounded-md bg-white border border-border/60 px-2 text-xs font-medium text-foreground shadow-sm focus:outline-none focus:ring-2 focus:ring-ring/30">
+                    {availableMonths.map(m => (<option key={m.key} value={m.key}>{m.label}</option>))}
+                  </select>
+                </>
+              ) : (
+                <>
+                  <select value={yearFrom} onChange={e => { setYearFrom(Number(e.target.value)); setExpenseDrilldown(null); }}
+                    className="h-7 rounded-md bg-white border border-border/60 px-2 text-xs font-medium text-foreground shadow-sm focus:outline-none focus:ring-2 focus:ring-ring/30">
+                    {availableYears.map(y => (<option key={y} value={y}>{y}</option>))}
+                  </select>
+                  <span className="text-[10px] text-muted-foreground font-medium">to</span>
+                  <select value={yearTo} onChange={e => { setYearTo(Number(e.target.value)); setExpenseDrilldown(null); }}
+                    className="h-7 rounded-md bg-white border border-border/60 px-2 text-xs font-medium text-foreground shadow-sm focus:outline-none focus:ring-2 focus:ring-ring/30">
+                    {availableYears.map(y => (<option key={y} value={y}>{y}</option>))}
+                  </select>
+                </>
+              )}
+            </div>
+
+            {/* Last Updated */}
+            <div className="text-right pl-2 border-l border-border/60">
+              <p className="text-[10px] uppercase tracking-wider text-muted-foreground">Updated</p>
+              <p className="text-xs font-semibold text-foreground">{lastUpdated}</p>
+            </div>
           </div>
         </div>
       </header>
 
       {/* Content */}
       <main className="mx-auto max-w-7xl px-8 py-6">
+        {/* Company Selector */}
+        <div className="flex flex-wrap gap-1 mb-4">
+          <button
+            onClick={() => { setSelectedCompany(null); setExpenseDrilldown(null); }}
+            className={`px-3 py-1.5 text-xs font-medium rounded-full transition-all border ${!selectedCompany ? 'bg-primary text-primary-foreground border-primary shadow-sm' : 'bg-white text-muted-foreground border-border hover:text-foreground hover:border-foreground/30'}`}
+          >
+            Consolidated
+          </button>
+          {DISPLAY_COMPANIES.map(name => (
+            <button
+              key={name}
+              onClick={() => { setSelectedCompany(name); setExpenseDrilldown(null); }}
+              className={`px-3 py-1.5 text-xs font-medium rounded-full transition-all border ${selectedCompany === name ? 'text-white shadow-sm' : 'bg-white text-muted-foreground border-border hover:text-foreground hover:border-foreground/30'}`}
+              style={selectedCompany === name ? { backgroundColor: colorMap[name], borderColor: colorMap[name] } : {}}
+            >
+              {name}
+            </button>
+          ))}
+        </div>
+
         <Tabs defaultValue="overview">
           <TabsList className="mb-6 flex-wrap">
             <TabsTrigger value="overview">Overview</TabsTrigger>
             <TabsTrigger value="revenue">Revenue</TabsTrigger>
+            <TabsTrigger value="expenses">Expenses</TabsTrigger>
             <TabsTrigger value="profitability">Profitability</TabsTrigger>
             <TabsTrigger value="cashflow">Cash Flow</TabsTrigger>
             <TabsTrigger value="insights">Insights</TabsTrigger>
           </TabsList>
 
-          {/* ---- OVERVIEW ---- */}
+          {/* ────── OVERVIEW ────── */}
           <TabsContent value="overview">
-            <div className="space-y-8">
-              <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-                <KPICard title={`Total Revenue (${currentYear})`} value={fmt(totalRevCurrent)} trend={revGrowth !== null ? (revGrowth * 100).toFixed(0) + '% YoY' : 'N/A'} trendUp={revGrowth > 0} subtitle="excl. holdings" />
-                <KPICard title={`Total EBITDA (${currentYear})`} value={fmt(totalEbitdaCurrent)} trend={ebitdaSwing !== null ? (ebitdaSwing >= 0 ? '+' : '') + fmt(ebitdaSwing) + ' swing' : null} trendUp={ebitdaSwing >= 0} subtitle={ebitdaMargin !== null ? (ebitdaMargin * 100).toFixed(0) + '% margin' : ''} />
-                <KPICard title="Cash Balance" value={fmt(endingBalance)} trend={runwayMonths !== null ? (runwayMonths < 0 ? 'N/A' : '~' + runwayMonths.toFixed(1) + ' months') : 'Cash positive'} trendUp={runwayMonths === null || runwayMonths > 6} subtitle="runway at current burn" />
-                <KPICard title="Gross Margin" value={pct(grossMarginCurrent)} trend={grossMarginChange !== null ? (grossMarginChange > 0 ? '+' : '') + (grossMarginChange * 100).toFixed(0) + 'pp YoY' : null} trendUp={grossMarginChange > 0} subtitle="portfolio weighted" />
-              </div>
+            <div className="flex flex-wrap gap-4 mb-6">
+              <KPICard title={`Revenue — ${rangeLabel}`} value={fmt(rangeRevenue)} subtitle="excl. holdings" />
+              <KPICard title={`EBITDA — ${rangeLabel}`} value={fmt(rangeEbitda)} subtitle={rangeRevenue > 0 ? (rangeEbitda / rangeRevenue * 100).toFixed(0) + '% margin' : ''} />
+              <KPICard title="Operational Cash Flow" value={fmt(totalOpsCF)} trend={runwayMonths !== null ? '~' + runwayMonths.toFixed(1) + ' months' : (totalOpsCF >= 0 ? 'Cash positive' : 'Cash negative')} trendUp={totalOpsCF >= 0} subtitle="at current burn rate" />
+              <KPICard title={`Gross Margin — ${rangeLabel}`} value={pct(rangeGrossMargin)} subtitle="portfolio weighted" />
+            </div>
 
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                <Card>
-                  <CardHeader>
-                    <CardTitle>Monthly Revenue Trend ({currentYear}) &mdash; excl. Holdings</CardTitle>
-                    <CardDescription>Excl. holdings entities</CardDescription>
-                  </CardHeader>
-                  <CardContent>
-                    <ResponsiveContainer width="100%" height={260}>
-                      <AreaChart data={revenueByMonth}>
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-8">
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-sm">{viewMode === 'yearly' ? 'Yearly' : 'Monthly'} Revenue Trend ({rangeLabel}) &mdash; excl. Holdings</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <ResponsiveContainer width="100%" height={260}>
+                    {revenueByMonthWithTotal.length < 3 ? (
+                      <ComposedChart data={revenueByMonthWithTotal}>
+                        <CartesianGrid strokeDasharray="3 3" stroke={CHART_STYLE.border} />
+                        <XAxis dataKey="month" tick={{ fill: CHART_STYLE.muted, fontSize: 11 }} />
+                        <YAxis tick={{ fill: CHART_STYLE.muted, fontSize: 11 }} tickFormatter={fmtShort} />
+                        <Tooltip content={<CustomTooltip />} />
+                        {revenueCompanies.map((name, i) => (
+                          <Bar key={name} dataKey={name} stackId="1" fill={colorMap[name]}
+                            radius={i === revenueCompanies.length - 1 ? [4, 4, 0, 0] : [0, 0, 0, 0]} />
+                        ))}
+                        <Line type="monotone" dataKey="Total" stroke="#1e293b" strokeWidth={2} dot={{ fill: "#1e293b", r: 3 }} />
+                        <Legend />
+                      </ComposedChart>
+                    ) : (
+                      <ComposedChart data={revenueByMonthWithTotal}>
                         <CartesianGrid strokeDasharray="3 3" stroke={CHART_STYLE.border} />
                         <XAxis dataKey="month" tick={{ fill: CHART_STYLE.muted, fontSize: 11 }} />
                         <YAxis tick={{ fill: CHART_STYLE.muted, fontSize: 11 }} tickFormatter={fmtShort} />
@@ -317,359 +658,634 @@ export default function InVitroDashboard({ data }) {
                           <Area key={name} type="monotone" dataKey={name} stackId="1"
                             stroke={colorMap[name]} fill={colorMap[name]} fillOpacity={0.6} />
                         ))}
+                        <Line type="monotone" dataKey="Total" stroke="#1e293b" strokeWidth={2} dot={{ fill: "#1e293b", r: 3 }} />
                         <Legend />
-                      </AreaChart>
-                    </ResponsiveContainer>
-                  </CardContent>
-                </Card>
+                      </ComposedChart>
+                    )}
+                  </ResponsiveContainer>
+                </CardContent>
+              </Card>
 
-                <Card>
-                  <CardHeader>
-                    <CardTitle>{currentYear} EBITDA Contribution by Company</CardTitle>
-                    <CardDescription>All entities, current year</CardDescription>
-                  </CardHeader>
-                  <CardContent>
-                    <ResponsiveContainer width="100%" height={260}>
-                      <BarChart data={companyEbitdaData} layout="vertical">
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-sm">{viewMode === 'yearly' ? 'Yearly' : 'Monthly'} EBITDA by Company ({rangeLabel})</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <ResponsiveContainer width="100%" height={260}>
+                    {ebitdaByMonthWithTotal.length < 3 ? (
+                      <ComposedChart data={ebitdaByMonthWithTotal}>
                         <CartesianGrid strokeDasharray="3 3" stroke={CHART_STYLE.border} />
-                        <XAxis type="number" tick={{ fill: CHART_STYLE.muted, fontSize: 11 }} tickFormatter={fmtShort} />
-                        <YAxis type="category" dataKey="name" tick={{ fill: CHART_STYLE.muted, fontSize: 11 }} width={120} />
+                        <XAxis dataKey="month" tick={{ fill: CHART_STYLE.muted, fontSize: 11 }} />
+                        <YAxis tick={{ fill: CHART_STYLE.muted, fontSize: 11 }} tickFormatter={fmtShort} />
                         <Tooltip content={<CustomTooltip />} />
-                        <Bar dataKey="value" name="EBITDA" radius={[0, 4, 4, 0]}>
-                          {companyEbitdaData.map((e, i) => (
-                            <Cell key={i} fill={e.value >= 0 ? CHART_STYLE.positive : CHART_STYLE.negative} />
-                          ))}
-                        </Bar>
-                      </BarChart>
-                    </ResponsiveContainer>
-                  </CardContent>
-                </Card>
-              </div>
-
-              {/* Company Performance Table */}
-              <div>
-                <Card className="mb-4">
-                  <CardHeader>
-                    <CardTitle>Company Performance Summary</CardTitle>
-                    <CardDescription>All active portfolio companies &mdash; FY {currentYear}</CardDescription>
-                  </CardHeader>
-                </Card>
-                <Card className="py-0 overflow-hidden">
-                  <Table>
-                    <TableHeader>
-                      <TableRow className="border-border/60 hover:bg-transparent">
-                        <TableHead className="w-[180px]">Company</TableHead>
-                        <TableHead className="text-right">Revenue</TableHead>
-                        <TableHead className="text-right">EBITDA</TableHead>
-                        <TableHead className="text-right">Gross %</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {companyRows.map((co) => (
-                        <TableRow key={co.name}>
-                          <TableCell className="font-semibold">
-                            <span className="inline-block w-3 h-3 rounded-full mr-2" style={{ background: co.color }} />
-                            {co.name}
-                          </TableCell>
-                          <TableCell className="text-right">
-                            <div className="font-semibold">{fmt(co.rev)}</div>
-                            {co.revGrowth !== null ? (
-                              <div className={`text-[11px] ${co.revGrowth >= 0 ? "text-emerald-600" : "text-red-600"}`}>
-                                {co.revGrowth >= 0 ? "+" : ""}{(co.revGrowth * 100).toFixed(0)}% YoY
-                              </div>
-                            ) : (
-                              <div className="text-[11px] text-muted-foreground">New</div>
-                            )}
-                          </TableCell>
-                          <TableCell className="text-right">
-                            <div className={`font-semibold ${co.ebitda >= 0 ? "text-emerald-600" : "text-red-600"}`}>{fmt(co.ebitda)}</div>
-                            <div className="text-[11px] text-muted-foreground">{co.rev > 0 ? (co.ebitda / co.rev * 100).toFixed(1) + '% margin' : 'N/A'}</div>
-                          </TableCell>
-                          <TableCell className="text-right">
-                            {co.grossMargin !== null && co.grossMargin > 0 ? `${(co.grossMargin * 100).toFixed(0)}%` : "N/A"}
-                          </TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                    <TableFooter>
-                      <TableRow className="bg-muted hover:bg-muted">
-                        <TableCell className="font-bold">TOTAL (excl. holdings)</TableCell>
-                        <TableCell className="text-right font-bold">{fmt(totalRowRev)}</TableCell>
-                        <TableCell className="text-right font-bold text-emerald-600">{fmt(totalRowEbitda)}</TableCell>
-                        <TableCell className="text-right font-bold">{totalRowGrossMargin !== null ? (totalRowGrossMargin * 100).toFixed(0) + '%' : 'N/A'}</TableCell>
-                      </TableRow>
-                    </TableFooter>
-                  </Table>
-                </Card>
-              </div>
+                        {(selectedCompany ? [selectedCompany] : allCompanyNames).map((name, i, arr) => (
+                          <Bar key={name} dataKey={name} stackId="1" fill={colorMap[name]}
+                            radius={i === arr.length - 1 ? [4, 4, 0, 0] : [0, 0, 0, 0]} />
+                        ))}
+                        <Line type="monotone" dataKey="Total" stroke="#1e293b" strokeWidth={2} dot={{ fill: "#1e293b", r: 3 }} />
+                        <Legend />
+                      </ComposedChart>
+                    ) : (
+                      <ComposedChart data={ebitdaByMonthWithTotal}>
+                        <CartesianGrid strokeDasharray="3 3" stroke={CHART_STYLE.border} />
+                        <XAxis dataKey="month" tick={{ fill: CHART_STYLE.muted, fontSize: 11 }} />
+                        <YAxis tick={{ fill: CHART_STYLE.muted, fontSize: 11 }} tickFormatter={fmtShort} />
+                        <Tooltip content={<CustomTooltip />} />
+                        {(selectedCompany ? [selectedCompany] : allCompanyNames).map(name => (
+                          <Area key={name} type="monotone" dataKey={name} stackId="1"
+                            stroke={colorMap[name]} fill={colorMap[name]} fillOpacity={0.6} />
+                        ))}
+                        <Line type="monotone" dataKey="Total" stroke="#1e293b" strokeWidth={2} dot={{ fill: "#1e293b", r: 3 }} />
+                        <Legend />
+                      </ComposedChart>
+                    )}
+                  </ResponsiveContainer>
+                </CardContent>
+              </Card>
             </div>
+
+            {/* Company Performance Table */}
+            <div className="mb-4">
+              <h2 className="text-lg font-bold mb-1">Company Performance Summary</h2>
+              <p className="text-sm text-muted-foreground mb-4">All active portfolio companies &mdash; {rangeLabel}</p>
+            </div>
+            <Card className="py-0 overflow-hidden">
+              <Table>
+                <TableHeader>
+                  <TableRow className="border-border/60 hover:bg-transparent">
+                    <TableHead className="w-[180px]">Company</TableHead>
+                    <TableHead className="text-right">Revenue</TableHead>
+                    <TableHead className="text-right">EBITDA</TableHead>
+                    <TableHead className="text-right">Gross %</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {companyRows.map((co) => (
+                    <TableRow key={co.name}>
+                      <TableCell className="font-semibold">
+                        <span className="inline-block w-2 h-2 rounded-full mr-2" style={{ background: co.color }} />
+                        {co.name}
+                      </TableCell>
+                      <TableCell className="text-right">
+                        <div className="font-semibold">{fmt(co.rev)}</div>
+                        {co.revGrowth !== null ? (
+                          <div className={`text-[11px] ${co.revGrowth >= 0 ? "text-emerald-600" : "text-red-500"}`}>
+                            {co.revGrowth >= 0 ? "+" : ""}{(co.revGrowth * 100).toFixed(0)}% YoY
+                          </div>
+                        ) : (
+                          <div className="text-[11px] text-muted-foreground">New</div>
+                        )}
+                      </TableCell>
+                      <TableCell className="text-right">
+                        <div className={`font-semibold ${co.ebitda >= 0 ? "text-emerald-600" : "text-red-500"}`}>{fmt(co.ebitda)}</div>
+                        <div className="text-[11px] text-muted-foreground">{co.rev > 0 ? (co.ebitda / co.rev * 100).toFixed(1) + '% margin' : 'N/A'}</div>
+                      </TableCell>
+                      <TableCell className="text-right">
+                        {co.grossMargin !== null && co.grossMargin > 0 ? `${(co.grossMargin * 100).toFixed(0)}%` : "N/A"}
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+                <TableFooter>
+                  <TableRow className="bg-muted hover:bg-muted">
+                    <TableCell className="font-bold">TOTAL (excl. holdings)</TableCell>
+                    <TableCell className="text-right font-bold">{fmt(totalRowRev)}</TableCell>
+                    <TableCell className="text-right font-bold text-emerald-600">{fmt(totalRowEbitda)}</TableCell>
+                    <TableCell className="text-right font-bold">{totalRowGrossMargin !== null ? (totalRowGrossMargin * 100).toFixed(0) + '%' : 'N/A'}</TableCell>
+                  </TableRow>
+                </TableFooter>
+              </Table>
+            </Card>
           </TabsContent>
 
-          {/* ---- REVENUE ---- */}
+          {/* ────── REVENUE ────── */}
           <TabsContent value="revenue">
-            <div className="space-y-8">
-              <Card>
-                <CardHeader>
-                  <CardTitle>Revenue by Company ({currentYear})</CardTitle>
-                  <CardDescription>Excluding holdings entities</CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead>Company</TableHead>
-                        <TableHead className="text-right">Revenue</TableHead>
-                        <TableHead className="text-right">YoY %</TableHead>
-                        <TableHead className="text-right">Share %</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {revenueCompanies.map(name => {
-                        const co = companyRows.find(c => c.name === name);
-                        const share = totalRevCurrent > 0 ? (co.rev / totalRevCurrent * 100).toFixed(0) : 0;
-                        return (
-                          <TableRow key={name}>
-                            <TableCell className="font-semibold">
-                              <span className="inline-block w-3 h-3 rounded-full mr-2" style={{ background: co.color }} />
-                              {name}
-                            </TableCell>
-                            <TableCell className="text-right font-semibold">{fmt(co.rev)}</TableCell>
-                            <TableCell className="text-right">
-                              {co.revGrowth !== null ? (
-                                <span className={co.revGrowth >= 0 ? "text-emerald-600" : "text-red-600"}>
-                                  {co.revGrowth >= 0 ? "+" : ""}{(co.revGrowth * 100).toFixed(0)}%
-                                </span>
-                              ) : (
-                                <span className="text-muted-foreground">New</span>
-                              )}
-                            </TableCell>
-                            <TableCell className="text-right">{share}%</TableCell>
-                          </TableRow>
-                        );
-                      })}
-                    </TableBody>
-                  </Table>
-                </CardContent>
-              </Card>
-
-              <Card>
-                <CardHeader>
-                  <CardTitle>Monthly Revenue by Company ({currentYear})</CardTitle>
-                  <CardDescription>Stacked with total trend line</CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <ResponsiveContainer width="100%" height={340}>
-                    <ComposedChart data={revenueByMonthWithTotal}>
-                      <CartesianGrid strokeDasharray="3 3" stroke={CHART_STYLE.border} />
-                      <XAxis dataKey="month" tick={{ fill: CHART_STYLE.muted, fontSize: 11 }} />
-                      <YAxis tick={{ fill: CHART_STYLE.muted, fontSize: 11 }} tickFormatter={fmtShort} />
-                      <Tooltip content={<CustomTooltip />} />
-                      {revenueCompanies.map((name, i) => (
-                        <Bar key={name} dataKey={name} stackId="1" fill={colorMap[name]}
-                          radius={i === revenueCompanies.length - 1 ? [4, 4, 0, 0] : [0, 0, 0, 0]} />
-                      ))}
-                      <Line type="monotone" dataKey="Total" stroke={CHART_STYLE.totalLine} strokeWidth={2} dot={false} />
-                      <Legend />
-                    </ComposedChart>
-                  </ResponsiveContainer>
-                </CardContent>
-              </Card>
-
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                <Card>
-                  <CardHeader>
-                    <CardTitle>Revenue Mix ({currentYear}) &mdash; excl. Holdings</CardTitle>
-                    <CardDescription>Excl. holdings entities</CardDescription>
-                  </CardHeader>
-                  <CardContent>
-                    <ResponsiveContainer width="100%" height={240}>
-                      <PieChart>
-                        <Pie data={revenuePieData} cx="50%" cy="50%" outerRadius={90} innerRadius={50} dataKey="value" label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}>
-                          {revenuePieData.map((e, i) => <Cell key={i} fill={e.color} />)}
-                        </Pie>
-                        <Tooltip formatter={(v) => fmt(v)} />
-                      </PieChart>
-                    </ResponsiveContainer>
-                  </CardContent>
-                </Card>
-
-                {hasPriorYear ? (
-                  <Card>
-                    <CardHeader>
-                      <CardTitle>Year-over-Year Comparison</CardTitle>
-                      <CardDescription>Revenue and EBITDA</CardDescription>
-                    </CardHeader>
-                    <CardContent>
-                      <ResponsiveContainer width="100%" height={240}>
-                        <BarChart data={yoyData}>
-                          <CartesianGrid strokeDasharray="3 3" stroke={CHART_STYLE.border} />
-                          <XAxis dataKey="metric" tick={{ fill: CHART_STYLE.muted, fontSize: 12 }} />
-                          <YAxis tick={{ fill: CHART_STYLE.muted, fontSize: 11 }} tickFormatter={fmtShort} />
-                          <Tooltip content={<CustomTooltip />} />
-                          <Bar dataKey="y2025" name={String(priorYear)} fill="oklch(var(--chart-1))" radius={[4, 4, 0, 0]} />
-                          <Bar dataKey="y2026" name={String(currentYear)} fill="oklch(var(--chart-2))" radius={[4, 4, 0, 0]} />
-                          <Legend />
-                        </BarChart>
-                      </ResponsiveContainer>
-                    </CardContent>
-                  </Card>
-                ) : (
-                  <Card>
-                    <CardContent className="py-8 text-center text-muted-foreground text-sm">
-                      Year-over-year comparison requires data from two years
-                    </CardContent>
-                  </Card>
-                )}
-              </div>
+            <div className="flex flex-wrap gap-4 mb-6">
+              {revenueCompanies.map(name => {
+                const coRev = (data.pnl.find(c => c.name === name)?.metrics['Revenues'] ?? []).filter(inRange).reduce((s, v) => s + (v.value ?? 0), 0);
+                return (
+                  <KPICard key={name} title={`${name} — ${rangeLabel}`}
+                    value={fmt(coRev)}
+                    subtitle={rangeRevenue > 0 ? `${(coRev / rangeRevenue * 100).toFixed(0)}% of total` : ''}
+                  />
+                );
+              })}
             </div>
+
+            <Card className="mb-5">
+              <CardHeader><CardTitle className="text-sm">{viewMode === 'yearly' ? 'Yearly' : 'Monthly'} Revenue by Company ({rangeLabel})</CardTitle></CardHeader>
+              <CardContent>
+                <ResponsiveContainer width="100%" height={340}>
+                  <ComposedChart data={revenueByMonthWithTotal}>
+                    <CartesianGrid strokeDasharray="3 3" stroke={CHART_STYLE.border} />
+                    <XAxis dataKey="month" tick={{ fill: CHART_STYLE.muted, fontSize: 11 }} />
+                    <YAxis tick={{ fill: CHART_STYLE.muted, fontSize: 11 }} tickFormatter={fmtShort} />
+                    <Tooltip content={<CustomTooltip />} />
+                    {revenueCompanies.map((name, i) => (
+                      <Bar key={name} dataKey={name} stackId="1" fill={colorMap[name]}
+                        radius={i === revenueCompanies.length - 1 ? [4, 4, 0, 0] : [0, 0, 0, 0]} />
+                    ))}
+                    <Line type="monotone" dataKey="Total" stroke={CHART_STYLE.totalLine} strokeWidth={2} dot={false} />
+                    <Legend />
+                  </ComposedChart>
+                </ResponsiveContainer>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader><CardTitle className="text-sm">Revenue Mix ({rangeLabel}) &mdash; excl. Holdings</CardTitle></CardHeader>
+              <CardContent>
+                <ResponsiveContainer width="100%" height={240}>
+                  <PieChart>
+                    <Pie data={revenuePieData} cx="50%" cy="50%" outerRadius={90} innerRadius={50} dataKey="value" label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}>
+                      {revenuePieData.map((e, i) => <Cell key={i} fill={e.color} />)}
+                    </Pie>
+                    <Tooltip content={<CustomTooltip />} />
+                  </PieChart>
+                </ResponsiveContainer>
+              </CardContent>
+            </Card>
           </TabsContent>
 
-          {/* ---- PROFITABILITY ---- */}
+          {/* ────── PROFITABILITY ────── */}
           <TabsContent value="profitability">
-            <div className="space-y-8">
-              <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-                <KPICard title="Consolidated EBITDA" value={fmt(totalEbitdaCurrent)} trend={ebitdaSwing !== null ? (ebitdaSwing >= 0 ? '+' : '') + fmt(ebitdaSwing) + ' swing' : null} trendUp={ebitdaSwing >= 0} />
-                <KPICard title="EBITDA Margin" value={ebitdaMargin !== null ? (ebitdaMargin * 100).toFixed(0) + '%' : 'N/A'} />
-                <KPICard title="Gross Margin" value={pct(grossMarginCurrent)} trend={grossMarginChange !== null ? (grossMarginChange > 0 ? '+' : '') + (grossMarginChange * 100).toFixed(0) + 'pp YoY' : null} trendUp={grossMarginChange > 0} />
-                {breakevenCompany ? (
-                  <KPICard title={`${breakevenCompany} Breakeven`} value={`FY ${currentYear}`} trend="Reached EBITDA breakeven" trendUp={true} />
-                ) : (
-                  <KPICard title="Portfolio Companies" value={String(revenueCompanies.length)} subtitle="active operating entities" />
-                )}
-              </div>
+            <div className="flex flex-wrap gap-4 mb-6">
+              <KPICard title={`EBITDA — ${rangeLabel}`} value={fmt(rangeEbitda)} subtitle={rangeRevenue > 0 ? (rangeEbitda / rangeRevenue * 100).toFixed(0) + '% margin' : ''} />
+              <KPICard title={`EBITDA Margin — ${rangeLabel}`} value={rangeRevenue > 0 ? (rangeEbitda / rangeRevenue * 100).toFixed(0) + '%' : 'N/A'} />
+              <KPICard title={`Gross Margin — ${rangeLabel}`} value={pct(rangeGrossMargin)} subtitle="portfolio weighted" />
+              {breakevenCompany ? (
+                <KPICard title={`${breakevenCompany} Breakeven`} value={`FY ${currentYear}`} trend="Reached EBITDA breakeven" trendUp={true} />
+              ) : (
+                <KPICard title="Portfolio Companies" value={String(revenueCompanies.length)} subtitle="active operating entities" />
+              )}
+            </div>
 
-              <Card>
-                <CardHeader>
-                  <CardTitle>Monthly EBITDA by Company ({currentYear})</CardTitle>
-                  <CardDescription>All entities with total trend</CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <ResponsiveContainer width="100%" height={340}>
-                    <ComposedChart data={ebitdaByMonthWithTotal}>
+            <Card className="mb-5">
+              <CardHeader><CardTitle className="text-sm">{viewMode === 'yearly' ? 'Yearly' : 'Monthly'} EBITDA by Company ({rangeLabel})</CardTitle></CardHeader>
+              <CardContent>
+                <ResponsiveContainer width="100%" height={340}>
+                  <ComposedChart data={ebitdaByMonthWithTotal}>
+                    <CartesianGrid strokeDasharray="3 3" stroke={CHART_STYLE.border} />
+                    <XAxis dataKey="month" tick={{ fill: CHART_STYLE.muted, fontSize: 11 }} />
+                    <YAxis tick={{ fill: CHART_STYLE.muted, fontSize: 11 }} tickFormatter={fmtShort} />
+                    <Tooltip content={<CustomTooltip />} />
+                    {allCompanyNames.map(name => (
+                      <Bar key={name} dataKey={name} fill={colorMap[name]} />
+                    ))}
+                    <Line type="monotone" dataKey="Total" stroke={CHART_STYLE.totalLine} strokeWidth={2.5} dot={{ fill: CHART_STYLE.totalLine, r: 3 }} />
+                    <Legend />
+                  </ComposedChart>
+                </ResponsiveContainer>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader><CardTitle className="text-sm">Gross Margin Trends by Company ({rangeLabel})</CardTitle></CardHeader>
+              <CardContent>
+                <ResponsiveContainer width="100%" height={220}>
+                  {grossMarginPctByMonth.length < 3 ? (
+                    <BarChart data={grossMarginPctByMonth}>
                       <CartesianGrid strokeDasharray="3 3" stroke={CHART_STYLE.border} />
                       <XAxis dataKey="month" tick={{ fill: CHART_STYLE.muted, fontSize: 11 }} />
-                      <YAxis tick={{ fill: CHART_STYLE.muted, fontSize: 11 }} tickFormatter={fmtShort} />
-                      <Tooltip content={<CustomTooltip />} />
-                      {allCompanyNames.map(name => (
-                        <Bar key={name} dataKey={name} fill={colorMap[name]} />
+                      <YAxis tick={{ fill: CHART_STYLE.muted, fontSize: 11 }} domain={['auto', 'auto']} tickFormatter={v => `${v.toFixed(0)}%`} />
+                      <Tooltip content={({ active, payload, label }) => {
+                        if (!active || !payload) return null;
+                        return (
+                          <div className="rounded-lg border border-border bg-white px-4 py-3 shadow-lg min-w-[160px]">
+                            <p className="mb-2 text-sm font-semibold text-foreground">{label}</p>
+                            {payload.map((entry, i) => (
+                              <div key={i} className="flex items-center gap-2 my-0.5">
+                                <span className="inline-block w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: entry.color }} />
+                                <span className="text-xs text-muted-foreground">{entry.name}:</span>
+                                <span className="text-xs font-semibold text-foreground ml-auto">{Number(entry.value).toFixed(1)}%</span>
+                              </div>
+                            ))}
+                          </div>
+                        );
+                      }} />
+                      {gmCompanies.map(name => (
+                        <Bar key={name} dataKey={name} fill={colorMap[name]} radius={[4, 4, 0, 0]} />
                       ))}
-                      <Line type="monotone" dataKey="Total" stroke={CHART_STYLE.totalLine} strokeWidth={2.5} dot={{ fill: CHART_STYLE.totalLine, r: 3 }} />
                       <Legend />
-                    </ComposedChart>
-                  </ResponsiveContainer>
-                </CardContent>
-              </Card>
-
-              <Card>
-                <CardHeader>
-                  <CardTitle>Gross Margin Trends by Company ({currentYear})</CardTitle>
-                  <CardDescription>Excl. holdings entities</CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <ResponsiveContainer width="100%" height={220}>
+                    </BarChart>
+                  ) : (
                     <LineChart data={grossMarginPctByMonth}>
                       <CartesianGrid strokeDasharray="3 3" stroke={CHART_STYLE.border} />
                       <XAxis dataKey="month" tick={{ fill: CHART_STYLE.muted, fontSize: 11 }} />
-                      <YAxis tick={{ fill: CHART_STYLE.muted, fontSize: 11 }} domain={['auto', 'auto']} unit="%" />
-                      <Tooltip />
+                      <YAxis tick={{ fill: CHART_STYLE.muted, fontSize: 11 }} domain={['auto', 'auto']} tickFormatter={v => `${v.toFixed(0)}%`} />
+                      <Tooltip content={({ active, payload, label }) => {
+                        if (!active || !payload) return null;
+                        return (
+                          <div className="rounded-lg border border-border bg-white px-4 py-3 shadow-lg min-w-[160px]">
+                            <p className="mb-2 text-sm font-semibold text-foreground">{label}</p>
+                            {payload.map((entry, i) => (
+                              <div key={i} className="flex items-center gap-2 my-0.5">
+                                <span className="inline-block w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: entry.color }} />
+                                <span className="text-xs text-muted-foreground">{entry.name}:</span>
+                                <span className="text-xs font-semibold text-foreground ml-auto">{Number(entry.value).toFixed(1)}%</span>
+                              </div>
+                            ))}
+                          </div>
+                        );
+                      }} />
                       {gmCompanies.map(name => (
                         <Line key={name} type="monotone" dataKey={name} stroke={colorMap[name]}
                           strokeWidth={2} dot={false} connectNulls={true} />
                       ))}
                       <Legend />
                     </LineChart>
-                  </ResponsiveContainer>
-                </CardContent>
-              </Card>
-            </div>
+                  )}
+                </ResponsiveContainer>
+              </CardContent>
+            </Card>
           </TabsContent>
 
-          {/* ---- CASH FLOW ---- */}
+          {/* ────── CASH FLOW ────── */}
           <TabsContent value="cashflow">
-            <div className="space-y-8">
-              <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-                <KPICard title="Ending Cash Balance" value={fmt(endingBalance)} trend={runwayMonths !== null ? (runwayMonths < 0 ? 'N/A' : runwayMonths.toFixed(1) + ' months runway') : 'Cash positive'} trendUp={runwayMonths === null || runwayMonths > 3} subtitle="at current burn rate" />
-                <KPICard title="Total Cash Inflow" value={fmt(totalInflow)} subtitle="collections from all entities" />
-                <KPICard title="Net Cash Movement" value={fmt(totalNetCash)} trend={totalNetCash < 0 ? 'Ops deficit' : 'Cash positive'} trendUp={totalNetCash >= 0} subtitle="all entities" />
-                <KPICard title="Avg Monthly Burn" value={fmt(Math.abs(avgMonthlyBurn))} subtitle="average per month" />
-              </div>
+            <div className="flex flex-wrap gap-4 mb-6">
+              <KPICard title="Operational Cash Flow" value={fmt(totalOpsCF)} trend={runwayMonths !== null ? '~' + runwayMonths.toFixed(1) + ' months runway' : (totalOpsCF >= 0 ? 'Cash positive' : 'Cash negative')} trendUp={totalOpsCF >= 0 || (runwayMonths !== null && runwayMonths > 3)} subtitle="at current burn rate" />
+              <KPICard title={`Cash Inflow — ${rangeLabel}`} value={fmt(totalInflow)} subtitle="all entities" />
+              <KPICard title={`Cash Outflow — ${rangeLabel}`} value={fmt(totalOutflow)} subtitle="total outflows" />
+              <KPICard title="Avg Monthly Burn" value={fmt(avgMonthlyBurn)} subtitle="average per month" />
+            </div>
 
-              <Card>
-                <CardHeader>
-                  <CardTitle>Monthly Cash Balance &amp; Flows</CardTitle>
-                  <CardDescription>Inflows, outflows, and running balance</CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <ResponsiveContainer width="100%" height={320}>
-                    <ComposedChart data={cashBalanceByMonth} margin={{ right: 20 }}>
-                      <CartesianGrid strokeDasharray="3 3" stroke={CHART_STYLE.border} />
-                      <XAxis dataKey="month" tick={{ fill: CHART_STYLE.muted, fontSize: 11 }} />
-                      <YAxis yAxisId="left" tick={{ fill: CHART_STYLE.muted, fontSize: 11 }} tickFormatter={fmtShort} />
-                      <YAxis yAxisId="right" orientation="right" tick={{ fill: CHART_STYLE.muted, fontSize: 11 }} tickFormatter={fmtShort} />
-                      <Tooltip content={<CustomTooltip />} />
-                      <Bar yAxisId="left" dataKey="inflow" name="Cash Inflow" fill="#22c55e" fillOpacity={0.6} />
-                      <Bar yAxisId="left" dataKey="outflow" name="Cash Outflow" fill="#ef4444" fillOpacity={0.6} />
-                      <Line yAxisId="right" type="monotone" dataKey="balance" name="Cash Balance" stroke="#f59e0b" strokeWidth={3} dot={{ fill: "#f59e0b", r: 4 }} />
-                      <Legend />
-                    </ComposedChart>
-                  </ResponsiveContainer>
-                </CardContent>
-              </Card>
+            <Card className="mb-5">
+              <CardHeader><CardTitle className="text-sm">Monthly Cash Flows &amp; Operational CF</CardTitle></CardHeader>
+              <CardContent>
+                <ResponsiveContainer width="100%" height={320}>
+                  <ComposedChart data={cashBalanceByMonth}>
+                    <CartesianGrid strokeDasharray="3 3" stroke={CHART_STYLE.border} />
+                    <XAxis dataKey="month" tick={{ fill: CHART_STYLE.muted, fontSize: 11 }} />
+                    <YAxis yAxisId="left" tick={{ fill: CHART_STYLE.muted, fontSize: 11 }} tickFormatter={fmtShort} />
+                    <YAxis yAxisId="right" orientation="right" tick={{ fill: CHART_STYLE.muted, fontSize: 11 }} tickFormatter={fmtShort} />
+                    <Tooltip content={<CustomTooltip />} />
+                    <Bar yAxisId="left" dataKey="inflow" name="Cash Inflow" fill="#22c55e" fillOpacity={0.4} />
+                    <Bar yAxisId="left" dataKey="outflow" name="Cash Outflow" fill="#ef4444" fillOpacity={0.4} />
+                    <Line yAxisId="right" type="monotone" dataKey="opsCashFlow" name="Ops Cash Flow" stroke="#f59e0b" strokeWidth={3} dot={{ fill: "#f59e0b", r: 4 }} />
+                    <Legend />
+                  </ComposedChart>
+                </ResponsiveContainer>
+              </CardContent>
+            </Card>
 
-              {runwayMonths !== null && runwayMonths < 24 ? (
+            {/* Combined: Normal Cash Burn (bars) + Cash Runway (line) — consolidated only shows burn */}
+            {(() => {
+              const MONTHS_L = ['','Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+              // Build runway data
+              const runwayData = cashRunwayValues.map(v => ({
+                month: viewMode === 'yearly' ? String(v.year) : `${MONTHS_L[v.month]} '${String(v.year).slice(-2)}`,
+                runway: v.value ?? 0,
+                year: v.year, m: v.month,
+              }));
+              // Build normal cash burn data (consolidated only)
+              let burnMap = {};
+              if (!selectedCompany) {
+                const ncbCompany = data.cashflow?.find(c => c.name === 'Normal Cash Burn');
+                const ncbMetric = ncbCompany?.metrics?.['Normal Cashburn without Adhocks'];
+                if (ncbMetric) {
+                  ncbMetric.filter(v => {
+                    if (viewMode === 'yearly') return v.year >= rangeFrom.year && v.year <= rangeTo.year;
+                    const vi = v.year * 12 + v.month;
+                    return vi >= rangeFrom.year * 12 + rangeFrom.month && vi <= rangeTo.year * 12 + rangeTo.month;
+                  }).filter(v => v.value !== null).forEach(v => {
+                    const key = viewMode === 'yearly' ? String(v.year) : `${MONTHS_L[v.month]} '${String(v.year).slice(-2)}`;
+                    burnMap[key] = v.value;
+                  });
+                }
+              }
+              // Merge into one dataset
+              const combined = runwayData.map(d => ({ ...d, burn: burnMap[d.month] ?? null }));
+              const hasBurn = Object.keys(burnMap).length > 0;
+              if (combined.length === 0) return null;
+              return (
                 <Card>
-                  <CardHeader>
-                    <CardTitle>Cash Runway Forecast</CardTitle>
-                    <CardDescription>Projection at current burn rate</CardDescription>
-                  </CardHeader>
+                  <CardHeader><CardTitle className="text-sm">
+                    {hasBurn ? 'Normal Cash Burn & Runway' : 'Cash Runway'} ({rangeLabel})
+                  </CardTitle></CardHeader>
                   <CardContent>
-                    <ResponsiveContainer width="100%" height={220}>
-                      <AreaChart data={(() => {
-                        const forecast = [];
-                        let bal = endingBalance;
-                        const forecastMonths = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun'];
-                        const nextYear = currentYear + 1;
-                        forecastMonths.forEach(m => {
-                          bal += avgMonthlyBurn;
-                          forecast.push({ month: `${m}'${String(nextYear).slice(-2)}`, balance: Math.max(0, bal) });
-                        });
-                        return [{ month: `Dec'${String(currentYear).slice(-2)}`, balance: endingBalance }, ...forecast];
-                      })()}>
+                    <ResponsiveContainer width="100%" height={260}>
+                      <ComposedChart data={combined}>
                         <CartesianGrid strokeDasharray="3 3" stroke={CHART_STYLE.border} />
                         <XAxis dataKey="month" tick={{ fill: CHART_STYLE.muted, fontSize: 11 }} />
-                        <YAxis tick={{ fill: CHART_STYLE.muted, fontSize: 11 }} tickFormatter={fmtShort} />
-                        <Tooltip content={<CustomTooltip />} />
-                        <Area type="monotone" dataKey="balance" stroke="#ef4444" fill="#ef4444" fillOpacity={0.2} strokeWidth={2} />
-                      </AreaChart>
+                        {hasBurn && <YAxis yAxisId="burn" tick={{ fill: CHART_STYLE.muted, fontSize: 11 }} tickFormatter={fmtShort} />}
+                        <YAxis yAxisId="runway" orientation={hasBurn ? 'right' : 'left'} tick={{ fill: '#3b82f6', fontSize: 11 }} unit=" mo" />
+                        <Tooltip content={({ active, payload, label }) => {
+                          if (!active || !payload) return null;
+                          return (
+                            <div className="rounded-lg border border-border bg-white px-4 py-3 shadow-lg min-w-[180px]">
+                              <p className="mb-2 text-sm font-semibold text-foreground">{label}</p>
+                              {payload.map((entry, i) => (
+                                <div key={i} className="flex items-center gap-2 my-0.5">
+                                  <span className="inline-block w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: entry.color }} />
+                                  <span className="text-xs text-muted-foreground">{entry.name}:</span>
+                                  <span className="text-xs font-semibold text-foreground ml-auto">
+                                    {entry.name === 'Runway' ? `${entry.value} mo` : fmt(entry.value)}
+                                  </span>
+                                </div>
+                              ))}
+                            </div>
+                          );
+                        }} />
+                        {hasBurn && <Bar yAxisId="burn" dataKey="burn" fill="#ef4444" radius={[4, 4, 0, 0]} name="Cash Burn" />}
+                        <Line yAxisId="runway" type="monotone" dataKey="runway" stroke="#3b82f6" strokeWidth={2.5}
+                          dot={{ r: 4, fill: '#3b82f6', stroke: '#3b82f6' }} name="Runway" />
+                        <Legend />
+                      </ComposedChart>
                     </ResponsiveContainer>
                     <p className="mt-3 text-xs italic text-muted-foreground">
-                      Projection assumes constant monthly burn of ~{fmt(Math.abs(avgMonthlyBurn))} with no additional financing.
+                      Average runway: ~{runwayMonths !== null ? runwayMonths.toFixed(1) : '0'} months.
+                      {hasBurn && ' Bars show normal cash burn excl. ad hocs.'}
                     </p>
                   </CardContent>
                 </Card>
-              ) : null}
-            </div>
+              );
+            })()}
           </TabsContent>
 
-          {/* ---- INSIGHTS ---- */}
-          <TabsContent value="insights">
-            <div className="space-y-8">
-              <Card>
-                <CardHeader>
-                  <CardTitle>Executive Insights &amp; Analysis</CardTitle>
-                  <CardDescription>Auto-generated findings from the latest financial data</CardDescription>
-                </CardHeader>
-              </Card>
-
-              {insights.length > 0 ? (
-                insights.map((insight, i) => (
-                  <InsightCard key={i} type={insight.type} icon={insight.icon}
-                    title={insight.title} body={insight.body} />
-                ))
-              ) : (
-                <p className="text-sm text-muted-foreground">No notable insights detected in current data.</p>
+          {/* ────── INSIGHTS ────── */}
+          {/* ────── EXPENSES ────── */}
+          <TabsContent value="expenses">
+            <div className="flex flex-wrap gap-4 mb-6">
+              <KPICard title={`${getExpenseLabel()} — ${rangeLabel}`}
+                value={fmt(Math.abs(rangeExpenses))}
+                subtitle={selectedCompany ? selectedCompany : 'all entities'}
+              />
+              <KPICard title={`Avg Monthly Expense`}
+                value={fmt(Math.abs(avgMonthlyExpense))}
+                subtitle="average per month"
+              />
+              {rangeRevenue > 0 && (
+                <KPICard title={`Expense Ratio — ${rangeLabel}`}
+                  value={`${(Math.abs(rangeExpenses) / rangeRevenue * 100).toFixed(1)}%`}
+                  subtitle="expenses / revenue"
+                />
               )}
             </div>
+
+            {/* Chart always full-width, breakdown in bottom drawer */}
+            <Card className="mb-5">
+              <CardHeader><CardTitle className="text-sm">{viewMode === 'yearly' ? 'Yearly' : 'Monthly'} Expenses ({rangeLabel}) &mdash; click a bar for breakdown</CardTitle></CardHeader>
+              <CardContent>
+                <ResponsiveContainer width="100%" height={340}>
+                  <ComposedChart data={expenseByMonthWithTotal} onClick={(e) => {
+                    if (e && e.activePayload && e.activePayload[0]) {
+                      const label = e.activePayload[0].payload.month;
+                      if (viewMode === 'yearly') {
+                        setExpenseDrilldown({ year: Number(label), month: 0 }); setExpandedDept(null);
+                      } else {
+                        const MONTHS_SHORT = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+                        const parts = label.split(' ');
+                        const m = MONTHS_SHORT.indexOf(parts[0]) + 1;
+                        const y = 2000 + Number(parts[1]);
+                        if (m > 0) { setExpenseDrilldown({ year: y, month: m }); setExpandedDept(null); }
+                      }
+                    }
+                  }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke={CHART_STYLE.border} />
+                    <XAxis dataKey="month" tick={{ fill: CHART_STYLE.muted, fontSize: 11 }} />
+                    <YAxis tick={{ fill: CHART_STYLE.muted, fontSize: 11 }} tickFormatter={fmtShort} />
+                    <Tooltip content={<CustomTooltip />} />
+                    {expenseChartCompanies.map((name, i) => (
+                      <Bar key={name} dataKey={name} stackId="1" fill={colorMap[name]} cursor="pointer"
+                        radius={i === expenseChartCompanies.length - 1 ? [4, 4, 0, 0] : [0, 0, 0, 0]} />
+                    ))}
+                    <Line type="monotone" dataKey="Total" stroke={CHART_STYLE.totalLine} strokeWidth={2} dot={false} />
+                    <Legend />
+                  </ComposedChart>
+                </ResponsiveContainer>
+              </CardContent>
+            </Card>
+
+            {/* Expense breakdown drawer */}
+            <Drawer open={!!expenseDrilldown} onOpenChange={(open) => { if (!open) setExpenseDrilldown(null); }}>
+              <DrawerContent>
+                {expenseDrilldown && (() => {
+                  const MONTHS_FULL = ['','January','February','March','April','May','June','July','August','September','October','November','December'];
+                  const isYearDrill = expenseDrilldown.month === 0;
+                  const drillLabel = isYearDrill ? `FY ${expenseDrilldown.year}` : `${MONTHS_FULL[expenseDrilldown.month]} ${expenseDrilldown.year}`;
+                  const EXCLUDED_GL = ['Consultation (Invitro)', 'G&A Depreciation - Machinery & Equipment'];
+                  const filtered = (data.expenses ?? []).filter(e =>
+                    e.year === expenseDrilldown.year &&
+                    (isYearDrill || e.month === expenseDrilldown.month) &&
+                    e.department !== 'Direct Cost' &&
+                    !EXCLUDED_GL.includes(e.gl) &&
+                    (selectedCompany ? e.company === selectedCompany : DISPLAY_COMPANIES.includes(e.company))
+                  );
+                  const DEPTS = ['G&A', 'GTM', 'Operations', 'R&D'];
+                  const breakdown = DEPTS.map(dept => {
+                    const deptRows = filtered.filter(e => e.department === dept);
+                    const hc = deptRows.filter(e => e.category === 'HC').reduce((s, e) => s + (e.amount ?? 0), 0);
+                    const nonHc = deptRows.filter(e => e.category === 'NON-HC').reduce((s, e) => s + (e.amount ?? 0), 0);
+                    return { department: dept, hc, nonHc, total: hc + nonHc };
+                  }).filter(r => r.total !== 0);
+                  const totalHc = breakdown.reduce((s, r) => s + r.hc, 0);
+                  const totalNonHc = breakdown.reduce((s, r) => s + r.nonHc, 0);
+                  const totalAll = totalHc + totalNonHc;
+                  return (
+                    <>
+                      <DrawerHeader>
+                        <DrawerTitle>Expense Breakdown &mdash; {drillLabel}{selectedCompany ? ` (${selectedCompany})` : ''}</DrawerTitle>
+                        <DrawerDescription>By department and category (excl. Direct Cost)</DrawerDescription>
+                      </DrawerHeader>
+                      <div className="px-4 pb-6 overflow-auto">
+                        {breakdown.length > 0 ? (
+                          <Table>
+                            <TableHeader>
+                              <TableRow>
+                                <TableHead>Department</TableHead>
+                                <TableHead className="text-right">HC</TableHead>
+                                <TableHead className="text-right">Non-HC</TableHead>
+                                <TableHead className="text-right">Total</TableHead>
+                              </TableRow>
+                            </TableHeader>
+                            <TableBody>
+                              {breakdown.map(r => {
+                                const isExpanded = expandedDept === r.department;
+                                // GL sub-breakdown for Non-HC when expanded
+                                const glRows = isExpanded ? (() => {
+                                  const byGL = {};
+                                  filtered.filter(e => e.department === r.department && e.category === 'NON-HC')
+                                    .forEach(e => { byGL[e.gl || 'Other'] = (byGL[e.gl || 'Other'] || 0) + (e.amount ?? 0); });
+                                  return Object.entries(byGL).sort((a, b) => b[1] - a[1]).map(([gl, amt]) => ({ gl, amount: amt }));
+                                })() : [];
+                                return (
+                                  <Fragment key={r.department}>
+                                    {/* ── Level 1: Department row ── */}
+                                    <TableRow
+                                      className="cursor-pointer hover:bg-accent/50 transition-colors border-b border-border/40"
+                                      onClick={() => { setExpandedDept(isExpanded ? null : r.department); setExpandedGL(null); }}
+                                    >
+                                      <TableCell className="font-semibold text-sm py-3">
+                                        <span className={cn("inline-flex items-center justify-center w-5 h-5 rounded text-xs mr-2", isExpanded ? "bg-primary/15 text-primary" : "bg-muted text-muted-foreground")}>{isExpanded ? '▾' : '›'}</span>
+                                        {r.department}
+                                      </TableCell>
+                                      <TableCell className="text-right font-medium text-blue-600">{fmt(r.hc)}</TableCell>
+                                      <TableCell className="text-right font-medium text-amber-600">{fmt(r.nonHc)}</TableCell>
+                                      <TableCell className="text-right font-bold">{fmt(r.total)}</TableCell>
+                                    </TableRow>
+                                    {/* ── Expanded: HC + Non-HC card sections ── */}
+                                    {isExpanded && (
+                                      <TableRow className="hover:bg-transparent">
+                                        <TableCell colSpan={4} className="p-0 pt-1 pb-3">
+                                          <div className="mx-2 grid gap-3" style={{ gridTemplateColumns: '1fr 1fr' }}>
+                                            {/* ── BLUE: HC Section (col 2, under HC column) ── */}
+                                            {(() => {
+                                              const hcPeople = (data.headcount || []).filter(h => {
+                                                const matchDept = h.department === r.department;
+                                                const matchCompany = selectedCompany ? h.company === selectedCompany : DISPLAY_COMPANIES.includes(h.company);
+                                                return matchDept && matchCompany;
+                                              });
+                                              const byDiv = {};
+                                              const bydivCount = {};
+                                              const drillMonth = expenseDrilldown?.month;
+                                              const drillYear = expenseDrilldown?.year;
+                                              hcPeople.forEach(h => {
+                                                const d = h.division || 'Other';
+                                                if (!byDiv[d]) { byDiv[d] = 0; bydivCount[d] = 0; }
+                                                bydivCount[d]++;
+                                                if (h.salary && drillMonth && drillYear) {
+                                                  const key = `${drillYear}-${drillMonth}`;
+                                                  byDiv[d] += (h.salary[key] ?? 0);
+                                                }
+                                              });
+                                              const divRows = Object.entries(byDiv).filter(([, c]) => c > 0).sort((a, b) => b[1] - a[1]);
+                                              const hcTotal = divRows.reduce((s, [, c]) => s + c, 0);
+                                              if (divRows.length === 0 && r.hc === 0) return <div></div>;
+                                              return (
+                                                <div className="rounded-lg border border-blue-200/60 bg-blue-50/30 overflow-hidden">
+                                                  <div className="flex items-center justify-between px-4 py-2 border-b border-blue-200/40">
+                                                    <div className="flex items-center gap-2">
+                                                      <span className="inline-block w-2 h-2 rounded-full bg-blue-500"></span>
+                                                      <span className="text-xs font-semibold uppercase tracking-wide text-blue-700">Headcount</span>
+                                                    </div>
+                                                    <span className="text-xs font-bold text-blue-700 tabular-nums">{fmt(hcTotal || r.hc)}</span>
+                                                  </div>
+                                                  <div className="py-1">
+                                                    {divRows.length > 0 ? divRows.map(([div, cost]) => (
+                                                      <div key={div} className="flex items-center justify-between px-4 py-1.5 text-xs hover:bg-blue-50/50 rounded mx-1">
+                                                        <span className="text-foreground/80">
+                                                          {div} <span className="ml-1 text-muted-foreground/50">({bydivCount[div]})</span>
+                                                        </span>
+                                                        <span className="font-medium text-foreground/70 tabular-nums">{fmt(cost)}</span>
+                                                      </div>
+                                                    )) : (
+                                                      <p className="px-4 py-2 text-xs text-muted-foreground italic">No HC salary data for this month</p>
+                                                    )}
+                                                  </div>
+                                                </div>
+                                              );
+                                            })()}
+                                            {/* ── AMBER: Non-HC Section ── */}
+                                            {r.nonHc !== 0 && (
+                                              <div className="rounded-lg border border-amber-200/60 bg-amber-50/20 overflow-hidden">
+                                                <div className="flex items-center justify-between px-4 py-2 border-b border-amber-200/40">
+                                                  <div className="flex items-center gap-2">
+                                                    <span className="inline-block w-2 h-2 rounded-full bg-amber-500"></span>
+                                                    <span className="text-xs font-semibold uppercase tracking-wide text-amber-700">Non-Headcount</span>
+                                                  </div>
+                                                  <span className="text-xs font-bold text-amber-700 tabular-nums">{fmt(r.nonHc)}</span>
+                                                </div>
+                                                <div className="py-1">
+                                                  {glRows.map(g => {
+                                                    const glExpanded = expandedGL === g.gl;
+                                                    const merchantRows = glExpanded ? (() => {
+                                                      const byMerchant = {};
+                                                      filtered.filter(e => e.department === r.department && e.category === 'NON-HC' && e.gl === g.gl)
+                                                        .forEach(e => { const m = e.merchant?.trim() || 'Unknown'; byMerchant[m] = (byMerchant[m] || 0) + (e.amount ?? 0); });
+                                                      return Object.entries(byMerchant).sort((a, b) => b[1] - a[1]).map(([name, amt]) => ({ name, amount: amt }));
+                                                    })() : [];
+                                                    return (
+                                                      <div key={g.gl}>
+                                                        <div
+                                                          className="flex items-center justify-between px-4 py-2 text-xs cursor-pointer hover:bg-amber-50/50 rounded mx-1"
+                                                          onClick={() => setExpandedGL(glExpanded ? null : g.gl)}
+                                                        >
+                                                          <span className="font-medium text-foreground/80">
+                                                            <span className="inline-block w-3 mr-1 text-muted-foreground">{glExpanded ? '▾' : '›'}</span>
+                                                            {g.gl}
+                                                          </span>
+                                                          <span className="font-medium text-foreground/70 tabular-nums">{fmt(g.amount)}</span>
+                                                        </div>
+                                                        {glExpanded && (
+                                                          <div className="ml-7 mb-1 border-l-2 border-amber-200/40 pl-3">
+                                                            {merchantRows.map(mr => (
+                                                              <div key={mr.name} className="flex items-center justify-between px-2 py-1 text-[11px] text-muted-foreground">
+                                                                <span>
+                                                                  <span className="inline-block w-1.5 h-1.5 rounded-full bg-amber-300/50 mr-2 align-middle"></span>
+                                                                  {mr.name}
+                                                                </span>
+                                                                <span className="tabular-nums">{fmt(mr.amount)}</span>
+                                                              </div>
+                                                            ))}
+                                                          </div>
+                                                        )}
+                                                      </div>
+                                                    );
+                                                  })}
+                                                </div>
+                                              </div>
+                                            )}
+                                          </div>
+                                        </TableCell>
+                                      </TableRow>
+                                    )}
+                                  </Fragment>
+                                );
+                              })}
+                            </TableBody>
+                            <TableFooter>
+                              <TableRow>
+                                <TableCell className="font-bold">Total</TableCell>
+                                <TableCell className="text-right font-bold">{fmt(totalHc)}</TableCell>
+                                <TableCell className="text-right font-bold">{fmt(totalNonHc)}</TableCell>
+                                <TableCell className="text-right font-bold">{fmt(totalAll)}</TableCell>
+                              </TableRow>
+                            </TableFooter>
+                          </Table>
+                        ) : (
+                          <p className="text-sm text-muted-foreground">No expense transactions found for {drillLabel}.</p>
+                        )}
+                      </div>
+                    </>
+                  );
+                })()}
+              </DrawerContent>
+            </Drawer>
+
+            {!selectedCompany && expensePieData.length > 0 && (
+              <Card>
+                <CardHeader><CardTitle className="text-sm">Expense Distribution by Company ({rangeLabel})</CardTitle></CardHeader>
+                <CardContent>
+                  <ResponsiveContainer width="100%" height={240}>
+                    <PieChart>
+                      <Pie data={expensePieData} cx="50%" cy="50%" outerRadius={90} innerRadius={50} dataKey="value"
+                        label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}>
+                        {expensePieData.map((e, i) => <Cell key={i} fill={e.color} />)}
+                      </Pie>
+                      <Tooltip content={<CustomTooltip />} />
+                    </PieChart>
+                  </ResponsiveContainer>
+                </CardContent>
+              </Card>
+            )}
+          </TabsContent>
+
+          <TabsContent value="insights">
+            <div className="mb-4">
+              <h2 className="text-lg font-bold mb-1">Executive Insights &amp; Analysis</h2>
+              <p className="text-sm text-muted-foreground mb-4">
+                Auto-generated findings from the latest financial data
+              </p>
+            </div>
+
+            {insights.length > 0 ? (
+              insights.map((insight, i) => (
+                <InsightCard key={i} type={insight.type} icon={insight.icon}
+                  title={insight.title} body={insight.body} />
+              ))
+            ) : (
+              <p className="text-sm text-muted-foreground">No notable insights detected in current data.</p>
+            )}
           </TabsContent>
         </Tabs>
 
@@ -682,13 +1298,18 @@ export default function InVitroDashboard({ data }) {
           </p>
           <button
             onClick={handleDeploy}
-            disabled={deploying}
-            className="mt-2 text-xs text-blue-600 hover:text-blue-500 underline disabled:opacity-50 disabled:cursor-not-allowed"
+            disabled={deploying || reloadCountdown !== null}
+            className="mt-2 text-xs text-blue-400 hover:text-blue-300 underline disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            {deploying ? 'Triggering...' : 'Refresh Data'}
+            {deploying ? 'Triggering rebuild...' : reloadCountdown !== null ? `Reloading in ${reloadCountdown}s...` : 'Refresh Data'}
           </button>
+          {reloadCountdown !== null && (
+            <button onClick={() => window.location.reload()} className="ml-2 text-xs text-blue-400 hover:text-blue-300 underline">
+              Reload now
+            </button>
+          )}
           {deployMsg && (
-            <p className="mt-1 text-xs text-emerald-600">{deployMsg}</p>
+            <p className={`mt-1 text-xs ${deployMsg.includes('failed') || deployMsg.includes('error') || deployMsg.includes('Failed') ? 'text-red-400' : 'text-emerald-600'}`}>{deployMsg}</p>
           )}
         </div>
       </main>

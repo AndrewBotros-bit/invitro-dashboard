@@ -32,12 +32,12 @@ describe('EXCLUDE_COMPANIES', () => {
 });
 
 describe('buildColorMap', () => {
-  it('assigns colors sorted alphabetically', () => {
+  it('assigns brand colors to known companies', () => {
     const result = buildColorMap(['Osta', 'AllRx', 'AllCare']);
     expect(result).toEqual({
-      AllCare: PALETTE[0],
-      AllRx: PALETTE[1],
-      Osta: PALETTE[2],
+      AllCare: '#00A651',
+      AllRx: '#00AEEF',
+      Osta: '#F7941D',
     });
   });
 

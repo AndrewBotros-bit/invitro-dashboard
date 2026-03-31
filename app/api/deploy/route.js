@@ -1,5 +1,5 @@
 export async function POST() {
-  const hookUrl = process.env.VERCEL_DEPLOY_HOOK_URL;
+  const hookUrl = process.env.DEPLOY_HOOK_URL;
   if (!hookUrl) {
     return Response.json(
       { error: 'Deploy hook not configured' },
