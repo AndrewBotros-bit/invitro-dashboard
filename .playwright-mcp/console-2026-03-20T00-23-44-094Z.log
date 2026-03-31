@@ -1,0 +1,57 @@
+[     862ms] Error: Minified React error #425; visit https://react.dev/errors/425 for the full message or use the non-minified dev environment for full errors and additional helpful warnings.
+    at sq (https://invitro-dashboard-1.vercel.app/_next/static/chunks/fd9d1056-821cf90c3b9dcd70.js?dpl=dpl_BDfBKWGeot7EttjzzM41QU1nT1Qi:1:146767)
+    at co (https://invitro-dashboard-1.vercel.app/_next/static/chunks/fd9d1056-821cf90c3b9dcd70.js?dpl=dpl_BDfBKWGeot7EttjzzM41QU1nT1Qi:1:158781)
+    at https://invitro-dashboard-1.vercel.app/_next/static/chunks/fd9d1056-821cf90c3b9dcd70.js?dpl=dpl_BDfBKWGeot7EttjzzM41QU1nT1Qi:1:99418
+    at iu (https://invitro-dashboard-1.vercel.app/_next/static/chunks/fd9d1056-821cf90c3b9dcd70.js?dpl=dpl_BDfBKWGeot7EttjzzM41QU1nT1Qi:1:103869)
+    at ia (https://invitro-dashboard-1.vercel.app/_next/static/chunks/fd9d1056-821cf90c3b9dcd70.js?dpl=dpl_BDfBKWGeot7EttjzzM41QU1nT1Qi:1:95225)
+    at https://invitro-dashboard-1.vercel.app/_next/static/chunks/fd9d1056-821cf90c3b9dcd70.js?dpl=dpl_BDfBKWGeot7EttjzzM41QU1nT1Qi:1:91090
+    at https://invitro-dashboard-1.vercel.app/_next/static/chunks/fd9d1056-821cf90c3b9dcd70.js?dpl=dpl_BDfBKWGeot7EttjzzM41QU1nT1Qi:1:91097
+    at oZ (https://invitro-dashboard-1.vercel.app/_next/static/chunks/fd9d1056-821cf90c3b9dcd70.js?dpl=dpl_BDfBKWGeot7EttjzzM41QU1nT1Qi:1:91202)
+    at MessagePort.T (https://invitro-dashboard-1.vercel.app/_next/static/chunks/117-562131ff9665fad1.js?dpl=dpl_BDfBKWGeot7EttjzzM41QU1nT1Qi:1:84708)
+[     867ms] Error: Minified React error #425; visit https://react.dev/errors/425 for the full message or use the non-minified dev environment for full errors and additional helpful warnings.
+    at sq (https://invitro-dashboard-1.vercel.app/_next/static/chunks/fd9d1056-821cf90c3b9dcd70.js?dpl=dpl_BDfBKWGeot7EttjzzM41QU1nT1Qi:1:146767)
+    at co (https://invitro-dashboard-1.vercel.app/_next/static/chunks/fd9d1056-821cf90c3b9dcd70.js?dpl=dpl_BDfBKWGeot7EttjzzM41QU1nT1Qi:1:158781)
+    at https://invitro-dashboard-1.vercel.app/_next/static/chunks/fd9d1056-821cf90c3b9dcd70.js?dpl=dpl_BDfBKWGeot7EttjzzM41QU1nT1Qi:1:99418
+    at iu (https://invitro-dashboard-1.vercel.app/_next/static/chunks/fd9d1056-821cf90c3b9dcd70.js?dpl=dpl_BDfBKWGeot7EttjzzM41QU1nT1Qi:1:103869)
+    at ia (https://invitro-dashboard-1.vercel.app/_next/static/chunks/fd9d1056-821cf90c3b9dcd70.js?dpl=dpl_BDfBKWGeot7EttjzzM41QU1nT1Qi:1:95225)
+    at https://invitro-dashboard-1.vercel.app/_next/static/chunks/fd9d1056-821cf90c3b9dcd70.js?dpl=dpl_BDfBKWGeot7EttjzzM41QU1nT1Qi:1:91090
+    at https://invitro-dashboard-1.vercel.app/_next/static/chunks/fd9d1056-821cf90c3b9dcd70.js?dpl=dpl_BDfBKWGeot7EttjzzM41QU1nT1Qi:1:91097
+    at oZ (https://invitro-dashboard-1.vercel.app/_next/static/chunks/fd9d1056-821cf90c3b9dcd70.js?dpl=dpl_BDfBKWGeot7EttjzzM41QU1nT1Qi:1:91202)
+    at MessagePort.T (https://invitro-dashboard-1.vercel.app/_next/static/chunks/117-562131ff9665fad1.js?dpl=dpl_BDfBKWGeot7EttjzzM41QU1nT1Qi:1:84708)
+[     869ms] Error: Minified React error #425; visit https://react.dev/errors/425 for the full message or use the non-minified dev environment for full errors and additional helpful warnings.
+    at sq (https://invitro-dashboard-1.vercel.app/_next/static/chunks/fd9d1056-821cf90c3b9dcd70.js?dpl=dpl_BDfBKWGeot7EttjzzM41QU1nT1Qi:1:146767)
+    at co (https://invitro-dashboard-1.vercel.app/_next/static/chunks/fd9d1056-821cf90c3b9dcd70.js?dpl=dpl_BDfBKWGeot7EttjzzM41QU1nT1Qi:1:158781)
+    at https://invitro-dashboard-1.vercel.app/_next/static/chunks/fd9d1056-821cf90c3b9dcd70.js?dpl=dpl_BDfBKWGeot7EttjzzM41QU1nT1Qi:1:99418
+    at iu (https://invitro-dashboard-1.vercel.app/_next/static/chunks/fd9d1056-821cf90c3b9dcd70.js?dpl=dpl_BDfBKWGeot7EttjzzM41QU1nT1Qi:1:103869)
+    at ia (https://invitro-dashboard-1.vercel.app/_next/static/chunks/fd9d1056-821cf90c3b9dcd70.js?dpl=dpl_BDfBKWGeot7EttjzzM41QU1nT1Qi:1:95225)
+    at https://invitro-dashboard-1.vercel.app/_next/static/chunks/fd9d1056-821cf90c3b9dcd70.js?dpl=dpl_BDfBKWGeot7EttjzzM41QU1nT1Qi:1:91090
+    at https://invitro-dashboard-1.vercel.app/_next/static/chunks/fd9d1056-821cf90c3b9dcd70.js?dpl=dpl_BDfBKWGeot7EttjzzM41QU1nT1Qi:1:91097
+    at oZ (https://invitro-dashboard-1.vercel.app/_next/static/chunks/fd9d1056-821cf90c3b9dcd70.js?dpl=dpl_BDfBKWGeot7EttjzzM41QU1nT1Qi:1:91202)
+    at MessagePort.T (https://invitro-dashboard-1.vercel.app/_next/static/chunks/117-562131ff9665fad1.js?dpl=dpl_BDfBKWGeot7EttjzzM41QU1nT1Qi:1:84708)
+[     871ms] Error: Minified React error #425; visit https://react.dev/errors/425 for the full message or use the non-minified dev environment for full errors and additional helpful warnings.
+    at sq (https://invitro-dashboard-1.vercel.app/_next/static/chunks/fd9d1056-821cf90c3b9dcd70.js?dpl=dpl_BDfBKWGeot7EttjzzM41QU1nT1Qi:1:146767)
+    at co (https://invitro-dashboard-1.vercel.app/_next/static/chunks/fd9d1056-821cf90c3b9dcd70.js?dpl=dpl_BDfBKWGeot7EttjzzM41QU1nT1Qi:1:158781)
+    at https://invitro-dashboard-1.vercel.app/_next/static/chunks/fd9d1056-821cf90c3b9dcd70.js?dpl=dpl_BDfBKWGeot7EttjzzM41QU1nT1Qi:1:99418
+    at iu (https://invitro-dashboard-1.vercel.app/_next/static/chunks/fd9d1056-821cf90c3b9dcd70.js?dpl=dpl_BDfBKWGeot7EttjzzM41QU1nT1Qi:1:103869)
+    at ia (https://invitro-dashboard-1.vercel.app/_next/static/chunks/fd9d1056-821cf90c3b9dcd70.js?dpl=dpl_BDfBKWGeot7EttjzzM41QU1nT1Qi:1:95225)
+    at https://invitro-dashboard-1.vercel.app/_next/static/chunks/fd9d1056-821cf90c3b9dcd70.js?dpl=dpl_BDfBKWGeot7EttjzzM41QU1nT1Qi:1:91090
+    at https://invitro-dashboard-1.vercel.app/_next/static/chunks/fd9d1056-821cf90c3b9dcd70.js?dpl=dpl_BDfBKWGeot7EttjzzM41QU1nT1Qi:1:91097
+    at oZ (https://invitro-dashboard-1.vercel.app/_next/static/chunks/fd9d1056-821cf90c3b9dcd70.js?dpl=dpl_BDfBKWGeot7EttjzzM41QU1nT1Qi:1:91202)
+    at MessagePort.T (https://invitro-dashboard-1.vercel.app/_next/static/chunks/117-562131ff9665fad1.js?dpl=dpl_BDfBKWGeot7EttjzzM41QU1nT1Qi:1:84708)
+[     872ms] Error: Minified React error #418; visit https://react.dev/errors/418 for the full message or use the non-minified dev environment for full errors and additional helpful warnings.
+    at t5 (https://invitro-dashboard-1.vercel.app/_next/static/chunks/fd9d1056-821cf90c3b9dcd70.js?dpl=dpl_BDfBKWGeot7EttjzzM41QU1nT1Qi:1:24672)
+    at iZ (https://invitro-dashboard-1.vercel.app/_next/static/chunks/fd9d1056-821cf90c3b9dcd70.js?dpl=dpl_BDfBKWGeot7EttjzzM41QU1nT1Qi:1:120537)
+    at ia (https://invitro-dashboard-1.vercel.app/_next/static/chunks/fd9d1056-821cf90c3b9dcd70.js?dpl=dpl_BDfBKWGeot7EttjzzM41QU1nT1Qi:1:95164)
+    at https://invitro-dashboard-1.vercel.app/_next/static/chunks/fd9d1056-821cf90c3b9dcd70.js?dpl=dpl_BDfBKWGeot7EttjzzM41QU1nT1Qi:1:91090
+    at https://invitro-dashboard-1.vercel.app/_next/static/chunks/fd9d1056-821cf90c3b9dcd70.js?dpl=dpl_BDfBKWGeot7EttjzzM41QU1nT1Qi:1:91097
+    at oZ (https://invitro-dashboard-1.vercel.app/_next/static/chunks/fd9d1056-821cf90c3b9dcd70.js?dpl=dpl_BDfBKWGeot7EttjzzM41QU1nT1Qi:1:91202)
+    at MessagePort.T (https://invitro-dashboard-1.vercel.app/_next/static/chunks/117-562131ff9665fad1.js?dpl=dpl_BDfBKWGeot7EttjzzM41QU1nT1Qi:1:84708)
+[     873ms] Error: Minified React error #423; visit https://react.dev/errors/423 for the full message or use the non-minified dev environment for full errors and additional helpful warnings.
+    at iZ (https://invitro-dashboard-1.vercel.app/_next/static/chunks/fd9d1056-821cf90c3b9dcd70.js?dpl=dpl_BDfBKWGeot7EttjzzM41QU1nT1Qi:1:118351)
+    at ia (https://invitro-dashboard-1.vercel.app/_next/static/chunks/fd9d1056-821cf90c3b9dcd70.js?dpl=dpl_BDfBKWGeot7EttjzzM41QU1nT1Qi:1:95164)
+    at https://invitro-dashboard-1.vercel.app/_next/static/chunks/fd9d1056-821cf90c3b9dcd70.js?dpl=dpl_BDfBKWGeot7EttjzzM41QU1nT1Qi:1:94986
+    at il (https://invitro-dashboard-1.vercel.app/_next/static/chunks/fd9d1056-821cf90c3b9dcd70.js?dpl=dpl_BDfBKWGeot7EttjzzM41QU1nT1Qi:1:94993)
+    at oJ (https://invitro-dashboard-1.vercel.app/_next/static/chunks/fd9d1056-821cf90c3b9dcd70.js?dpl=dpl_BDfBKWGeot7EttjzzM41QU1nT1Qi:1:92349)
+    at oZ (https://invitro-dashboard-1.vercel.app/_next/static/chunks/fd9d1056-821cf90c3b9dcd70.js?dpl=dpl_BDfBKWGeot7EttjzzM41QU1nT1Qi:1:91768)
+    at MessagePort.T (https://invitro-dashboard-1.vercel.app/_next/static/chunks/117-562131ff9665fad1.js?dpl=dpl_BDfBKWGeot7EttjzzM41QU1nT1Qi:1:84708)
+[     820ms] [ERROR] Failed to load resource: the server responded with a status of 404 () @ https://invitro-dashboard-1.vercel.app/favicon.ico:0

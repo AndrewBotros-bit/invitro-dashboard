@@ -41,7 +41,20 @@ const CustomTooltip = ({ active, payload, label }) => {
   );
 };
 
-function KPICard({ title, value, subtitle, trend, trendUp }) {
+function ComparisonBadge({ current, compValue, compLabel }) {
+  if (!compValue || compValue === 0 || current == null) return null;
+  const pct = ((current - compValue) / Math.abs(compValue) * 100).toFixed(1);
+  const up = Number(pct) >= 0;
+  return (
+    <div className="mt-1">
+      <span className={`text-[10px] font-medium ${up ? 'text-emerald-600' : 'text-red-500'}`}>
+        {up ? '▲' : '▼'} {Math.abs(Number(pct))}% vs {compLabel}
+      </span>
+    </div>
+  );
+}
+
+function KPICard({ title, value, subtitle, trend, trendUp, comparison }) {
   return (
     <Card className="flex-1 min-w-[220px] gap-2 py-4 shadow-sm hover:shadow-md transition-shadow">
       <CardContent className="space-y-1 px-5">
@@ -55,6 +68,7 @@ function KPICard({ title, value, subtitle, trend, trendUp }) {
           )}
           {subtitle && <span className="text-[11px] text-muted-foreground">{subtitle}</span>}
         </div>
+        {comparison}
       </CardContent>
     </Card>
   );
@@ -99,6 +113,9 @@ export default function InVitroDashboard({ data }) {
 
   // View mode & date range state
   const [viewMode, setViewMode] = useState('monthly'); // 'monthly' | 'yearly'
+  const [compareEnabled, setCompareEnabled] = useState(false);
+  const [compareFromKey, setCompareFromKey] = useState(null); // null = auto-compute
+  const [compareToKey, setCompareToKey] = useState(null);
   const availableMonths = getAvailableMonths(data.pnl);
   // Available years (unique, sorted)
   const availableYears = [...new Set(availableMonths.map(m => m.year))].sort();
@@ -119,6 +136,27 @@ export default function InVitroDashboard({ data }) {
   const rangeLabel = viewMode === 'yearly'
     ? (yearFrom === yearTo ? String(yearFrom) : `${yearFrom}–${yearTo}`)
     : `${rangeFrom.label}–${rangeTo.label}`;
+
+  // ── Comparison range (user-selected or disabled) ──
+  const MONTHS_S = ['','Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  const fmtCompLabel = (r) => {
+    if (r.from.month === r.to.month && r.from.year === r.to.year)
+      return `${MONTHS_S[r.from.month]} ${String(r.from.year).slice(-2)}`;
+    if (r.from.year === r.to.year)
+      return `${MONTHS_S[r.from.month]}–${MONTHS_S[r.to.month]} ${String(r.to.year).slice(-2)}`;
+    return `${MONTHS_S[r.from.month]} ${String(r.from.year).slice(-2)}–${MONTHS_S[r.to.month]} ${String(r.to.year).slice(-2)}`;
+  };
+  // Resolve comparison range from user selection or default to YoY
+  const compFromResolved = compareFromKey ? (() => {
+    const [y, m] = compareFromKey.split('-').map(Number);
+    return { year: y, month: m };
+  })() : { year: rangeFrom.year - 1, month: rangeFrom.month };
+  const compToResolved = compareToKey ? (() => {
+    const [y, m] = compareToKey.split('-').map(Number);
+    return { year: y, month: m };
+  })() : { year: rangeTo.year - 1, month: rangeTo.month };
+  const compRange = { from: compFromResolved, to: compToResolved };
+  const compLabel = compareEnabled ? fmtCompLabel(compRange) : '';
 
   // Color map from dynamic company list
   const colorMap = buildColorMap(data.companies);
@@ -536,13 +574,13 @@ export default function InVitroDashboard({ data }) {
             {/* Monthly / Yearly toggle */}
             <div className="flex bg-muted rounded-lg p-0.5">
               <button
-                onClick={() => { setViewMode('monthly'); setExpenseDrilldown(null); }}
+                onClick={() => { setViewMode('monthly'); setExpenseDrilldown(null); if (compareEnabled) { setCompareFromKey(`${rangeFrom.year - 1}-${rangeFrom.month}`); setCompareToKey(`${rangeTo.year - 1}-${rangeTo.month}`); } }}
                 className={`px-3 py-1.5 text-xs font-medium rounded-md transition-all ${viewMode === 'monthly' ? 'bg-white text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'}`}
               >
                 Monthly
               </button>
               <button
-                onClick={() => { setViewMode('yearly'); setExpenseDrilldown(null); }}
+                onClick={() => { setViewMode('yearly'); setExpenseDrilldown(null); if (compareEnabled) { setCompareFromKey(`${yearFrom - 1}-1`); setCompareToKey(`${yearTo - 1}-12`); } }}
                 className={`px-3 py-1.5 text-xs font-medium rounded-md transition-all ${viewMode === 'yearly' ? 'bg-white text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'}`}
               >
                 Yearly
@@ -575,6 +613,57 @@ export default function InVitroDashboard({ data }) {
                     {availableYears.map(y => (<option key={y} value={y}>{y}</option>))}
                   </select>
                 </>
+              )}
+            </div>
+
+            {/* Comparison toggle */}
+            <div className="flex items-center gap-1.5 bg-muted/60 rounded-lg px-2 py-1">
+              <label className="flex items-center gap-1.5 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={compareEnabled}
+                  onChange={e => {
+                    setCompareEnabled(e.target.checked);
+                    if (e.target.checked && !compareFromKey) {
+                      if (viewMode === 'yearly') {
+                        setCompareFromKey(`${yearFrom - 1}-1`);
+                        setCompareToKey(`${yearTo - 1}-12`);
+                      } else {
+                        setCompareFromKey(`${rangeFrom.year - 1}-${rangeFrom.month}`);
+                        setCompareToKey(`${rangeTo.year - 1}-${rangeTo.month}`);
+                      }
+                    }
+                  }}
+                  className="h-3.5 w-3.5 rounded border-border accent-primary"
+                />
+                <span className="text-[10px] font-medium text-muted-foreground whitespace-nowrap">Compare</span>
+              </label>
+              {compareEnabled && (
+                viewMode === 'yearly' ? (
+                  <>
+                    <select value={compareFromKey ? compareFromKey.split('-')[0] : ''} onChange={e => { setCompareFromKey(`${e.target.value}-1`); setCompareToKey(`${compareToKey ? compareToKey.split('-')[0] : e.target.value}-12`); }}
+                      className="h-7 rounded-md bg-white border border-border/60 px-2 text-xs font-medium text-foreground shadow-sm focus:outline-none focus:ring-2 focus:ring-ring/30">
+                      {availableYears.map(y => (<option key={y} value={y}>{y}</option>))}
+                    </select>
+                    <span className="text-[10px] text-muted-foreground font-medium">to</span>
+                    <select value={compareToKey ? compareToKey.split('-')[0] : ''} onChange={e => setCompareToKey(`${e.target.value}-12`)}
+                      className="h-7 rounded-md bg-white border border-border/60 px-2 text-xs font-medium text-foreground shadow-sm focus:outline-none focus:ring-2 focus:ring-ring/30">
+                      {availableYears.map(y => (<option key={y} value={y}>{y}</option>))}
+                    </select>
+                  </>
+                ) : (
+                  <>
+                    <select value={compareFromKey || ''} onChange={e => setCompareFromKey(e.target.value)}
+                      className="h-7 rounded-md bg-white border border-border/60 px-2 text-xs font-medium text-foreground shadow-sm focus:outline-none focus:ring-2 focus:ring-ring/30">
+                      {availableMonths.map(m => (<option key={m.key} value={m.key}>{m.label}</option>))}
+                    </select>
+                    <span className="text-[10px] text-muted-foreground font-medium">to</span>
+                    <select value={compareToKey || ''} onChange={e => setCompareToKey(e.target.value)}
+                      className="h-7 rounded-md bg-white border border-border/60 px-2 text-xs font-medium text-foreground shadow-sm focus:outline-none focus:ring-2 focus:ring-ring/30">
+                      {availableMonths.map(m => (<option key={m.key} value={m.key}>{m.label}</option>))}
+                    </select>
+                  </>
+                )
               )}
             </div>
 
@@ -622,8 +711,10 @@ export default function InVitroDashboard({ data }) {
           {/* ────── OVERVIEW ────── */}
           <TabsContent value="overview">
             <div className="flex flex-wrap gap-4 mb-6">
-              <KPICard title={`Revenue — ${rangeLabel}`} value={fmt(rangeRevenue)} subtitle="excl. holdings" />
-              <KPICard title={`EBITDA — ${rangeLabel}`} value={fmt(rangeEbitda)} subtitle={rangeRevenue > 0 ? (rangeEbitda / rangeRevenue * 100).toFixed(0) + '% margin' : ''} />
+              <KPICard title={`Revenue — ${rangeLabel}`} value={fmt(rangeRevenue)} subtitle="excl. holdings"
+                comparison={compareEnabled && <ComparisonBadge current={rangeRevenue} compValue={rangeTotal(data.pnl, 'Revenues', compRange.from, compRange.to, dynExcludeRevenue)} compLabel={compLabel} />} />
+              <KPICard title={`EBITDA — ${rangeLabel}`} value={fmt(rangeEbitda)} subtitle={rangeRevenue > 0 ? (rangeEbitda / rangeRevenue * 100).toFixed(0) + '% margin' : ''}
+                comparison={compareEnabled && <ComparisonBadge current={rangeEbitda} compValue={rangeTotal(data.pnl, 'EBITDA', compRange.from, compRange.to, dynExcludeEbitda)} compLabel={compLabel} />} />
               <KPICard title="Operational Cash Flow" value={fmt(totalOpsCF)} trend={runwayMonths !== null ? '~' + runwayMonths.toFixed(1) + ' months' : (totalOpsCF >= 0 ? 'Cash positive' : 'Cash negative')} trendUp={totalOpsCF >= 0} subtitle="at current burn rate" />
               <KPICard title={`Gross Margin — ${rangeLabel}`} value={pct(rangeGrossMargin)} subtitle="portfolio weighted" />
             </div>
@@ -767,6 +858,9 @@ export default function InVitroDashboard({ data }) {
                   <KPICard key={name} title={`${name} — ${rangeLabel}`}
                     value={fmt(coRev)}
                     subtitle={rangeRevenue > 0 ? `${(coRev / rangeRevenue * 100).toFixed(0)}% of total` : ''}
+                    comparison={compareEnabled && <ComparisonBadge current={coRev}
+                      compValue={(data.pnl.find(c => c.name === name)?.metrics['Revenues'] ?? []).filter(v => { const vi = v.year * 100 + v.month; return vi >= compRange.from.year * 100 + compRange.from.month && vi <= compRange.to.year * 100 + compRange.to.month; }).reduce((s, v) => s + (v.value ?? 0), 0)}
+                      compLabel={compLabel} />}
                   />
                 );
               })}
@@ -810,7 +904,8 @@ export default function InVitroDashboard({ data }) {
           {/* ────── PROFITABILITY ────── */}
           <TabsContent value="profitability">
             <div className="flex flex-wrap gap-4 mb-6">
-              <KPICard title={`EBITDA — ${rangeLabel}`} value={fmt(rangeEbitda)} subtitle={rangeRevenue > 0 ? (rangeEbitda / rangeRevenue * 100).toFixed(0) + '% margin' : ''} />
+              <KPICard title={`EBITDA — ${rangeLabel}`} value={fmt(rangeEbitda)} subtitle={rangeRevenue > 0 ? (rangeEbitda / rangeRevenue * 100).toFixed(0) + '% margin' : ''}
+                comparison={compareEnabled && <ComparisonBadge current={rangeEbitda} compValue={rangeTotal(data.pnl, 'EBITDA', compRange.from, compRange.to, dynExcludeEbitda)} compLabel={compLabel} />} />
               <KPICard title={`EBITDA Margin — ${rangeLabel}`} value={rangeRevenue > 0 ? (rangeEbitda / rangeRevenue * 100).toFixed(0) + '%' : 'N/A'} />
               <KPICard title={`Gross Margin — ${rangeLabel}`} value={pct(rangeGrossMargin)} subtitle="portfolio weighted" />
               {breakevenCompany ? (
@@ -1020,6 +1115,9 @@ export default function InVitroDashboard({ data }) {
               <KPICard title={`${getExpenseLabel()} — ${rangeLabel}`}
                 value={fmt(Math.abs(rangeExpenses))}
                 subtitle={selectedCompany ? selectedCompany : 'all entities'}
+                comparison={compareEnabled && <ComparisonBadge current={Math.abs(rangeExpenses)}
+                  compValue={Math.abs(rangeTotal(data.pnl, selectedCompany ? 'SG&A + R&D Expenses' : 'Total Expenses', compRange.from, compRange.to, selectedCompany ? [...EXCLUDE_ALWAYS.filter(n => n !== selectedCompany)] : dynExcludeEbitda))}
+                  compLabel={compLabel} />}
               />
               <KPICard title={`Avg Monthly Expense`}
                 value={fmt(Math.abs(avgMonthlyExpense))}
@@ -1143,7 +1241,9 @@ export default function InVitroDashboard({ data }) {
                                             {(() => {
                                               const hcPeople = (data.headcount || []).filter(h => {
                                                 const matchDept = h.department === r.department;
-                                                const matchCompany = selectedCompany ? h.company === selectedCompany : DISPLAY_COMPANIES.includes(h.company);
+                                                // Consolidated: include ALL indirect employees (to match P&L totals)
+                                                // Single company: filter by that company
+                                                const matchCompany = selectedCompany ? h.company === selectedCompany : true;
                                                 return matchDept && matchCompany;
                                               });
                                               const byDiv = {};
@@ -1153,10 +1253,13 @@ export default function InVitroDashboard({ data }) {
                                               hcPeople.forEach(h => {
                                                 const d = h.division || 'Other';
                                                 if (!byDiv[d]) { byDiv[d] = 0; bydivCount[d] = 0; }
-                                                bydivCount[d]++;
                                                 if (h.salary && drillMonth && drillYear) {
                                                   const key = `${drillYear}-${drillMonth}`;
-                                                  byDiv[d] += (h.salary[key] ?? 0);
+                                                  const salaryVal = h.salary[key] ?? 0;
+                                                  if (salaryVal !== 0) {
+                                                    byDiv[d] += salaryVal;
+                                                    bydivCount[d]++;
+                                                  }
                                                 }
                                               });
                                               const divRows = Object.entries(byDiv).filter(([, c]) => c > 0).sort((a, b) => b[1] - a[1]);

@@ -1,0 +1,42 @@
+[    3447ms] [ERROR] Failed to load resource: the server responded with a status of 404 (Not Found) @ http://localhost:3001/favicon.ico:0
+[13619461ms] [ERROR] Failed to load resource: the server responded with a status of 404 (Not Found) @ http://localhost:3001/_next/static/webpack/c6722623aabbc420.webpack.hot-update.json:0
+[13621849ms] [ERROR] Failed to load resource: the server responded with a status of 404 (Not Found) @ http://localhost:3001/_next/static/webpack/5598db57cefb6e90.webpack.hot-update.json:0
+[13624916ms] [WARNING] The resource http://localhost:3001/_next/static/css/app/layout.css?v=1773959918008 was preloaded using link preload but not used within a few seconds from the window's load event. Please make sure it has an appropriate `as` value and it is preloaded intentionally. @ http://localhost:3001/:0
+[13624916ms] [WARNING] The resource http://localhost:3001/_next/static/media/27834908180db20f-s.p.woff2 was preloaded using link preload but not used within a few seconds from the window's load event. Please make sure it has an appropriate `as` value and it is preloaded intentionally. @ http://localhost:3001/:0
+[13624916ms] [WARNING] The resource http://localhost:3001/_next/static/css/app/layout.css?v=1773959913796 was preloaded using link preload but not used within a few seconds from the window's load event. Please make sure it has an appropriate `as` value and it is preloaded intentionally. @ http://localhost:3001/:0
+[13624916ms] [WARNING] The resource http://localhost:3001/_next/static/css/app/layout.css?v=1773959917024 was preloaded using link preload but not used within a few seconds from the window's load event. Please make sure it has an appropriate `as` value and it is preloaded intentionally. @ http://localhost:3001/:0
+[13627129ms] [ERROR] Failed to load resource: the server responded with a status of 404 (Not Found) @ http://localhost:3001/_next/static/webpack/a8c69295c7ef9d1d.webpack.hot-update.json:0
+[13629875ms] [WARNING] The resource http://localhost:3001/_next/static/css/app/layout.css?v=1773959923256 was preloaded using link preload but not used within a few seconds from the window's load event. Please make sure it has an appropriate `as` value and it is preloaded intentionally. @ http://localhost:3001/:0
+[13629876ms] [WARNING] The resource http://localhost:3001/_next/static/css/app/layout.css?v=1773959918008 was preloaded using link preload but not used within a few seconds from the window's load event. Please make sure it has an appropriate `as` value and it is preloaded intentionally. @ http://localhost:3001/:0
+[13629876ms] [WARNING] The resource http://localhost:3001/_next/static/media/27834908180db20f-s.p.woff2 was preloaded using link preload but not used within a few seconds from the window's load event. Please make sure it has an appropriate `as` value and it is preloaded intentionally. @ http://localhost:3001/:0
+[13629876ms] [WARNING] The resource http://localhost:3001/_next/static/css/app/layout.css?v=1773959913796 was preloaded using link preload but not used within a few seconds from the window's load event. Please make sure it has an appropriate `as` value and it is preloaded intentionally. @ http://localhost:3001/:0
+[13629878ms] [WARNING] The resource http://localhost:3001/_next/static/css/app/layout.css?v=1773959917024 was preloaded using link preload but not used within a few seconds from the window's load event. Please make sure it has an appropriate `as` value and it is preloaded intentionally. @ http://localhost:3001/:0
+[13632063ms] [ERROR] Failed to load resource: the server responded with a status of 500 (Internal Server Error) @ http://localhost:3001/:0
+[13632444ms] TypeError: Cannot read properties of null (reading 'useContext')
+    at t.useContext (file:///Users/andrewmaher/invitro-dashboard-1/node_modules/next/dist/compiled/next-server/app-page.runtime.dev.js:35:162241)
+    at usePathname (webpack-internal:///(ssr)/./node_modules/next/dist/client/components/navigation.js:121:34)
+    at ErrorBoundary (webpack-internal:///(ssr)/./node_modules/next/dist/client/components/error-boundary.js:159:50)
+    at au (file:///Users/andrewmaher/invitro-dashboard-1/node_modules/next/dist/compiled/next-server/app-page.runtime.dev.js:35:10446)
+    at <unknown> (file:///Users/andrewmaher/invitro-dashboard-1/node_modules/next/dist/compiled/next-server/app-page.runtime.dev.js:35:15122)
+    at aw (file:///Users/andrewmaher/invitro-dashboard-1/node_modules/next/dist/compiled/next-server/app-page.runtime.dev.js:35:16908)
+    at a_ (file:///Users/andrewmaher/invitro-dashboard-1/node_modules/next/dist/compiled/next-server/app-page.runtime.dev.js:35:49776)
+    at ab (file:///Users/andrewmaher/invitro-dashboard-1/node_modules/next/dist/compiled/next-server/app-page.runtime.dev.js:35:11808)
+    at <unknown> (file:///Users/andrewmaher/invitro-dashboard-1/node_modules/next/dist/compiled/next-server/app-page.runtime.dev.js:35:16871)
+    at aw (file:///Users/andrewmaher/invitro-dashboard-1/node_modules/next/dist/compiled/next-server/app-page.runtime.dev.js:35:16908)
+    at aw (file:///Users/andrewmaher/invitro-dashboard-1/node_modules/next/dist/compiled/next-server/app-page.runtime.dev.js:35:46505)
+    at a_ (file:///Users/andrewmaher/invitro-dashboard-1/node_modules/next/dist/compiled/next-server/app-page.runtime.dev.js:35:49776)
+    at ab (file:///Users/andrewmaher/invitro-dashboard-1/node_modules/next/dist/compiled/next-server/app-page.runtime.dev.js:35:11808)
+    at <unknown> (file:///Users/andrewmaher/invitro-dashboard-1/node_modules/next/dist/compiled/next-server/app-page.runtime.dev.js:35:16871)
+    at aw (file:///Users/andrewmaher/invitro-dashboard-1/node_modules/next/dist/compiled/next-server/app-page.runtime.dev.js:35:16908)
+    at a_ (file:///Users/andrewmaher/invitro-dashboard-1/node_modules/next/dist/compiled/next-server/app-page.runtime.dev.js:35:49776)
+    at <unknown> (file:///Users/andrewmaher/invitro-dashboard-1/node_modules/next/dist/compiled/next-server/app-page.runtime.dev.js:35:58612)
+    at <unknown> (file:///Users/andrewmaher/invitro-dashboard-1/node_modules/next/dist/compiled/next-server/app-page.runtime.dev.js:35:59270)
+    at aN (file:///Users/andrewmaher/invitro-dashboard-1/node_modules/next/dist/compiled/next-server/app-page.runtime.dev.js:35:59278)
+    at Timeout._onTimeout (file:///Users/andrewmaher/invitro-dashboard-1/node_modules/next/dist/compiled/next-server/app-page.runtime.dev.js:35:6939)
+    at listOnTimeout (node:internal/timers:605:17)
+    at process.processTimers (node:internal/timers:541:7)
+[13635711ms] [WARNING] The resource http://localhost:3001/_next/static/media/27834908180db20f-s.p.woff2 was preloaded using link preload but not used within a few seconds from the window's load event. Please make sure it has an appropriate `as` value and it is preloaded intentionally. @ http://localhost:3001/:0
+[13673528ms] [WARNING] [Fast Refresh] performing full reload because your application had an unrecoverable error @ webpack-internal:///./node_modules/next/dist/client/components/react-dev-overlay/pages/hot-reloader-client.js:349
+[13680927ms] [ERROR] Failed to load resource: the server responded with a status of 404 (Not Found) @ http://localhost:3001/_next/static/webpack/54bd9a6d00ded177.webpack.hot-update.json:0
+[13873859ms] [ERROR] Failed to load resource: the server responded with a status of 500 (Internal Server Error) @ http://localhost:3001/_next/static/css/app/layout.css?v=1773960168730:0
+[13874156ms] Event
