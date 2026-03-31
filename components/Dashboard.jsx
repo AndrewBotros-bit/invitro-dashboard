@@ -907,6 +907,17 @@ export default function InVitroDashboard({ data }) {
               <KPICard title={`Cash Inflow — ${rangeLabel}`} value={fmt(totalInflow)} subtitle="all entities" />
               <KPICard title={`Cash Outflow — ${rangeLabel}`} value={fmt(totalOutflow)} subtitle="total outflows" />
               <KPICard title="Avg Monthly Burn" value={fmt(avgMonthlyBurn)} subtitle="average per month" />
+              {/* Debt Loan badge — PNC loan balance at end of range (consolidated only) */}
+              {!selectedCompany && (() => {
+                const pncCompany = data.cashflow?.find(c => c.name === 'PNC loan');
+                const balanceMetric = pncCompany?.metrics?.['Balance'];
+                if (!balanceMetric) return null;
+                // Get value at end of range
+                const endVal = balanceMetric.find(v => v.year === rangeTo.year && v.month === rangeTo.month);
+                const val = endVal?.value ?? 0;
+                const ML = ['','Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+                return <KPICard title={`Debt Loan — ${ML[rangeTo.month]} ${String(rangeTo.year).slice(-2)}`} value={fmt(val)} subtitle="PNC loan balance" />;
+              })()}
             </div>
 
             <Card className="mb-5">
