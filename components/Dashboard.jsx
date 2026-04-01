@@ -723,8 +723,10 @@ export default function InVitroDashboard({ data }) {
                 comparison={compareEnabled && <ComparisonBadge current={rangeRevenue} compValue={rangeTotal(data.pnl, 'Revenues', compRange.from, compRange.to, dynExcludeRevenue)} compLabel={compLabel} />} />
               <KPICard title={`EBITDA — ${rangeLabel}`} value={fmt(rangeEbitda)} subtitle={rangeRevenue > 0 ? (rangeEbitda / rangeRevenue * 100).toFixed(0) + '% margin' : ''}
                 comparison={compareEnabled && <ComparisonBadge current={rangeEbitda} compValue={rangeTotal(data.pnl, 'EBITDA', compRange.from, compRange.to, dynExcludeEbitda)} compLabel={compLabel} />} />
-              <KPICard title="Operational Cash Flow" value={fmt(totalOpsCF)} trend={runwayMonths !== null ? '~' + runwayMonths.toFixed(1) + ' months' : (totalOpsCF >= 0 ? 'Cash positive' : 'Cash negative')} trendUp={totalOpsCF >= 0} subtitle="at current burn rate" />
-              <KPICard title={`Gross Margin — ${rangeLabel}`} value={pct(rangeGrossMargin)} subtitle="portfolio weighted" />
+              <KPICard title="Operational Cash Flow" value={fmt(totalOpsCF)} trend={runwayMonths !== null ? '~' + runwayMonths.toFixed(1) + ' months' : (totalOpsCF >= 0 ? 'Cash positive' : 'Cash negative')} trendUp={totalOpsCF >= 0} subtitle="at current burn rate"
+                comparison={compareEnabled && <ComparisonBadge current={totalOpsCF} compValue={(() => { const cfKey = selectedCompany ? 'Operational Cash Flow' : 'Holdings net cash movement'; for (const co of (data.cashflow||[])) { const m = co.metrics?.[cfKey]; if (m) { return m.filter(v => { const vi = v.year*100+v.month; return vi >= compRange.from.year*100+compRange.from.month && vi <= compRange.to.year*100+compRange.to.month; }).reduce((s,v) => s+(v.value??0), 0); } } return 0; })()} compLabel={compLabel} />} />
+              <KPICard title={`Gross Margin — ${rangeLabel}`} value={pct(rangeGrossMargin)} subtitle="portfolio weighted"
+                comparison={compareEnabled && (() => { const compRev = rangeTotal(data.pnl, 'Revenues', compRange.from, compRange.to, dynExcludeRevenue); const compGP = rangeTotal(data.pnl, 'Gross Profit', compRange.from, compRange.to, dynExcludeRevenue); const compGM = compRev > 0 ? compGP / compRev * 100 : 0; return <ComparisonBadge current={rangeGrossMargin} compValue={compGM} compLabel={compLabel} />; })()} />
             </div>
 
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-8">
@@ -914,8 +916,10 @@ export default function InVitroDashboard({ data }) {
             <div className="flex flex-wrap gap-4 mb-6">
               <KPICard title={`EBITDA — ${rangeLabel}`} value={fmt(rangeEbitda)} subtitle={rangeRevenue > 0 ? (rangeEbitda / rangeRevenue * 100).toFixed(0) + '% margin' : ''}
                 comparison={compareEnabled && <ComparisonBadge current={rangeEbitda} compValue={rangeTotal(data.pnl, 'EBITDA', compRange.from, compRange.to, dynExcludeEbitda)} compLabel={compLabel} />} />
-              <KPICard title={`EBITDA Margin — ${rangeLabel}`} value={rangeRevenue > 0 ? (rangeEbitda / rangeRevenue * 100).toFixed(0) + '%' : 'N/A'} />
-              <KPICard title={`Gross Margin — ${rangeLabel}`} value={pct(rangeGrossMargin)} subtitle="portfolio weighted" />
+              <KPICard title={`EBITDA Margin — ${rangeLabel}`} value={rangeRevenue > 0 ? (rangeEbitda / rangeRevenue * 100).toFixed(0) + '%' : 'N/A'}
+                comparison={compareEnabled && (() => { const cRev = rangeTotal(data.pnl, 'Revenues', compRange.from, compRange.to, dynExcludeRevenue); const cEb = rangeTotal(data.pnl, 'EBITDA', compRange.from, compRange.to, dynExcludeEbitda); const cur = rangeRevenue > 0 ? rangeEbitda/rangeRevenue*100 : 0; const comp = cRev > 0 ? cEb/cRev*100 : 0; return <ComparisonBadge current={cur} compValue={comp} compLabel={compLabel} />; })()} />
+              <KPICard title={`Gross Margin — ${rangeLabel}`} value={pct(rangeGrossMargin)} subtitle="portfolio weighted"
+                comparison={compareEnabled && (() => { const cRev = rangeTotal(data.pnl, 'Revenues', compRange.from, compRange.to, dynExcludeRevenue); const cGP = rangeTotal(data.pnl, 'Gross Profit', compRange.from, compRange.to, dynExcludeRevenue); return <ComparisonBadge current={rangeGrossMargin} compValue={cRev > 0 ? cGP/cRev*100 : 0} compLabel={compLabel} />; })()} />
               {breakevenCompany ? (
                 <KPICard title={`${breakevenCompany} Breakeven`} value={`FY ${currentYear}`} trend="Reached EBITDA breakeven" trendUp={true} />
               ) : (
@@ -1006,10 +1010,32 @@ export default function InVitroDashboard({ data }) {
           {/* ────── CASH FLOW ────── */}
           <TabsContent value="cashflow">
             <div className="flex flex-wrap gap-4 mb-6">
-              <KPICard title="Operational Cash Flow" value={fmt(totalOpsCF)} trend={runwayMonths !== null ? '~' + runwayMonths.toFixed(1) + ' months runway' : (totalOpsCF >= 0 ? 'Cash positive' : 'Cash negative')} trendUp={totalOpsCF >= 0 || (runwayMonths !== null && runwayMonths > 3)} subtitle="at current burn rate" />
-              <KPICard title={`Cash Inflow — ${rangeLabel}`} value={fmt(totalInflow)} subtitle="all entities" />
-              <KPICard title={`Cash Outflow — ${rangeLabel}`} value={fmt(totalOutflow)} subtitle="total outflows" />
-              <KPICard title="Avg Monthly Burn" value={fmt(avgMonthlyBurn)} subtitle="average per month" />
+              {(() => {
+                // Helper: sum a cashflow metric across comparison range
+                const cfCompSum = (metricKey) => {
+                  for (const co of (data.cashflow || [])) {
+                    const m = co.metrics?.[metricKey];
+                    if (m) return m.filter(v => { const vi = v.year*100+v.month; return vi >= compRange.from.year*100+compRange.from.month && vi <= compRange.to.year*100+compRange.to.month; }).reduce((s,v) => s+(v.value??0), 0);
+                  }
+                  return null;
+                };
+                const compMonths = (compRange.to.year*12+compRange.to.month) - (compRange.from.year*12+compRange.from.month) + 1;
+                const opsKey = selectedCompany ? 'Operational Cash Flow' : 'Holdings net cash movement';
+                const compOps = cfCompSum(opsKey);
+                const compInflow = cfCompSum('Cash Inflow');
+                const compOutflow = cfCompSum('Cash Outflow');
+                const compBurn = compOps !== null && compMonths > 0 ? compOps / compMonths : null;
+                return (<>
+                  <KPICard title="Operational Cash Flow" value={fmt(totalOpsCF)} trend={runwayMonths !== null ? '~' + runwayMonths.toFixed(1) + ' months runway' : (totalOpsCF >= 0 ? 'Cash positive' : 'Cash negative')} trendUp={totalOpsCF >= 0 || (runwayMonths !== null && runwayMonths > 3)} subtitle="at current burn rate"
+                    comparison={compareEnabled && compOps !== null && <ComparisonBadge current={totalOpsCF} compValue={compOps} compLabel={compLabel} />} />
+                  <KPICard title={`Cash Inflow — ${rangeLabel}`} value={fmt(totalInflow)} subtitle="all entities"
+                    comparison={compareEnabled && compInflow !== null && <ComparisonBadge current={totalInflow} compValue={compInflow} compLabel={compLabel} />} />
+                  <KPICard title={`Cash Outflow — ${rangeLabel}`} value={fmt(totalOutflow)} subtitle="total outflows"
+                    comparison={compareEnabled && compOutflow !== null && <ComparisonBadge current={totalOutflow} compValue={compOutflow} compLabel={compLabel} />} />
+                  <KPICard title="Avg Monthly Burn" value={fmt(avgMonthlyBurn)} subtitle="average per month"
+                    comparison={compareEnabled && compBurn !== null && <ComparisonBadge current={avgMonthlyBurn} compValue={compBurn} compLabel={compLabel} />} />
+                </>);
+              })()}
               {/* Cash Balance badge — end of range period */}
               {(() => {
                 const ML = ['','Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
@@ -1179,11 +1205,13 @@ export default function InVitroDashboard({ data }) {
               <KPICard title={`Avg Monthly Expense`}
                 value={fmt(Math.abs(avgMonthlyExpense))}
                 subtitle="average per month"
+                comparison={compareEnabled && (() => { const compExp = Math.abs(rangeTotal(data.pnl, selectedCompany ? 'SG&A + R&D Expenses' : 'Total Expenses', compRange.from, compRange.to, selectedCompany ? [...EXCLUDE_ALWAYS.filter(n => n !== selectedCompany)] : dynExcludeEbitda)); const compMo = (compRange.to.year*12+compRange.to.month) - (compRange.from.year*12+compRange.from.month) + 1; return <ComparisonBadge current={Math.abs(avgMonthlyExpense)} compValue={compMo > 0 ? compExp/compMo : 0} compLabel={compLabel} />; })()}
               />
               {rangeRevenue > 0 && (
                 <KPICard title={`Expense Ratio — ${rangeLabel}`}
                   value={`${(Math.abs(rangeExpenses) / rangeRevenue * 100).toFixed(1)}%`}
                   subtitle="expenses / revenue"
+                  comparison={compareEnabled && (() => { const cExp = Math.abs(rangeTotal(data.pnl, selectedCompany ? 'SG&A + R&D Expenses' : 'Total Expenses', compRange.from, compRange.to, selectedCompany ? [...EXCLUDE_ALWAYS.filter(n => n !== selectedCompany)] : dynExcludeEbitda)); const cRev = rangeTotal(data.pnl, 'Revenues', compRange.from, compRange.to, dynExcludeRevenue); const cur = rangeRevenue > 0 ? Math.abs(rangeExpenses)/rangeRevenue*100 : 0; const comp = cRev > 0 ? cExp/cRev*100 : 0; return <ComparisonBadge current={cur} compValue={comp} compLabel={compLabel} />; })()}
                 />
               )}
             </div>
