@@ -1019,10 +1019,23 @@ export default function InVitroDashboard({ data }) {
                 const metricName = selectedCompany ? (BANK_NAME_MAP[selectedCompany] || selectedCompany) : 'Total';
                 const balMetric = bankCompany.metrics[metricName];
                 if (!balMetric) return null;
-                const endVal = balMetric.find(v => v.year === rangeTo.year && v.month === rangeTo.month);
-                const val = endVal?.value ?? 0;
                 const ML = ['','Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-                return <KPICard title={`Cash Balance — ${ML[rangeTo.month]} ${String(rangeTo.year).slice(-2)}`} value={fmt(val)} subtitle={val >= 0 ? 'ending balance' : 'deficit'} />;
+                // Try exact end-of-range first, then fall back to latest available month within range
+                const endVal = balMetric.find(v => v.year === rangeTo.year && v.month === rangeTo.month && v.value !== null);
+                let val, asOfLabel;
+                if (endVal) {
+                  val = endVal.value;
+                  asOfLabel = `${ML[rangeTo.month]} ${String(rangeTo.year).slice(-2)}`;
+                } else {
+                  // Find last non-null value within or before the range
+                  const fromIdx = rangeFrom.year * 100 + rangeFrom.month;
+                  const toIdx = rangeTo.year * 100 + rangeTo.month;
+                  const sorted = balMetric.filter(v => v.value !== null && v.year * 100 + v.month <= toIdx).sort((a, b) => (b.year * 100 + b.month) - (a.year * 100 + a.month));
+                  if (sorted.length === 0) return null;
+                  val = sorted[0].value;
+                  asOfLabel = `${ML[sorted[0].month]} ${String(sorted[0].year).slice(-2)}`;
+                }
+                return <KPICard title={`Cash Balance — ${asOfLabel}`} value={fmt(val)} subtitle={val >= 0 ? 'ending balance' : 'deficit'} />;
               })()}
               {/* Debt Loan badge — PNC loan balance at end of range (consolidated only) */}
               {!selectedCompany && (() => {
