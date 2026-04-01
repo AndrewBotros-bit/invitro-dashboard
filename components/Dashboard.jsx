@@ -41,6 +41,82 @@ const CustomTooltip = ({ active, payload, label }) => {
   );
 };
 
+function ComparisonScorecard({ title, companies, currentData, compData, colorMap, formatter = fmt }) {
+  // currentData & compData: [{ name, value }]
+  return (
+    <Card>
+      <CardHeader><CardTitle className="text-sm">{title}</CardTitle></CardHeader>
+      <CardContent>
+        <div className="space-y-3">
+          {companies.map(name => {
+            const cur = currentData.find(d => d.name === name)?.value ?? 0;
+            const comp = compData.find(d => d.name === name)?.value ?? 0;
+            const pct = comp !== 0 ? ((cur - comp) / Math.abs(comp) * 100).toFixed(1) : null;
+            const up = pct !== null && Number(pct) >= 0;
+            const maxVal = Math.max(...companies.map(n => Math.max(
+              Math.abs(currentData.find(d => d.name === n)?.value ?? 0),
+              Math.abs(compData.find(d => d.name === n)?.value ?? 0)
+            )), 1);
+            const curWidth = Math.abs(cur) / maxVal * 100;
+            const compWidth = Math.abs(comp) / maxVal * 100;
+            return (
+              <div key={name} className="space-y-1">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <span className="inline-block w-2.5 h-2.5 rounded-full" style={{ backgroundColor: colorMap[name] }} />
+                    <span className="text-xs font-medium text-foreground">{name}</span>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <span className="text-xs font-bold tabular-nums">{formatter(cur)}</span>
+                    {pct !== null && (
+                      <span className={`text-[10px] font-medium ${up ? 'text-emerald-600' : 'text-red-500'}`}>
+                        {up ? '▲' : '▼'} {Math.abs(Number(pct))}%
+                      </span>
+                    )}
+                  </div>
+                </div>
+                {/* Current period bar */}
+                <div className="relative h-5 rounded-sm overflow-hidden bg-muted/30">
+                  <div className="absolute inset-y-0 left-0 rounded-sm" style={{ width: `${curWidth}%`, backgroundColor: colorMap[name], opacity: 0.85 }} />
+                  {/* Comparison period bar (outline) */}
+                  <div className="absolute inset-y-0 left-0 rounded-sm border-2 border-dashed" style={{ width: `${compWidth}%`, borderColor: colorMap[name], opacity: 0.5 }} />
+                </div>
+                <div className="flex justify-between text-[10px] text-muted-foreground">
+                  <span>Current: {formatter(cur)}</span>
+                  <span>Prior: {formatter(comp)}</span>
+                </div>
+              </div>
+            );
+          })}
+          {/* Total row */}
+          {(() => {
+            const curTotal = currentData.reduce((s, d) => s + (d.value ?? 0), 0);
+            const compTotal = compData.reduce((s, d) => s + (d.value ?? 0), 0);
+            const pct = compTotal !== 0 ? ((curTotal - compTotal) / Math.abs(compTotal) * 100).toFixed(1) : null;
+            const up = pct !== null && Number(pct) >= 0;
+            return (
+              <div className="pt-2 border-t border-border/60">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-semibold text-foreground">Total</span>
+                  <div className="flex items-center gap-3">
+                    <span className="text-sm font-bold tabular-nums">{formatter(curTotal)}</span>
+                    <span className="text-xs text-muted-foreground">vs {formatter(compTotal)}</span>
+                    {pct !== null && (
+                      <span className={`text-xs font-semibold ${up ? 'text-emerald-600' : 'text-red-500'}`}>
+                        {up ? '▲' : '▼'} {Math.abs(Number(pct))}%
+                      </span>
+                    )}
+                  </div>
+                </div>
+              </div>
+            );
+          })()}
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
 function ComparisonBadge({ current, compValue, compLabel }) {
   if (!compValue || compValue === 0 || current == null) return null;
   const pct = ((current - compValue) / Math.abs(compValue) * 100).toFixed(1);
@@ -759,6 +835,31 @@ export default function InVitroDashboard({ data }) {
                 comparison={compareEnabled && (() => { const compRev = rangeTotal(data.pnl, 'Revenues', compRange.from, compRange.to, dynExcludeRevenue); const compGP = rangeTotal(data.pnl, 'Gross Profit', compRange.from, compRange.to, dynExcludeRevenue); const compGM = compRev > 0 ? compGP / compRev * 100 : 0; return <ComparisonBadge current={rangeGrossMargin} compValue={compGM} compLabel={compLabel} />; })()} />
             </div>
 
+            {/* Single-month + compare: show scorecards instead of tiny bar charts */}
+            {compareEnabled && revenueByMonthWithTotal.length === 1 ? (
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-8">
+                <ComparisonScorecard
+                  title={`Revenue Comparison — ${rangeLabel} vs ${compLabel}`}
+                  companies={revenueCompanies}
+                  currentData={revenueCompanies.map(name => ({ name, value: revenueByMonthWithTotal[0]?.[name] ?? 0 }))}
+                  compData={revenueCompanies.map(name => {
+                    const compPoint = compRevenueByMonth[0];
+                    return { name, value: compPoint?.[name] ?? 0 };
+                  })}
+                  colorMap={colorMap}
+                />
+                <ComparisonScorecard
+                  title={`EBITDA Comparison — ${rangeLabel} vs ${compLabel}`}
+                  companies={allCompanyNames}
+                  currentData={allCompanyNames.map(name => ({ name, value: ebitdaByMonthWithTotal[0]?.[name] ?? 0 }))}
+                  compData={allCompanyNames.map(name => {
+                    const compPoint = compEbitdaByMonth[0];
+                    return { name, value: compPoint?.[name] ?? 0 };
+                  })}
+                  colorMap={colorMap}
+                />
+              </div>
+            ) : (
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-8">
               <Card>
                 <CardHeader>
@@ -838,6 +939,7 @@ export default function InVitroDashboard({ data }) {
                 </CardContent>
               </Card>
             </div>
+            )}
 
             {/* Company Performance Table */}
             <div className="mb-4">
