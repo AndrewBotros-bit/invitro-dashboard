@@ -1012,11 +1012,12 @@ export default function InVitroDashboard({ data }) {
               <KPICard title="Avg Monthly Burn" value={fmt(avgMonthlyBurn)} subtitle="average per month" />
               {/* Cash Balance badge — end of range period */}
               {(() => {
-                const balanceName = selectedCompany ? 'Cash balance' : 'Consolidated Cash balance';
-                const balanceCompany = selectedCompany
-                  ? data.cashflow?.find(c => c.name === selectedCompany)
-                  : data.cashflow?.find(c => c.name === 'Bank balances');
-                const balMetric = balanceCompany?.metrics?.[balanceName];
+                const bankCompany = data.cashflow?.find(c => c.name === 'Bank balances');
+                if (!bankCompany?.metrics) return null;
+                // Map display names to bank balance metric names (no spaces in sheet)
+                const BANK_NAME_MAP = { 'AllRx': 'AllRx', 'AllCare': 'AllCare', 'Osta': 'Osta', 'Needles': 'Needles', 'InVitro Studio': 'InvitroStudio' };
+                const metricName = selectedCompany ? (BANK_NAME_MAP[selectedCompany] || selectedCompany) : 'Total';
+                const balMetric = bankCompany.metrics[metricName];
                 if (!balMetric) return null;
                 const endVal = balMetric.find(v => v.year === rangeTo.year && v.month === rangeTo.month);
                 const val = endVal?.value ?? 0;
