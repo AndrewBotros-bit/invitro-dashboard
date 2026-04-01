@@ -1012,23 +1012,27 @@ export default function InVitroDashboard({ data }) {
               <KPICard title="Avg Monthly Burn" value={fmt(avgMonthlyBurn)} subtitle="average per month" />
               {/* Cash Balance badge — end of range period */}
               {(() => {
-                const bankCompany = data.cashflow?.find(c => c.name === 'Bank balances');
-                if (!bankCompany?.metrics) return null;
-                // Map display names to bank balance metric names (no spaces in sheet)
-                const BANK_NAME_MAP = { 'AllRx': 'AllRx', 'AllCare': 'AllCare', 'Osta': 'Osta', 'Needles': 'Needles', 'InVitro Studio': 'InvitroStudio' };
-                const metricName = selectedCompany ? (BANK_NAME_MAP[selectedCompany] || selectedCompany) : 'Total';
-                const balMetric = bankCompany.metrics[metricName];
-                if (!balMetric) return null;
                 const ML = ['','Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-                // Try exact end-of-range first, then fall back to latest available month within range
+                // For consolidated: use "Consolidated Cash balance" metric from any cashflow company that has it
+                // For per-company: use "Ending cash balance" or "Cash Balance" from the company's cashflow block
+                let balMetric = null;
+                if (selectedCompany) {
+                  const co = data.cashflow?.find(c => c.name === selectedCompany);
+                  balMetric = co?.metrics?.['Ending cash balance'] || co?.metrics?.['Cash Balance'] || co?.metrics?.['Cash balance'];
+                } else {
+                  // Consolidated — search all cashflow companies for "Consolidated Cash balance"
+                  for (const co of (data.cashflow || [])) {
+                    if (co.metrics?.['Consolidated Cash balance']) { balMetric = co.metrics['Consolidated Cash balance']; break; }
+                  }
+                }
+                if (!balMetric || balMetric.length === 0) return null;
+                // Try exact end-of-range, fall back to latest non-null
                 const endVal = balMetric.find(v => v.year === rangeTo.year && v.month === rangeTo.month && v.value !== null);
                 let val, asOfLabel;
                 if (endVal) {
                   val = endVal.value;
                   asOfLabel = `${ML[rangeTo.month]} ${String(rangeTo.year).slice(-2)}`;
                 } else {
-                  // Find last non-null value within or before the range
-                  const fromIdx = rangeFrom.year * 100 + rangeFrom.month;
                   const toIdx = rangeTo.year * 100 + rangeTo.month;
                   const sorted = balMetric.filter(v => v.value !== null && v.year * 100 + v.month <= toIdx).sort((a, b) => (b.year * 100 + b.month) - (a.year * 100 + a.month));
                   if (sorted.length === 0) return null;
