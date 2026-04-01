@@ -250,6 +250,27 @@ export default function InVitroDashboard({ data }) {
   const ebitdaByMonth = viewMode === 'yearly'
     ? buildYearlySeries(data.pnl, 'EBITDA', dynExcludeEbitda, yearFrom, yearTo)
     : filterSeriesToRange(rawEbitdaByMonth, rangeFrom, rangeTo, availableMonths);
+  // ── Comparison ghost series (dashed overlay) ──
+  // Build comparison series aligned to current period months
+  const compRevenueByMonth = compareEnabled ? (viewMode === 'yearly'
+    ? buildYearlySeries(data.pnl, 'Revenues', dynExcludeRevenue, compRange.from.year, compRange.to.year)
+    : filterSeriesToRange(rawRevenueByMonth, compRange.from, compRange.to, availableMonths)
+  ) : [];
+  const compEbitdaByMonth = compareEnabled ? (viewMode === 'yearly'
+    ? buildYearlySeries(data.pnl, 'EBITDA', dynExcludeEbitda, compRange.from.year, compRange.to.year)
+    : filterSeriesToRange(rawEbitdaByMonth, compRange.from, compRange.to, availableMonths)
+  ) : [];
+  // Merge comparison Total into current series (align by index, not by month label)
+  const addCompTotal = (currentSeries, compSeries) => {
+    if (!compareEnabled || compSeries.length === 0) return currentSeries;
+    return currentSeries.map((point, idx) => {
+      const compPoint = compSeries[idx];
+      if (!compPoint) return point;
+      // Sum all numeric values in compPoint (except 'month') for total
+      const compTotal = Object.entries(compPoint).reduce((s, [k, v]) => k === 'month' ? s : s + (Number(v) || 0), 0);
+      return { ...point, Total_comp: compTotal };
+    });
+  };
   // grossMarginByMonth is now computed inline from Revenue & Gross Profit
   // Build cashflow series — metric names differ between consolidated and per-company
   const cashBalanceByMonth = (() => {
@@ -289,16 +310,16 @@ export default function InVitroDashboard({ data }) {
   })();
 
   // Revenue by month with Total
-  const revenueByMonthWithTotal = revenueByMonth.map(point => ({
+  const revenueByMonthWithTotal = addCompTotal(revenueByMonth.map(point => ({
     ...point,
     Total: revenueCompanies.reduce((sum, name) => sum + (point[name] ?? 0), 0),
-  }));
+  })), compRevenueByMonth);
 
   // EBITDA by month with Total
-  const ebitdaByMonthWithTotal = ebitdaByMonth.map(point => ({
+  const ebitdaByMonthWithTotal = addCompTotal(ebitdaByMonth.map(point => ({
     ...point,
     Total: allCompanyNames.reduce((sum, name) => sum + (point[name] ?? 0), 0),
-  }));
+  })), compEbitdaByMonth);
 
   // Expenses data — InVitro Studio uses "Fixed Expenses" + "Direct Expenses"; others use "SG&A + R&D Expenses"
   // Helper: get expense values for a company (handles InVitro Studio's different metric names)
@@ -377,9 +398,18 @@ export default function InVitroDashboard({ data }) {
     }
     return flipped;
   });
-  const expenseByMonthWithTotal = expenseByMonthPositive.map(point => ({
+  const compExpenseByMonth = compareEnabled ? (() => {
+    const rawExp = buildMonthlySeries(data.pnl, selectedCompany ? 'SG&A + R&D Expenses' : 'Total Expenses', dynExcludeEbitda, null);
+    return viewMode === 'yearly'
+      ? buildYearlySeries(data.pnl, selectedCompany ? 'SG&A + R&D Expenses' : 'Total Expenses', dynExcludeEbitda, compRange.from.year, compRange.to.year)
+      : filterSeriesToRange(rawExp, compRange.from, compRange.to, availableMonths);
+  })() : [];
+  const expenseByMonthWithTotal = addCompTotal(expenseByMonthPositive.map(point => ({
     ...point,
     Total: expenseChartCompanies.reduce((sum, name) => sum + (point[name] ?? 0), 0),
+  })), compExpenseByMonth.map(p => {
+    const total = Object.entries(p).reduce((s, [k, v]) => k === 'month' ? s : s + Math.abs(Number(v) || 0), 0);
+    return { month: p.month, Total: total };
   }));
 
   // Annual totals
@@ -747,6 +777,7 @@ export default function InVitroDashboard({ data }) {
                             radius={i === revenueCompanies.length - 1 ? [4, 4, 0, 0] : [0, 0, 0, 0]} />
                         ))}
                         <Line type="monotone" dataKey="Total" stroke="#1e293b" strokeWidth={2} dot={{ fill: "#1e293b", r: 3 }} />
+                        {compareEnabled && <Line type="monotone" dataKey="Total_comp" stroke="#1e293b" strokeWidth={1.5} strokeDasharray="6 3" dot={false} name={`Total (${compLabel})`} />}
                         <Legend />
                       </ComposedChart>
                     ) : (
@@ -760,6 +791,7 @@ export default function InVitroDashboard({ data }) {
                             stroke={colorMap[name]} fill={colorMap[name]} fillOpacity={0.6} />
                         ))}
                         <Line type="monotone" dataKey="Total" stroke="#1e293b" strokeWidth={2} dot={{ fill: "#1e293b", r: 3 }} />
+                        {compareEnabled && <Line type="monotone" dataKey="Total_comp" stroke="#1e293b" strokeWidth={1.5} strokeDasharray="6 3" dot={false} name={`Total (${compLabel})`} />}
                         <Legend />
                       </ComposedChart>
                     )}
@@ -784,6 +816,7 @@ export default function InVitroDashboard({ data }) {
                             radius={i === arr.length - 1 ? [4, 4, 0, 0] : [0, 0, 0, 0]} />
                         ))}
                         <Line type="monotone" dataKey="Total" stroke="#1e293b" strokeWidth={2} dot={{ fill: "#1e293b", r: 3 }} />
+                        {compareEnabled && <Line type="monotone" dataKey="Total_comp" stroke="#1e293b" strokeWidth={1.5} strokeDasharray="6 3" dot={false} name={`Total (${compLabel})`} />}
                         <Legend />
                       </ComposedChart>
                     ) : (
@@ -797,6 +830,7 @@ export default function InVitroDashboard({ data }) {
                             stroke={colorMap[name]} fill={colorMap[name]} fillOpacity={0.6} />
                         ))}
                         <Line type="monotone" dataKey="Total" stroke="#1e293b" strokeWidth={2} dot={{ fill: "#1e293b", r: 3 }} />
+                        {compareEnabled && <Line type="monotone" dataKey="Total_comp" stroke="#1e293b" strokeWidth={1.5} strokeDasharray="6 3" dot={false} name={`Total (${compLabel})`} />}
                         <Legend />
                       </ComposedChart>
                     )}
@@ -890,6 +924,7 @@ export default function InVitroDashboard({ data }) {
                         radius={i === revenueCompanies.length - 1 ? [4, 4, 0, 0] : [0, 0, 0, 0]} />
                     ))}
                     <Line type="monotone" dataKey="Total" stroke={CHART_STYLE.totalLine} strokeWidth={2} dot={false} />
+                    {compareEnabled && <Line type="monotone" dataKey="Total_comp" stroke={CHART_STYLE.totalLine} strokeWidth={1.5} strokeDasharray="6 3" dot={false} name={`Total (${compLabel})`} />}
                     <Legend />
                   </ComposedChart>
                 </ResponsiveContainer>
@@ -940,6 +975,7 @@ export default function InVitroDashboard({ data }) {
                       <Bar key={name} dataKey={name} fill={colorMap[name]} />
                     ))}
                     <Line type="monotone" dataKey="Total" stroke={CHART_STYLE.totalLine} strokeWidth={2.5} dot={{ fill: CHART_STYLE.totalLine, r: 3 }} />
+                    {compareEnabled && <Line type="monotone" dataKey="Total_comp" stroke={CHART_STYLE.totalLine} strokeWidth={1.5} strokeDasharray="6 3" dot={false} name={`Total (${compLabel})`} />}
                     <Legend />
                   </ComposedChart>
                 </ResponsiveContainer>
@@ -1244,6 +1280,7 @@ export default function InVitroDashboard({ data }) {
                         radius={i === expenseChartCompanies.length - 1 ? [4, 4, 0, 0] : [0, 0, 0, 0]} />
                     ))}
                     <Line type="monotone" dataKey="Total" stroke={CHART_STYLE.totalLine} strokeWidth={2} dot={false} />
+                    {compareEnabled && <Line type="monotone" dataKey="Total_comp" stroke={CHART_STYLE.totalLine} strokeWidth={1.5} strokeDasharray="6 3" dot={false} name={`Total (${compLabel})`} />}
                     <Legend />
                   </ComposedChart>
                 </ResponsiveContainer>
