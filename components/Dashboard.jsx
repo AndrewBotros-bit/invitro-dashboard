@@ -369,7 +369,15 @@ export default function InVitroDashboard({ data }) {
     }
     return base;
   })();
-  const expenseByMonthWithTotal = expenseByMonth.map(point => ({
+  // Flip expense signs to positive for display
+  const expenseByMonthPositive = expenseByMonth.map(point => {
+    const flipped = { month: point.month };
+    for (const name of expenseChartCompanies) {
+      flipped[name] = Math.abs(point[name] ?? 0);
+    }
+    return flipped;
+  });
+  const expenseByMonthWithTotal = expenseByMonthPositive.map(point => ({
     ...point,
     Total: expenseChartCompanies.reduce((sum, name) => sum + (point[name] ?? 0), 0),
   }));
@@ -1114,7 +1122,25 @@ export default function InVitroDashboard({ data }) {
             <div className="flex flex-wrap gap-4 mb-6">
               <KPICard title={`${getExpenseLabel()} — ${rangeLabel}`}
                 value={fmt(Math.abs(rangeExpenses))}
-                subtitle={selectedCompany ? selectedCompany : 'all entities'}
+                subtitle={(() => {
+                  if (selectedCompany) return selectedCompany;
+                  // Compute ad hoc expense for consolidated view — sum ALL metrics in "Add hocks"
+                  const adHocCo = data.pnl.find(c => c.name === 'Add hocks');
+                  let adHocVal = 0;
+                  if (adHocCo) {
+                    const fromVal = rangeFrom.year * 100 + rangeFrom.month;
+                    const toVal = rangeTo.year * 100 + rangeTo.month;
+                    for (const [, vals] of Object.entries(adHocCo.metrics)) {
+                      for (const v of vals) {
+                        const pv = v.year * 100 + v.month;
+                        if (pv >= fromVal && pv <= toVal && v.value) adHocVal += v.value;
+                      }
+                    }
+                  }
+                  adHocVal = Math.abs(adHocVal);
+                  const exclAdHoc = Math.abs(rangeExpenses) - adHocVal;
+                  return adHocVal > 0 ? `Incl. ${fmt(adHocVal)} ad hocs · Excl: ${fmt(exclAdHoc)}` : 'all entities';
+                })()}
                 comparison={compareEnabled && <ComparisonBadge current={Math.abs(rangeExpenses)}
                   compValue={Math.abs(rangeTotal(data.pnl, selectedCompany ? 'SG&A + R&D Expenses' : 'Total Expenses', compRange.from, compRange.to, selectedCompany ? [...EXCLUDE_ALWAYS.filter(n => n !== selectedCompany)] : dynExcludeEbitda))}
                   compLabel={compLabel} />}
