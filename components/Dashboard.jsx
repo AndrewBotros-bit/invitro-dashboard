@@ -1010,6 +1010,19 @@ export default function InVitroDashboard({ data }) {
               <KPICard title={`Cash Inflow — ${rangeLabel}`} value={fmt(totalInflow)} subtitle="all entities" />
               <KPICard title={`Cash Outflow — ${rangeLabel}`} value={fmt(totalOutflow)} subtitle="total outflows" />
               <KPICard title="Avg Monthly Burn" value={fmt(avgMonthlyBurn)} subtitle="average per month" />
+              {/* Cash Balance badge — end of range period */}
+              {(() => {
+                const balanceName = selectedCompany ? 'Cash balance' : 'Consolidated Cash balance';
+                const balanceCompany = selectedCompany
+                  ? data.cashflow?.find(c => c.name === selectedCompany)
+                  : data.cashflow?.find(c => c.name === 'Bank balances');
+                const balMetric = balanceCompany?.metrics?.[balanceName];
+                if (!balMetric) return null;
+                const endVal = balMetric.find(v => v.year === rangeTo.year && v.month === rangeTo.month);
+                const val = endVal?.value ?? 0;
+                const ML = ['','Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+                return <KPICard title={`Cash Balance — ${ML[rangeTo.month]} ${String(rangeTo.year).slice(-2)}`} value={fmt(val)} subtitle={val >= 0 ? 'ending balance' : 'deficit'} />;
+              })()}
               {/* Debt Loan badge — PNC loan balance at end of range (consolidated only) */}
               {!selectedCompany && (() => {
                 const pncCompany = data.cashflow?.find(c => c.name === 'PNC loan');
