@@ -14,6 +14,7 @@ import { buildColorMap, buildMonthlySeries, buildCashflowSeries, annualTotal, mo
 import { Button } from "@/components/ui/button";
 import { generateInsights } from "@/lib/insights";
 import { Drawer, DrawerContent, DrawerHeader, DrawerTitle, DrawerDescription, DrawerClose } from "@/components/ui/drawer";
+import DashboardSidebar from "@/components/DashboardSidebar";
 
 /* ── Chart styling constants ── */
 const CHART_STYLE = {
@@ -179,6 +180,10 @@ export default function InVitroDashboard({ data }) {
   // Deploy state
   const [deploying, setDeploying] = useState(false);
   const [deployMsg, setDeployMsg] = useState(null);
+
+  // Sidebar & navigation state
+  const [activeSection, setActiveSection] = useState('overview');
+  const [sidebarOpen, setSidebarOpen] = useState(false);
 
   // Company selector state
   const DISPLAY_COMPANIES = ['AllRx', 'AllCare', 'Osta', 'Needles', 'InVitro Studio'];
@@ -674,22 +679,24 @@ export default function InVitroDashboard({ data }) {
 
   return (
     <div className="min-h-screen bg-background text-foreground">
+      {/* Sidebar */}
+      <DashboardSidebar
+        activeSection={activeSection}
+        setActiveSection={setActiveSection}
+        selectedCompany={selectedCompany}
+        setSelectedCompany={(c) => { setSelectedCompany(c); setExpenseDrilldown(null); }}
+        companies={DISPLAY_COMPANIES}
+        colorMap={colorMap}
+        lastActualLabel={`Actuals till ${prevMonthLabel} ${prevMonthYear}`}
+        sidebarOpen={sidebarOpen}
+        setSidebarOpen={setSidebarOpen}
+      />
+
+      {/* Main content area — offset by sidebar width */}
+      <div className="md:ml-64">
       {/* Header */}
-      <header className="border-b border-border bg-white px-8 py-5">
-        <div className="mx-auto max-w-7xl flex flex-wrap items-center justify-between gap-4">
-          <div className="flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-600 text-sm font-extrabold text-white shadow-sm">
-              IV
-            </div>
-            <div>
-              <h1 className="text-lg font-semibold tracking-tight text-foreground">
-                InVitro Capital
-              </h1>
-              <p className="text-[11px] text-muted-foreground">
-                Shareholder Dashboard &bull; Actuals till {prevMonthLabel} {prevMonthYear}
-              </p>
-            </div>
-          </div>
+      <header className="border-b border-border bg-white px-6 py-4">
+        <div className="flex flex-wrap items-center justify-between gap-4">
 
           <div className="flex items-center gap-2.5 flex-wrap">
             {/* Monthly / Yearly toggle */}
@@ -798,39 +805,10 @@ export default function InVitroDashboard({ data }) {
       </header>
 
       {/* Content */}
-      <main className="mx-auto max-w-7xl px-8 py-6">
-        {/* Company Selector */}
-        <div className="flex flex-wrap gap-1 mb-4">
-          <button
-            onClick={() => { setSelectedCompany(null); setExpenseDrilldown(null); }}
-            className={`px-3 py-1.5 text-xs font-medium rounded-full transition-all border ${!selectedCompany ? 'bg-primary text-primary-foreground border-primary shadow-sm' : 'bg-white text-muted-foreground border-border hover:text-foreground hover:border-foreground/30'}`}
-          >
-            Consolidated
-          </button>
-          {DISPLAY_COMPANIES.map(name => (
-            <button
-              key={name}
-              onClick={() => { setSelectedCompany(name); setExpenseDrilldown(null); }}
-              className={`px-3 py-1.5 text-xs font-medium rounded-full transition-all border ${selectedCompany === name ? 'text-white shadow-sm' : 'bg-white text-muted-foreground border-border hover:text-foreground hover:border-foreground/30'}`}
-              style={selectedCompany === name ? { backgroundColor: colorMap[name], borderColor: colorMap[name] } : {}}
-            >
-              {name}
-            </button>
-          ))}
-        </div>
-
-        <Tabs defaultValue="overview">
-          <TabsList className="mb-6 flex-wrap">
-            <TabsTrigger value="overview">Overview</TabsTrigger>
-            <TabsTrigger value="revenue">Revenue</TabsTrigger>
-            <TabsTrigger value="expenses">Expenses</TabsTrigger>
-            <TabsTrigger value="profitability">Profitability</TabsTrigger>
-            <TabsTrigger value="cashflow">Cash Flow</TabsTrigger>
-            <TabsTrigger value="insights">Insights</TabsTrigger>
-          </TabsList>
+      <main className="px-6 py-6">
 
           {/* ────── OVERVIEW ────── */}
-          <TabsContent value="overview">
+          {activeSection === 'overview' && (<>
             <div className="flex flex-wrap gap-4 mb-6">
               <KPICard title={`Revenue — ${rangeLabel}`} value={fmt(rangeRevenue)} subtitle="excl. holdings"
                 comparison={compareEnabled && <ComparisonBadge current={rangeRevenue} compValue={rangeTotal(data.pnl, 'Revenues', compRange.from, compRange.to, dynExcludeRevenue)} compLabel={compLabel} />} />
@@ -1000,10 +978,10 @@ export default function InVitroDashboard({ data }) {
                 </TableFooter>
               </Table>
             </Card>
-          </TabsContent>
+          </>)}
 
           {/* ────── REVENUE ────── */}
-          <TabsContent value="revenue">
+          {activeSection === 'revenue' && (<>
             <div className="flex flex-wrap gap-4 mb-6">
               {revenueCompanies.map(name => {
                 const coRev = (data.pnl.find(c => c.name === name)?.metrics['Revenues'] ?? []).filter(inRange).reduce((s, v) => s + (v.value ?? 0), 0);
@@ -1053,10 +1031,10 @@ export default function InVitroDashboard({ data }) {
                 </ResponsiveContainer>
               </CardContent>
             </Card>
-          </TabsContent>
+          </>)}
 
           {/* ────── PROFITABILITY ────── */}
-          <TabsContent value="profitability">
+          {activeSection === 'profitability' && (<>
             <div className="flex flex-wrap gap-4 mb-6">
               <KPICard title={`EBITDA — ${rangeLabel}`} value={fmt(rangeEbitda)} subtitle={rangeRevenue > 0 ? (rangeEbitda / rangeRevenue * 100).toFixed(0) + '% margin' : ''}
                 comparison={compareEnabled && <ComparisonBadge current={rangeEbitda} compValue={rangeTotal(data.pnl, 'EBITDA', compRange.from, compRange.to, dynExcludeEbitda)} compLabel={compLabel} />} />
@@ -1150,10 +1128,10 @@ export default function InVitroDashboard({ data }) {
                 </ResponsiveContainer>
               </CardContent>
             </Card>
-          </TabsContent>
+          </>)}
 
           {/* ────── CASH FLOW ────── */}
-          <TabsContent value="cashflow">
+          {activeSection === 'cashflow' && (<>
             <div className="flex flex-wrap gap-4 mb-6">
               {(() => {
                 // Helper: sum a cashflow metric across comparison range
@@ -1320,11 +1298,11 @@ export default function InVitroDashboard({ data }) {
                 </Card>
               );
             })()}
-          </TabsContent>
+          </>)}
 
           {/* ────── INSIGHTS ────── */}
           {/* ────── EXPENSES ────── */}
-          <TabsContent value="expenses">
+          {activeSection === 'expenses' && (<>
             <div className="flex flex-wrap gap-4 mb-6">
               <KPICard title={`${getExpenseLabel()} — ${rangeLabel}`}
                 value={fmt(Math.abs(rangeExpenses))}
@@ -1650,9 +1628,9 @@ export default function InVitroDashboard({ data }) {
                 </CardContent>
               </Card>
             )}
-          </TabsContent>
+          </>)}
 
-          <TabsContent value="insights">
+          {activeSection === 'insights' && (<>
             <div className="mb-4">
               <h2 className="text-lg font-bold mb-1">Executive Insights &amp; Analysis</h2>
               <p className="text-sm text-muted-foreground mb-4">
@@ -1668,9 +1646,7 @@ export default function InVitroDashboard({ data }) {
             ) : (
               <p className="text-sm text-muted-foreground">No notable insights detected in current data.</p>
             )}
-          </TabsContent>
-        </Tabs>
-
+          </>)}
         {/* Footer */}
         <div className="mt-10 border-t border-border/50 pt-4 text-center">
           <p className="text-xs text-muted-foreground">
@@ -1695,6 +1671,7 @@ export default function InVitroDashboard({ data }) {
           )}
         </div>
       </main>
+      </div>{/* end sidebar offset */}
     </div>
   );
 }
