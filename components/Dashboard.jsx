@@ -1302,7 +1302,11 @@ export default function InVitroDashboard({ data }) {
                             </div>
                           );
                         }} />
-                        {hasBurn && <Bar yAxisId="burn" dataKey="burn" fill="#ef4444" radius={[4, 4, 0, 0]} name="Cash Burn" />}
+                        {hasBurn && <Bar yAxisId="burn" dataKey="burn" radius={[4, 4, 0, 0]} name="Cash Burn">
+                          {combined.map((d, i) => (
+                            <Cell key={i} fill={d.burn >= 0 ? '#16a34a' : '#ef4444'} />
+                          ))}
+                        </Bar>}
                         <Line yAxisId="runway" type="monotone" dataKey="runway" stroke="#3b82f6" strokeWidth={2.5}
                           dot={{ r: 4, fill: '#3b82f6', stroke: '#3b82f6' }} name="Runway" />
                         <Legend />
