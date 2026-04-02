@@ -33,10 +33,7 @@ function checkExpenseMismatch(data) {
 
     // Transaction breakdown total (from data.expenses)
     const txnTotal = (data.expenses || [])
-      .filter(e => {
-        const d = new Date(e.date);
-        return d.getFullYear() === year && (d.getMonth() + 1) === month;
-      })
+      .filter(e => e.year === year && e.month === month)
       .filter(e => e.department !== 'Direct Cost')
       .filter(e => e.gl !== 'Consultation (Invitro)' && e.gl !== 'G&A Depreciation - Machinery & Equipment')
       .reduce((s, e) => s + Math.abs(e.amount ?? 0), 0);
@@ -66,10 +63,7 @@ function checkHCMismatch(data) {
     for (const company of DISPLAY_COMPANIES) {
       // Expense HC total
       const expHC = (data.expenses || [])
-        .filter(e => {
-          const d = new Date(e.date);
-          return d.getFullYear() === year && (d.getMonth() + 1) === month && e.company === company && e.category === 'HC';
-        })
+        .filter(e => e.year === year && e.month === month && e.company === company && e.category === 'HC')
         .reduce((s, e) => s + Math.abs(e.amount ?? 0), 0);
 
       // Headcount sheet salary total
@@ -172,10 +166,7 @@ function checkExpensePerCompanyMismatch(data) {
 
       // Transaction total for this company
       const txnExp = (data.expenses || [])
-        .filter(e => {
-          const d = new Date(e.date);
-          return d.getFullYear() === year && (d.getMonth() + 1) === month && e.company === company;
-        })
+        .filter(e => e.year === year && e.month === month && e.company === company)
         .filter(e => e.department !== 'Direct Cost')
         .filter(e => e.gl !== 'Consultation (Invitro)' && e.gl !== 'G&A Depreciation - Machinery & Equipment')
         .reduce((s, e) => s + Math.abs(e.amount ?? 0), 0);
