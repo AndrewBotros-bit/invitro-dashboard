@@ -577,11 +577,18 @@ export default function InVitroDashboard({ data }) {
   // Uses range filter so table respects the selected date range
   const companyRows = data.pnl.filter(c => !dynExcludeEbitda.includes(c.name)).map(c => {
     const revCurrent = (c.metrics['Revenues'] ?? []).filter(inRange).reduce((s, v) => s + (v.value ?? 0), 0);
-    const revPrior = (c.metrics['Revenues'] ?? []).filter(v => v.year === priorYear).reduce((s, v) => s + (v.value ?? 0), 0);
+    // Use comparison range when enabled, otherwise fall back to prior year
+    const inCompRange = (v) => {
+      const pv = v.year * 100 + v.month;
+      return pv >= compRange.from.year * 100 + compRange.from.month && pv <= compRange.to.year * 100 + compRange.to.month;
+    };
+    const revPrior = compareEnabled
+      ? (c.metrics['Revenues'] ?? []).filter(inCompRange).reduce((s, v) => s + (v.value ?? 0), 0)
+      : (c.metrics['Revenues'] ?? []).filter(v => v.year === priorYear).reduce((s, v) => s + (v.value ?? 0), 0);
     const ebitda = (c.metrics['EBITDA'] ?? []).filter(inRange).reduce((s, v) => s + (v.value ?? 0), 0);
     const gp = (c.metrics['Gross Profit'] ?? []).filter(inRange).reduce((s, v) => s + (v.value ?? 0), 0);
     const grossMargin = revCurrent > 0 ? gp / revCurrent : null;
-    const companyRevGrowth = hasPriorYear && revPrior > 0 ? (revCurrent - revPrior) / revPrior : null;
+    const companyRevGrowth = revPrior > 0 ? (revCurrent - revPrior) / revPrior : null;
     return { name: c.name, rev: revCurrent, ebitda, grossMargin, revGrowth: companyRevGrowth, color: colorMap[c.name] };
   });
 
@@ -967,7 +974,7 @@ export default function InVitroDashboard({ data }) {
                         <div className="font-semibold">{fmt(co.rev)}</div>
                         {co.revGrowth !== null ? (
                           <div className={`text-[11px] ${co.revGrowth >= 0 ? "text-emerald-600" : "text-red-500"}`}>
-                            {co.revGrowth >= 0 ? "+" : ""}{(co.revGrowth * 100).toFixed(0)}% YoY
+                            {co.revGrowth >= 0 ? "+" : ""}{(co.revGrowth * 100).toFixed(0)}% {compareEnabled ? `vs ${compLabel}` : 'YoY'}
                           </div>
                         ) : (
                           <div className="text-[11px] text-muted-foreground">New</div>
