@@ -1479,11 +1479,16 @@ export default function InVitroDashboard({ data }) {
                                               });
                                               const byDiv = {};
                                               const bydivCount = {};
+                                              const byDivPrior = {};
                                               const drillMonth = expenseDrilldown?.month;
                                               const drillYear = expenseDrilldown?.year;
+                                              // Prior month for comparison
+                                              const priorM = drillMonth === 1 ? 12 : drillMonth - 1;
+                                              const priorY = drillMonth === 1 ? drillYear - 1 : drillYear;
+                                              const priorKey = `${priorY}-${priorM}`;
                                               hcPeople.forEach(h => {
                                                 const d = h.division || 'Other';
-                                                if (!byDiv[d]) { byDiv[d] = 0; bydivCount[d] = 0; }
+                                                if (!byDiv[d]) { byDiv[d] = 0; bydivCount[d] = 0; byDivPrior[d] = 0; }
                                                 if (h.salary && drillMonth && drillYear) {
                                                   const key = `${drillYear}-${drillMonth}`;
                                                   const salaryVal = h.salary[key] ?? 0;
@@ -1491,10 +1496,19 @@ export default function InVitroDashboard({ data }) {
                                                     byDiv[d] += salaryVal;
                                                     bydivCount[d]++;
                                                   }
+                                                  // Prior month salary
+                                                  byDivPrior[d] += (h.salary[priorKey] ?? 0);
                                                 }
                                               });
                                               const divRows = Object.entries(byDiv).filter(([, c]) => c > 0).sort((a, b) => b[1] - a[1]);
                                               const hcTotal = divRows.reduce((s, [, c]) => s + c, 0);
+                                              // Revenue for cost/rev ratio
+                                              const drillRevenue = drillMonth && drillYear ? (selectedCompany
+                                                ? (data.pnl.find(c => c.name === selectedCompany)?.metrics['Revenues'] ?? [])
+                                                    .filter(v => v.year === drillYear && v.month === drillMonth)
+                                                    .reduce((s, v) => s + (v.value ?? 0), 0)
+                                                : rangeTotal(data.pnl, 'Revenues', {year: drillYear, month: drillMonth}, {year: drillYear, month: drillMonth}, dynExcludeRevenue)
+                                              ) : 0;
                                               if (divRows.length === 0 && r.hc === 0) return <div></div>;
                                               return (
                                                 <div className="rounded-lg border border-blue-200/60 bg-blue-50/30 overflow-hidden">
@@ -1506,14 +1520,33 @@ export default function InVitroDashboard({ data }) {
                                                     <span className="text-xs font-bold text-blue-700 tabular-nums">{fmt(hcTotal || r.hc)}</span>
                                                   </div>
                                                   <div className="py-1">
-                                                    {divRows.length > 0 ? divRows.map(([div, cost]) => (
-                                                      <div key={div} className="flex items-center justify-between px-4 py-1.5 text-xs hover:bg-blue-50/50 rounded mx-1">
-                                                        <span className="text-foreground/80">
-                                                          {div} <span className="ml-1 text-muted-foreground/50">({bydivCount[div]})</span>
-                                                        </span>
-                                                        <span className="font-medium text-foreground/70 tabular-nums">{fmt(cost)}</span>
-                                                      </div>
-                                                    )) : (
+                                                    {divRows.length > 0 ? divRows.map(([div, cost]) => {
+                                                      const priorCost = byDivPrior[div] || 0;
+                                                      const pctChg = priorCost > 0 ? ((cost - priorCost) / priorCost * 100) : null;
+                                                      const costRevPct = drillRevenue > 0 ? (cost / drillRevenue * 100) : null;
+                                                      return (
+                                                        <div key={div} className="px-4 py-2 text-xs hover:bg-blue-50/50 rounded mx-1">
+                                                          <div className="flex items-center justify-between">
+                                                            <span className="text-foreground/80">
+                                                              {div} <span className="ml-1 text-muted-foreground/50">({bydivCount[div]})</span>
+                                                            </span>
+                                                            <span className="font-medium text-foreground/70 tabular-nums">{fmt(cost)}</span>
+                                                          </div>
+                                                          <div className="flex items-center gap-3 mt-0.5">
+                                                            {pctChg !== null && (
+                                                              <span className={`text-[10px] font-medium ${pctChg > 0 ? 'text-red-500' : pctChg < 0 ? 'text-emerald-600' : 'text-muted-foreground'}`}>
+                                                                {pctChg > 0 ? '▲' : pctChg < 0 ? '▼' : '—'} {Math.abs(pctChg).toFixed(1)}% vs {MONTHS_S[priorM]} {String(priorY).slice(-2)}
+                                                              </span>
+                                                            )}
+                                                            {costRevPct !== null && (
+                                                              <span className="text-[10px] text-muted-foreground/70">
+                                                                {costRevPct.toFixed(1)}% of rev
+                                                              </span>
+                                                            )}
+                                                          </div>
+                                                        </div>
+                                                      );
+                                                    }) : (
                                                       <p className="px-4 py-2 text-xs text-muted-foreground italic">No HC salary data for this month</p>
                                                     )}
                                                   </div>
