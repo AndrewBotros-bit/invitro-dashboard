@@ -254,13 +254,13 @@ export default function InVitroDashboard({ data }) {
   const priorYear = currentYear - 1;
   const hasPriorYear = allYears.includes(priorYear);
 
-  // Monthly KPI logic: show previous month actual + current month expected
-  const now = new Date();
-  const currentMonth = now.getMonth() + 1; // 1-12
-  const prevMonth = currentMonth - 1 || 12;
-  const prevMonthYear = prevMonth === 12 ? currentYear - 1 : currentYear;
+  // Monthly KPI logic: use last actual month from P&L sheet row 2
   const MONTH_NAMES = ['', 'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  const lastActual = data.lastActualMonth;
+  const prevMonth = lastActual?.month ?? ((new Date().getMonth()) || 12);
+  const prevMonthYear = lastActual?.year ?? (prevMonth === 12 ? currentYear - 1 : currentYear);
   const prevMonthLabel = MONTH_NAMES[prevMonth];
+  const currentMonth = prevMonth === 12 ? 1 : prevMonth + 1;
   const currMonthLabel = MONTH_NAMES[currentMonth];
 
   // Previous month actuals
