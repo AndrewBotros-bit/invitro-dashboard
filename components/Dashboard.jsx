@@ -1250,7 +1250,7 @@ export default function InVitroDashboard({ data }) {
               // Build runway data
               const runwayData = cashRunwayValues.map(v => ({
                 month: viewMode === 'yearly' ? String(v.year) : `${MONTHS_L[v.month]} '${String(v.year).slice(-2)}`,
-                runway: v.value ?? 0,
+                runway: (v.value !== null && v.value !== 0) ? v.value : null,
                 year: v.year, m: v.month,
               }));
               // Build normal cash burn data (consolidated only)
@@ -1308,7 +1308,7 @@ export default function InVitroDashboard({ data }) {
                           ))}
                         </Bar>}
                         <Line yAxisId="runway" type="monotone" dataKey="runway" stroke="#3b82f6" strokeWidth={2.5}
-                          dot={{ r: 4, fill: '#3b82f6', stroke: '#3b82f6' }} name="Runway" />
+                          dot={{ r: 4, fill: '#3b82f6', stroke: '#3b82f6' }} name="Runway" connectNulls={false} />
                         <Legend />
                       </ComposedChart>
                     </ResponsiveContainer>
