@@ -76,9 +76,9 @@ function checkHCMismatch(data) {
       const base = Math.max(expHC, hcSalary);
       const pctDiff = base > 0 ? (diff / base * 100) : 0;
 
-      if (pctDiff > 10 && diff > 5000) {
+      if (pctDiff > 20 && diff > 10000) {
         alerts.push({
-          severity: pctDiff > 25 ? 'critical' : 'warning',
+          severity: pctDiff > 40 ? 'critical' : 'warning',
           category: 'HC Cost Mismatch',
           title: `${company} — ${MONTHS[month]} ${year}: Expense vs Headcount gap`,
           detail: `Expense HC: ${fmt(expHC)} | Headcount Sheet: ${fmt(hcSalary)} | Diff: ${fmt(diff)} (${pctDiff.toFixed(1)}%)`,
@@ -164,18 +164,16 @@ function checkExpensePerCompanyMismatch(data) {
         .reduce((s, v) => s + (v.value ?? 0), 0));
       if (pnlExp === 0) continue;
 
-      // Transaction total for this company
+      // Transaction total for this company (NO filters — compare full totals)
       const txnExp = (data.expenses || [])
         .filter(e => e.year === year && e.month === month && e.company === company)
-        .filter(e => e.department !== 'Direct Cost')
-        .filter(e => e.gl !== 'Consultation (Invitro)' && e.gl !== 'G&A Depreciation - Machinery & Equipment')
         .reduce((s, e) => s + Math.abs(e.amount ?? 0), 0);
 
       if (txnExp === 0) continue;
       const diff = Math.abs(pnlExp - txnExp);
       const pctDiff = pnlExp > 0 ? (diff / pnlExp * 100) : 0;
 
-      if (pctDiff > 10 && diff > 3000) {
+      if (pctDiff > 15 && diff > 5000) {
         alerts.push({
           severity: pctDiff > 20 ? 'critical' : 'warning',
           category: 'Per-Company Expense Gap',
