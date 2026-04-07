@@ -39,7 +39,6 @@ function getNonHC(data, company, year, month) {
   return (data.expenses || [])
     .filter(e => e.year === year && e.month === month && e.company === company)
     .filter(e => e.department !== 'Direct Cost')
-    .filter(e => e.gl !== 'Consultation (Invitro)' && e.gl !== 'G&A Depreciation - Machinery & Equipment')
     .filter(e => e.category === 'NON-HC')
     .reduce((s, e) => s + Math.abs(e.amount ?? 0), 0);
 }
@@ -75,6 +74,7 @@ function checkTotalExpenseIntegrity(data) {
         const diff = Math.abs(pnl - breakdown);
         const pctDiff = pnl > 0 ? (diff / pnl * 100) : 0;
 
+        if (diff < 2000) continue; // Small-dollar exemption
         if (pctDiff > 10 && diff > 5000) {
           alerts.push({
             severity: pctDiff > 25 ? 'critical' : 'warning',
@@ -107,11 +107,12 @@ function checkHCMismatch(data) {
       // Headcount sheet salary total
       const hcSalary = getHC(data, company, year, month);
 
-      if (expHC === 0 && hcSalary === 0) continue;
+      if (expHC === 0 || hcSalary === 0) continue; // Skip if only one source has data
       const diff = Math.abs(expHC - hcSalary);
       const base = Math.max(expHC, hcSalary);
       const pctDiff = base > 0 ? (diff / base * 100) : 0;
 
+      if (diff < 2000) continue; // Small-dollar exemption
       if (pctDiff > 15 && diff > 5000) {
         alerts.push({
           severity: pctDiff > 30 ? 'critical' : 'warning',
