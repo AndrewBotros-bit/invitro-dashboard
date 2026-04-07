@@ -9,6 +9,9 @@ import { rangeTotal, EXCLUDE_REVENUE, EXCLUDE_EBITDA, EXCLUDE_ALWAYS } from "@/l
 const AUDIT_PASSWORD = "invitro2026";
 const DISPLAY_COMPANIES = ['AllRx', 'AllCare', 'Osta', 'Needles', 'InVitro Studio'];
 const MONTHS = ['','Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+// Only audit months with actual data (not forecasted). Mar 2026 is latest actual.
+const ACTUAL_MONTHS_END = { year: 2026, month: 3 };
+const isActualMonth = (y, m) => y * 100 + m <= ACTUAL_MONTHS_END.year * 100 + ACTUAL_MONTHS_END.month;
 
 function severityColor(s) {
   if (s === 'critical') return 'bg-red-50 border-red-300 text-red-900';
@@ -25,32 +28,40 @@ function severityBadge(s) {
 
 function checkExpenseMismatch(data) {
   const alerts = [];
-  const year = 2026;
-  for (let month = 1; month <= 12; month++) {
-    // P&L total expenses (consolidated)
-    const pnlTotal = Math.abs(rangeTotal(data.pnl, 'Total Expenses', { year, month }, { year, month }, EXCLUDE_ALWAYS));
-    if (pnlTotal === 0) continue;
+  for (let year = 2026; year <= 2026; year++) {
+    for (let month = 1; month <= 12; month++) {
+      if (!isActualMonth(year, month)) continue; // Skip forecasted months
+      // P&L total expenses (consolidated) — sum SG&A across display companies
+      const pnlTotal = Math.abs(DISPLAY_COMPANIES.reduce((s, name) => {
+        const co = data.pnl.find(c => c.name === name);
+        return s + (co?.metrics['SG&A + R&D Expenses'] ?? [])
+          .filter(v => v.year === year && v.month === month)
+          .reduce((a, v) => a + (v.value ?? 0), 0);
+      }, 0));
+      if (pnlTotal === 0) continue;
 
-    // Transaction breakdown total (from data.expenses)
-    const txnTotal = (data.expenses || [])
-      .filter(e => e.year === year && e.month === month)
-      .filter(e => e.department !== 'Direct Cost')
-      .filter(e => e.gl !== 'Consultation (Invitro)' && e.gl !== 'G&A Depreciation - Machinery & Equipment')
-      .reduce((s, e) => s + Math.abs(e.amount ?? 0), 0);
+      // Transaction breakdown total — same filters as dashboard drawer
+      const txnTotal = (data.expenses || [])
+        .filter(e => e.year === year && e.month === month)
+        .filter(e => DISPLAY_COMPANIES.includes(e.company))
+        .filter(e => e.department !== 'Direct Cost')
+        .filter(e => e.gl !== 'Consultation (Invitro)' && e.gl !== 'G&A Depreciation - Machinery & Equipment')
+        .reduce((s, e) => s + Math.abs(e.amount ?? 0), 0);
 
-    if (txnTotal === 0) continue;
-    const diff = Math.abs(pnlTotal - txnTotal);
-    const pctDiff = pnlTotal > 0 ? (diff / pnlTotal * 100) : 0;
+      if (txnTotal === 0) continue;
+      const diff = Math.abs(pnlTotal - txnTotal);
+      const pctDiff = pnlTotal > 0 ? (diff / pnlTotal * 100) : 0;
 
-    if (pctDiff > 5) {
-      alerts.push({
-        severity: pctDiff > 15 ? 'critical' : 'warning',
-        category: 'Expense Mismatch',
-        title: `${MONTHS[month]} ${year} — P&L vs Transaction gap: ${pctDiff.toFixed(1)}%`,
-        detail: `P&L Total Expenses: ${fmt(pnlTotal)} | Transaction Breakdown: ${fmt(txnTotal)} | Difference: ${fmt(diff)}`,
-        responsible: 'Finance Team',
-        month, year,
-      });
+      if (pctDiff > 10 && diff > 10000) {
+        alerts.push({
+          severity: pctDiff > 20 ? 'critical' : 'warning',
+          category: 'Expense Mismatch',
+          title: `${MONTHS[month]} ${year} — P&L SG&A vs Transaction gap: ${pctDiff.toFixed(1)}%`,
+          detail: `P&L SG&A (all companies): ${fmt(pnlTotal)} | Transactions (excl. Direct Cost): ${fmt(txnTotal)} | Diff: ${fmt(diff)}`,
+          responsible: 'Finance Team',
+          month, year,
+        });
+      }
     }
   }
   return alerts;
@@ -60,6 +71,7 @@ function checkHCMismatch(data) {
   const alerts = [];
   const year = 2026;
   for (let month = 1; month <= 12; month++) {
+    if (!isActualMonth(year, month)) continue; // Skip forecasted months
     for (const company of DISPLAY_COMPANIES) {
       // Expense HC total
       const expHC = (data.expenses || [])
@@ -95,6 +107,7 @@ function checkRevenueSanity(data) {
   const alerts = [];
   const year = 2026;
   for (let month = 1; month <= 12; month++) {
+    if (!isActualMonth(year, month)) continue; // Skip forecasted months
     const consolidatedRev = rangeTotal(data.pnl, 'Revenues', { year, month }, { year, month }, EXCLUDE_REVENUE);
     if (consolidatedRev === 0) continue;
 
@@ -156,6 +169,7 @@ function checkExpensePerCompanyMismatch(data) {
   const alerts = [];
   const year = 2026;
   for (let month = 1; month <= 12; month++) {
+    if (!isActualMonth(year, month)) continue; // Skip forecasted months
     for (const company of DISPLAY_COMPANIES) {
       // P&L SG&A for this company
       const co = data.pnl.find(c => c.name === company);
@@ -164,21 +178,24 @@ function checkExpensePerCompanyMismatch(data) {
         .reduce((s, v) => s + (v.value ?? 0), 0));
       if (pnlExp === 0) continue;
 
-      // Transaction total for this company (NO filters — compare full totals)
+      // Transaction total — same filters as dashboard (exclude Direct Cost + specific GLs)
       const txnExp = (data.expenses || [])
         .filter(e => e.year === year && e.month === month && e.company === company)
+        .filter(e => e.department !== 'Direct Cost')
+        .filter(e => e.gl !== 'Consultation (Invitro)' && e.gl !== 'G&A Depreciation - Machinery & Equipment')
         .reduce((s, e) => s + Math.abs(e.amount ?? 0), 0);
 
       if (txnExp === 0) continue;
       const diff = Math.abs(pnlExp - txnExp);
       const pctDiff = pnlExp > 0 ? (diff / pnlExp * 100) : 0;
 
+      // Only alert if gap is significant (>15% AND >$5K)
       if (pctDiff > 15 && diff > 5000) {
         alerts.push({
-          severity: pctDiff > 20 ? 'critical' : 'warning',
+          severity: pctDiff > 30 ? 'critical' : 'warning',
           category: 'Per-Company Expense Gap',
-          title: `${company} — ${MONTHS[month]} ${year}: P&L vs breakdown gap`,
-          detail: `P&L SG&A: ${fmt(pnlExp)} | Breakdown: ${fmt(txnExp)} | Diff: ${fmt(diff)} (${pctDiff.toFixed(1)}%)`,
+          title: `${company} — ${MONTHS[month]} ${year}: P&L SG&A vs transactions gap`,
+          detail: `P&L SG&A: ${fmt(pnlExp)} | Transactions (excl. Direct Cost): ${fmt(txnExp)} | Diff: ${fmt(diff)} (${pctDiff.toFixed(1)}%)`,
           responsible: `${company} Finance`,
           month, year,
         });
