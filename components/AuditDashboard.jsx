@@ -24,76 +24,100 @@ function severityBadge(s) {
   return <span className="px-2 py-0.5 text-[10px] font-bold rounded-full bg-blue-500 text-white uppercase">Info</span>;
 }
 
-/* ── Audit Check Functions ── */
+/* ── Audit Check Functions ──
+ *
+ * THREE data sources:
+ * 1. P&L (Actual sheet) — "SG&A + R&D Expenses" = total expense per company/month (source of truth)
+ * 2. Expenses sheet — Non-HC transaction breakdown (filtered: excl Direct Cost, excl specific GLs)
+ * 3. Headcount sheet — HC salary per employee/division/month
+ *
+ * Core formula: P&L SG&A ≈ (Non-HC from Expenses sheet) + (HC from Headcount sheet)
+ */
 
-function checkExpenseMismatch(data) {
+// Helper: get Non-HC total from expense transactions for a company/month
+function getNonHC(data, company, year, month) {
+  return (data.expenses || [])
+    .filter(e => e.year === year && e.month === month && e.company === company)
+    .filter(e => e.department !== 'Direct Cost')
+    .filter(e => e.gl !== 'Consultation (Invitro)' && e.gl !== 'G&A Depreciation - Machinery & Equipment')
+    .filter(e => e.category === 'NON-HC')
+    .reduce((s, e) => s + Math.abs(e.amount ?? 0), 0);
+}
+
+// Helper: get HC total from headcount sheet for a company/month
+function getHC(data, company, year, month) {
+  return (data.headcount || [])
+    .filter(h => h.company === company)
+    .reduce((s, h) => s + (h.salary?.[`${year}-${month}`] ?? 0), 0);
+}
+
+// Helper: get P&L SG&A for a company/month
+function getPnLSGA(data, company, year, month) {
+  const co = data.pnl.find(c => c.name === company);
+  return Math.abs((co?.metrics['SG&A + R&D Expenses'] ?? [])
+    .filter(v => v.year === year && v.month === month)
+    .reduce((s, v) => s + (v.value ?? 0), 0));
+}
+
+// CHECK 1: P&L SG&A vs (Non-HC + HC) per company — is the total breakdown matching?
+function checkTotalExpenseIntegrity(data) {
   const alerts = [];
   for (let year = 2026; year <= 2026; year++) {
     for (let month = 1; month <= 12; month++) {
-      if (!isActualMonth(year, month)) continue; // Skip forecasted months
-      // P&L total expenses (consolidated) — sum SG&A across display companies
-      const pnlTotal = Math.abs(DISPLAY_COMPANIES.reduce((s, name) => {
-        const co = data.pnl.find(c => c.name === name);
-        return s + (co?.metrics['SG&A + R&D Expenses'] ?? [])
-          .filter(v => v.year === year && v.month === month)
-          .reduce((a, v) => a + (v.value ?? 0), 0);
-      }, 0));
-      if (pnlTotal === 0) continue;
+      if (!isActualMonth(year, month)) continue;
+      for (const company of DISPLAY_COMPANIES) {
+        const pnl = getPnLSGA(data, company, year, month);
+        if (pnl === 0) continue;
+        const nonHC = getNonHC(data, company, year, month);
+        const hc = getHC(data, company, year, month);
+        const breakdown = nonHC + hc;
+        if (breakdown === 0) continue;
+        const diff = Math.abs(pnl - breakdown);
+        const pctDiff = pnl > 0 ? (diff / pnl * 100) : 0;
 
-      // Transaction breakdown total — same filters as dashboard drawer
-      const txnTotal = (data.expenses || [])
-        .filter(e => e.year === year && e.month === month)
-        .filter(e => DISPLAY_COMPANIES.includes(e.company))
-        .filter(e => e.department !== 'Direct Cost')
-        .filter(e => e.gl !== 'Consultation (Invitro)' && e.gl !== 'G&A Depreciation - Machinery & Equipment')
-        .reduce((s, e) => s + Math.abs(e.amount ?? 0), 0);
-
-      if (txnTotal === 0) continue;
-      const diff = Math.abs(pnlTotal - txnTotal);
-      const pctDiff = pnlTotal > 0 ? (diff / pnlTotal * 100) : 0;
-
-      if (pctDiff > 10 && diff > 10000) {
-        alerts.push({
-          severity: pctDiff > 20 ? 'critical' : 'warning',
-          category: 'Expense Mismatch',
-          title: `${MONTHS[month]} ${year} — P&L SG&A vs Transaction gap: ${pctDiff.toFixed(1)}%`,
-          detail: `P&L SG&A (all companies): ${fmt(pnlTotal)} | Transactions (excl. Direct Cost): ${fmt(txnTotal)} | Diff: ${fmt(diff)}`,
-          responsible: 'Finance Team',
-          month, year,
-        });
+        if (pctDiff > 10 && diff > 5000) {
+          alerts.push({
+            severity: pctDiff > 25 ? 'critical' : 'warning',
+            category: 'Expense Integrity',
+            title: `${company} — ${MONTHS[month]} ${year}: P&L vs breakdown gap`,
+            detail: `P&L SG&A: ${fmt(pnl)} | Non-HC: ${fmt(nonHC)} + HC: ${fmt(hc)} = ${fmt(breakdown)} | Diff: ${fmt(diff)} (${pctDiff.toFixed(1)}%)`,
+            responsible: `${company} Finance`,
+            month, year,
+          });
+        }
       }
     }
   }
   return alerts;
 }
 
+// CHECK 2: Expense sheet HC vs Headcount sheet — do they agree on HC costs?
 function checkHCMismatch(data) {
   const alerts = [];
   const year = 2026;
   for (let month = 1; month <= 12; month++) {
-    if (!isActualMonth(year, month)) continue; // Skip forecasted months
+    if (!isActualMonth(year, month)) continue;
     for (const company of DISPLAY_COMPANIES) {
-      // Expense HC total
+      // Expense sheet HC total (from transactions)
       const expHC = (data.expenses || [])
         .filter(e => e.year === year && e.month === month && e.company === company && e.category === 'HC')
+        .filter(e => e.department !== 'Direct Cost')
         .reduce((s, e) => s + Math.abs(e.amount ?? 0), 0);
 
       // Headcount sheet salary total
-      const hcSalary = (data.headcount || [])
-        .filter(h => h.company === company)
-        .reduce((s, h) => s + (h.salary?.[`${year}-${month}`] ?? 0), 0);
+      const hcSalary = getHC(data, company, year, month);
 
       if (expHC === 0 && hcSalary === 0) continue;
       const diff = Math.abs(expHC - hcSalary);
       const base = Math.max(expHC, hcSalary);
       const pctDiff = base > 0 ? (diff / base * 100) : 0;
 
-      if (pctDiff > 20 && diff > 10000) {
+      if (pctDiff > 15 && diff > 5000) {
         alerts.push({
-          severity: pctDiff > 40 ? 'critical' : 'warning',
+          severity: pctDiff > 30 ? 'critical' : 'warning',
           category: 'HC Cost Mismatch',
-          title: `${company} — ${MONTHS[month]} ${year}: Expense vs Headcount gap`,
-          detail: `Expense HC: ${fmt(expHC)} | Headcount Sheet: ${fmt(hcSalary)} | Diff: ${fmt(diff)} (${pctDiff.toFixed(1)}%)`,
+          title: `${company} — ${MONTHS[month]} ${year}: Expense sheet HC vs Headcount sheet`,
+          detail: `Expense Sheet HC: ${fmt(expHC)} | Headcount Sheet: ${fmt(hcSalary)} | Diff: ${fmt(diff)} (${pctDiff.toFixed(1)}%)`,
           responsible: `${company} HR/Finance`,
           month, year,
         });
@@ -103,11 +127,12 @@ function checkHCMismatch(data) {
   return alerts;
 }
 
+// CHECK 3: Revenue sanity — company sum should equal consolidated
 function checkRevenueSanity(data) {
   const alerts = [];
   const year = 2026;
   for (let month = 1; month <= 12; month++) {
-    if (!isActualMonth(year, month)) continue; // Skip forecasted months
+    if (!isActualMonth(year, month)) continue;
     const consolidatedRev = rangeTotal(data.pnl, 'Revenues', { year, month }, { year, month }, EXCLUDE_REVENUE);
     if (consolidatedRev === 0) continue;
 
@@ -115,8 +140,7 @@ function checkRevenueSanity(data) {
       .filter(c => !EXCLUDE_REVENUE.includes(c))
       .reduce((s, name) => {
         const co = data.pnl.find(c => c.name === name);
-        const rev = (co?.metrics['Revenues'] ?? []).filter(v => v.year === year && v.month === month).reduce((a, v) => a + (v.value ?? 0), 0);
-        return s + rev;
+        return s + (co?.metrics['Revenues'] ?? []).filter(v => v.year === year && v.month === month).reduce((a, v) => a + (v.value ?? 0), 0);
       }, 0);
 
     const diff = Math.abs(consolidatedRev - companySum);
@@ -125,7 +149,7 @@ function checkRevenueSanity(data) {
     if (pctDiff > 2 && diff > 1000) {
       alerts.push({
         severity: pctDiff > 10 ? 'critical' : 'warning',
-        category: 'Revenue Sanity',
+        category: 'Revenue Integrity',
         title: `${MONTHS[month]} ${year} — Company sum ≠ consolidated total`,
         detail: `Consolidated: ${fmt(consolidatedRev)} | Sum of companies: ${fmt(companySum)} | Diff: ${fmt(diff)} (${pctDiff.toFixed(1)}%)`,
         responsible: 'Finance Team',
@@ -136,68 +160,26 @@ function checkRevenueSanity(data) {
   return alerts;
 }
 
+// CHECK 4: Missing actual data — gaps in revenue where adjacent months have data
 function checkMissingData(data) {
   const alerts = [];
-  const year = 2026;
   for (const company of DISPLAY_COMPANIES) {
     const co = data.pnl.find(c => c.name === company);
     if (!co) continue;
     const revMetric = co.metrics['Revenues'] ?? [];
-    const months2026 = revMetric.filter(v => v.year === year);
 
-    // Find gaps: month has no data but adjacent months do
-    for (let m = 1; m <= 12; m++) {
-      const hasData = months2026.some(v => v.month === m && v.value !== null);
-      const prevHas = months2026.some(v => v.month === m - 1 && v.value !== null);
-      const nextHas = months2026.some(v => v.month === m + 1 && v.value !== null);
+    for (let m = 1; m <= ACTUAL_MONTHS_END.month; m++) {
+      const hasData = revMetric.some(v => v.year === 2026 && v.month === m && v.value !== null && v.value !== 0);
+      const prevHas = revMetric.some(v => v.year === 2026 && v.month === m - 1 && v.value !== null && v.value !== 0);
+      const nextHas = revMetric.some(v => v.year === 2026 && v.month === m + 1 && v.value !== null && v.value !== 0);
       if (!hasData && (prevHas || nextHas)) {
         alerts.push({
           severity: 'info',
           category: 'Missing Data',
-          title: `${company} — ${MONTHS[m]} ${year}: No revenue data`,
-          detail: `Adjacent months have data but ${MONTHS[m]} is empty. May need data entry.`,
+          title: `${company} — ${MONTHS[m]} 2026: No revenue data`,
+          detail: `Adjacent months have data but ${MONTHS[m]} is empty.`,
           responsible: `${company} Finance`,
-          month: m, year,
-        });
-      }
-    }
-  }
-  return alerts;
-}
-
-function checkExpensePerCompanyMismatch(data) {
-  const alerts = [];
-  const year = 2026;
-  for (let month = 1; month <= 12; month++) {
-    if (!isActualMonth(year, month)) continue; // Skip forecasted months
-    for (const company of DISPLAY_COMPANIES) {
-      // P&L SG&A for this company
-      const co = data.pnl.find(c => c.name === company);
-      const pnlExp = Math.abs((co?.metrics['SG&A + R&D Expenses'] ?? [])
-        .filter(v => v.year === year && v.month === month)
-        .reduce((s, v) => s + (v.value ?? 0), 0));
-      if (pnlExp === 0) continue;
-
-      // Transaction total — same filters as dashboard (exclude Direct Cost + specific GLs)
-      const txnExp = (data.expenses || [])
-        .filter(e => e.year === year && e.month === month && e.company === company)
-        .filter(e => e.department !== 'Direct Cost')
-        .filter(e => e.gl !== 'Consultation (Invitro)' && e.gl !== 'G&A Depreciation - Machinery & Equipment')
-        .reduce((s, e) => s + Math.abs(e.amount ?? 0), 0);
-
-      if (txnExp === 0) continue;
-      const diff = Math.abs(pnlExp - txnExp);
-      const pctDiff = pnlExp > 0 ? (diff / pnlExp * 100) : 0;
-
-      // Only alert if gap is significant (>15% AND >$5K)
-      if (pctDiff > 15 && diff > 5000) {
-        alerts.push({
-          severity: pctDiff > 30 ? 'critical' : 'warning',
-          category: 'Per-Company Expense Gap',
-          title: `${company} — ${MONTHS[month]} ${year}: P&L SG&A vs transactions gap`,
-          detail: `P&L SG&A: ${fmt(pnlExp)} | Transactions (excl. Direct Cost): ${fmt(txnExp)} | Diff: ${fmt(diff)} (${pctDiff.toFixed(1)}%)`,
-          responsible: `${company} Finance`,
-          month, year,
+          month: m, year: 2026,
         });
       }
     }
@@ -217,8 +199,7 @@ export default function AuditDashboard({ data }) {
   const allAlerts = useMemo(() => {
     if (!authenticated) return [];
     return [
-      ...checkExpenseMismatch(data),
-      ...checkExpensePerCompanyMismatch(data),
+      ...checkTotalExpenseIntegrity(data),
       ...checkHCMismatch(data),
       ...checkRevenueSanity(data),
       ...checkMissingData(data),
@@ -316,10 +297,10 @@ export default function AuditDashboard({ data }) {
               <p className="text-xl font-bold">{allAlerts.filter(a => a.category === 'HC Cost Mismatch').length === 0 ? '✓ Clean' : `${allAlerts.filter(a => a.category === 'HC Cost Mismatch').length} issues`}</p>
             </CardContent>
           </Card>
-          <Card className={allAlerts.some(a => a.category === 'Revenue Sanity' && a.severity === 'critical') ? 'border-red-300 bg-red-50/50' : 'border-emerald-300 bg-emerald-50/50'}>
+          <Card className={allAlerts.some(a => a.category === 'Revenue Integrity' && a.severity === 'critical') ? 'border-red-300 bg-red-50/50' : 'border-emerald-300 bg-emerald-50/50'}>
             <CardContent className="py-4 px-5">
               <p className="text-[11px] uppercase tracking-wide text-muted-foreground">Revenue Integrity</p>
-              <p className="text-xl font-bold">{allAlerts.filter(a => a.category === 'Revenue Sanity').length === 0 ? '✓ Clean' : `${allAlerts.filter(a => a.category === 'Revenue Sanity').length} issues`}</p>
+              <p className="text-xl font-bold">{allAlerts.filter(a => a.category === 'Revenue Integrity').length === 0 ? '✓ Clean' : `${allAlerts.filter(a => a.category === 'Revenue Integrity').length} issues`}</p>
             </CardContent>
           </Card>
         </div>
