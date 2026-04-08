@@ -34,14 +34,12 @@ function severityBadge(s) {
  * Core formula: P&L SG&A ≈ (Non-HC from Expenses sheet) + (HC from Headcount sheet)
  */
 
-// Same department + GL filters as dashboard drill-down
-const AUDIT_DEPTS = ['G&A', 'GTM', 'Operations', 'R&D'];
-
 // Helper: get Non-HC total from expense transactions for a company/month
+// Filters: exclude Direct Cost department, exclude 2 specific GLs, NON-HC category only
 function getNonHC(data, company, year, month) {
   return (data.expenses || [])
     .filter(e => e.year === year && e.month === month && e.company === company)
-    .filter(e => AUDIT_DEPTS.includes(e.department))
+    .filter(e => e.department !== 'Direct Cost')
     .filter(e => e.gl !== 'Consultation (Invitro)' && e.gl !== 'G&A Depreciation - Machinery & Equipment')
     .filter(e => e.category === 'NON-HC')
     .reduce((s, e) => s + Math.abs(e.amount ?? 0), 0);
