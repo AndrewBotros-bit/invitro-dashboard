@@ -34,25 +34,54 @@ function severityBadge(s) {
  * Core formula: P&L SG&A ≈ (Non-HC from Expenses sheet) + (HC from Headcount sheet)
  */
 
-// Helper: get Non-HC total from expense transactions for a company/month
-// Filters: exclude Direct Cost department, exclude 2 specific GLs, NON-HC category only
-function getNonHC(data, company, year, month) {
+/*
+ * DATA SOURCE MAPPING:
+ * ─────────────────────────────────────────────────────────────
+ * Source 1: P&L (Actual sheet) → "SG&A + R&D Expenses" = total
+ * Source 2: Expenses sheet     → HC + Non-HC transactions (both from same sheet)
+ * Source 3: Headcount sheet    → HC salary per employee/division
+ *
+ * LAYER 1 CHECK: P&L SGA ≈ Expenses Sheet (HC + Non-HC)
+ *   Both HC and Non-HC come from expenses sheet, split by Category column
+ *
+ * LAYER 2 CHECK: Expenses Sheet HC ≈ Headcount Sheet HC
+ *   Cross-validate HC between two different sources
+ *
+ * Expense sheet filters (applied to both HC and Non-HC):
+ *   - Exclude department: "Direct Cost"
+ *   - Exclude GL: "Consultation (Invitro)", "G&A Depreciation - Machinery & Equipment"
+ */
+
+// Helper: base expense filter (excl Direct Cost dept + 2 GLs)
+function getExpenseBase(data, company, year, month) {
   return (data.expenses || [])
     .filter(e => e.year === year && e.month === month && e.company === company)
     .filter(e => e.department !== 'Direct Cost')
-    .filter(e => e.gl !== 'Consultation (Invitro)' && e.gl !== 'G&A Depreciation - Machinery & Equipment')
+    .filter(e => e.gl !== 'Consultation (Invitro)' && e.gl !== 'G&A Depreciation - Machinery & Equipment');
+}
+
+// Non-HC from expenses sheet
+function getExpNonHC(data, company, year, month) {
+  return getExpenseBase(data, company, year, month)
     .filter(e => e.category === 'NON-HC')
     .reduce((s, e) => s + Math.abs(e.amount ?? 0), 0);
 }
 
-// Helper: get HC total from headcount sheet for a company/month
-function getHC(data, company, year, month) {
+// HC from expenses sheet
+function getExpHC(data, company, year, month) {
+  return getExpenseBase(data, company, year, month)
+    .filter(e => e.category === 'HC')
+    .reduce((s, e) => s + Math.abs(e.amount ?? 0), 0);
+}
+
+// HC from headcount sheet
+function getHeadcountHC(data, company, year, month) {
   return (data.headcount || [])
     .filter(h => h.company === company)
     .reduce((s, h) => s + (h.salary?.[`${year}-${month}`] ?? 0), 0);
 }
 
-// Helper: get P&L SG&A for a company/month
+// P&L SG&A from actual sheet
 function getPnLSGA(data, company, year, month) {
   const co = data.pnl.find(c => c.name === company);
   return Math.abs((co?.metrics['SG&A + R&D Expenses'] ?? [])
@@ -60,8 +89,8 @@ function getPnLSGA(data, company, year, month) {
     .reduce((s, v) => s + (v.value ?? 0), 0));
 }
 
-// CHECK 1: P&L SG&A vs (Non-HC + HC) per company — is the total breakdown matching?
-function checkTotalExpenseIntegrity(data) {
+// ── LAYER 1: P&L SGA vs Expenses Sheet (HC + Non-HC) ──
+function checkLayer1_PnLvsExpenseSheet(data) {
   const alerts = [];
   for (let year = 2026; year <= 2026; year++) {
     for (let month = 1; month <= 12; month++) {
@@ -69,20 +98,20 @@ function checkTotalExpenseIntegrity(data) {
       for (const company of DISPLAY_COMPANIES) {
         const pnl = getPnLSGA(data, company, year, month);
         if (pnl === 0) continue;
-        const nonHC = getNonHC(data, company, year, month);
-        const hc = getHC(data, company, year, month);
-        const breakdown = nonHC + hc;
-        if (breakdown === 0) continue;
-        const diff = Math.abs(pnl - breakdown);
+        const expNonHC = getExpNonHC(data, company, year, month);
+        const expHC = getExpHC(data, company, year, month);
+        const expTotal = expNonHC + expHC;
+        if (expTotal === 0) continue;
+        const diff = Math.abs(pnl - expTotal);
         const pctDiff = pnl > 0 ? (diff / pnl * 100) : 0;
 
-        if (diff < 2000) continue; // Small-dollar exemption
+        if (diff < 2000) continue;
         if (pctDiff > 10 && diff > 5000) {
           alerts.push({
             severity: pctDiff > 25 ? 'critical' : 'warning',
-            category: 'Expense Integrity',
-            title: `${company} — ${MONTHS[month]} ${year}: P&L vs breakdown gap`,
-            detail: `P&L SG&A: ${fmt(pnl)} | Non-HC: ${fmt(nonHC)} + HC: ${fmt(hc)} = ${fmt(breakdown)} | Diff: ${fmt(diff)} (${pctDiff.toFixed(1)}%)`,
+            category: 'P&L vs Expense Sheet',
+            title: `${company} — ${MONTHS[month]} ${year}: P&L ≠ Expense Sheet total`,
+            detail: `P&L SG&A: ${fmt(pnl)} | Expense Sheet: Non-HC ${fmt(expNonHC)} + HC ${fmt(expHC)} = ${fmt(expTotal)} | Diff: ${fmt(diff)} (${pctDiff.toFixed(1)}%)`,
             responsible: `${company} Finance`,
             month, year,
           });
@@ -93,34 +122,28 @@ function checkTotalExpenseIntegrity(data) {
   return alerts;
 }
 
-// CHECK 2: Expense sheet HC vs Headcount sheet — do they agree on HC costs?
-function checkHCMismatch(data) {
+// ── LAYER 2: Expenses Sheet HC vs Headcount Sheet HC ──
+function checkLayer2_ExpHCvsHeadcountHC(data) {
   const alerts = [];
   const year = 2026;
   for (let month = 1; month <= 12; month++) {
     if (!isActualMonth(year, month)) continue;
     for (const company of DISPLAY_COMPANIES) {
-      // Expense sheet HC total (from transactions)
-      const expHC = (data.expenses || [])
-        .filter(e => e.year === year && e.month === month && e.company === company && e.category === 'HC')
-        .filter(e => e.department !== 'Direct Cost')
-        .reduce((s, e) => s + Math.abs(e.amount ?? 0), 0);
+      const expHC = getExpHC(data, company, year, month);
+      const hcSheetHC = getHeadcountHC(data, company, year, month);
 
-      // Headcount sheet salary total
-      const hcSalary = getHC(data, company, year, month);
-
-      if (expHC === 0 || hcSalary === 0) continue; // Skip if only one source has data
-      const diff = Math.abs(expHC - hcSalary);
-      const base = Math.max(expHC, hcSalary);
+      if (expHC === 0 || hcSheetHC === 0) continue;
+      const diff = Math.abs(expHC - hcSheetHC);
+      const base = Math.max(expHC, hcSheetHC);
       const pctDiff = base > 0 ? (diff / base * 100) : 0;
 
-      if (diff < 2000) continue; // Small-dollar exemption
+      if (diff < 2000) continue;
       if (pctDiff > 15 && diff > 5000) {
         alerts.push({
           severity: pctDiff > 30 ? 'critical' : 'warning',
-          category: 'HC Cost Mismatch',
-          title: `${company} — ${MONTHS[month]} ${year}: Expense sheet HC vs Headcount sheet`,
-          detail: `Expense Sheet HC: ${fmt(expHC)} | Headcount Sheet: ${fmt(hcSalary)} | Diff: ${fmt(diff)} (${pctDiff.toFixed(1)}%)`,
+          category: 'HC Cross-Check',
+          title: `${company} — ${MONTHS[month]} ${year}: Expense HC ≠ Headcount Sheet`,
+          detail: `Expense Sheet HC: ${fmt(expHC)} | Headcount Sheet: ${fmt(hcSheetHC)} | Diff: ${fmt(diff)} (${pctDiff.toFixed(1)}%)`,
           responsible: `${company} HR/Finance`,
           month, year,
         });
@@ -202,8 +225,8 @@ export default function AuditDashboard({ data }) {
   const allAlerts = useMemo(() => {
     if (!authenticated) return [];
     return [
-      ...checkTotalExpenseIntegrity(data),
-      ...checkHCMismatch(data),
+      ...checkLayer1_PnLvsExpenseSheet(data),
+      ...checkLayer2_ExpHCvsHeadcountHC(data),
       ...checkRevenueSanity(data),
       ...checkMissingData(data),
     ].sort((a, b) => {
@@ -288,16 +311,16 @@ export default function AuditDashboard({ data }) {
 
         {/* Summary cards */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
-          <Card className={counts.critical > 0 ? 'border-red-300 bg-red-50/50' : 'border-emerald-300 bg-emerald-50/50'}>
+          <Card className={allAlerts.some(a => a.category === 'P&L vs Expense Sheet') ? 'border-red-300 bg-red-50/50' : 'border-emerald-300 bg-emerald-50/50'}>
             <CardContent className="py-4 px-5">
-              <p className="text-[11px] uppercase tracking-wide text-muted-foreground">Expense Integrity</p>
-              <p className="text-xl font-bold">{allAlerts.filter(a => a.category.includes('Expense')).length === 0 ? '✓ Clean' : `${allAlerts.filter(a => a.category.includes('Expense')).length} issues`}</p>
+              <p className="text-[11px] uppercase tracking-wide text-muted-foreground">Layer 1: P&L vs Expense Sheet</p>
+              <p className="text-xl font-bold">{allAlerts.filter(a => a.category === 'P&L vs Expense Sheet').length === 0 ? '✓ Clean' : `${allAlerts.filter(a => a.category === 'P&L vs Expense Sheet').length} issues`}</p>
             </CardContent>
           </Card>
-          <Card className={allAlerts.some(a => a.category === 'HC Cost Mismatch' && a.severity === 'critical') ? 'border-red-300 bg-red-50/50' : 'border-emerald-300 bg-emerald-50/50'}>
+          <Card className={allAlerts.some(a => a.category === 'HC Cross-Check') ? 'border-red-300 bg-red-50/50' : 'border-emerald-300 bg-emerald-50/50'}>
             <CardContent className="py-4 px-5">
-              <p className="text-[11px] uppercase tracking-wide text-muted-foreground">HC Cost Integrity</p>
-              <p className="text-xl font-bold">{allAlerts.filter(a => a.category === 'HC Cost Mismatch').length === 0 ? '✓ Clean' : `${allAlerts.filter(a => a.category === 'HC Cost Mismatch').length} issues`}</p>
+              <p className="text-[11px] uppercase tracking-wide text-muted-foreground">Layer 2: Expense HC vs Headcount Sheet</p>
+              <p className="text-xl font-bold">{allAlerts.filter(a => a.category === 'HC Cross-Check').length === 0 ? '✓ Clean' : `${allAlerts.filter(a => a.category === 'HC Cross-Check').length} issues`}</p>
             </CardContent>
           </Card>
           <Card className={allAlerts.some(a => a.category === 'Revenue Integrity' && a.severity === 'critical') ? 'border-red-300 bg-red-50/50' : 'border-emerald-300 bg-emerald-50/50'}>
