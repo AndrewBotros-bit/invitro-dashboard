@@ -39,6 +39,7 @@ function getNonHC(data, company, year, month) {
   return (data.expenses || [])
     .filter(e => e.year === year && e.month === month && e.company === company)
     .filter(e => e.department !== 'Direct Cost')
+    .filter(e => e.gl !== 'Consultation (Invitro)' && e.gl !== 'G&A Depreciation - Machinery & Equipment')
     .filter(e => e.category === 'NON-HC')
     .reduce((s, e) => s + Math.abs(e.amount ?? 0), 0);
 }
