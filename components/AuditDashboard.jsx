@@ -52,12 +52,15 @@ function severityBadge(s) {
  *   - Exclude GL: "Consultation (Invitro)", "G&A Depreciation - Machinery & Equipment"
  */
 
-// Helper: base expense filter (excl Direct Cost dept + 2 GLs)
+// Helper: base expense filter (excl Direct Cost + G&A Depreciation depts + 2 GLs)
+const EXCLUDED_DEPTS = ['Direct Cost', 'G&A - Depreciation'];
+const EXCLUDED_GLS = ['Consultation (Invitro)', 'G&A Depreciation - Machinery & Equipment'];
+
 function getExpenseBase(data, company, year, month) {
   return (data.expenses || [])
     .filter(e => e.year === year && e.month === month && e.company === company)
-    .filter(e => e.department !== 'Direct Cost')
-    .filter(e => e.gl !== 'Consultation (Invitro)' && e.gl !== 'G&A Depreciation - Machinery & Equipment');
+    .filter(e => !EXCLUDED_DEPTS.includes(e.department))
+    .filter(e => !EXCLUDED_GLS.includes(e.gl));
 }
 
 // Non-HC from expenses sheet
