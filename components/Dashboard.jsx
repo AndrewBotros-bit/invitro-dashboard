@@ -189,6 +189,7 @@ export default function InVitroDashboard({ data }) {
   const DISPLAY_COMPANIES = ['AllRx', 'AllCare', 'Osta', 'Needles', 'InVitro Studio'];
   const [selectedCompany, setSelectedCompany] = useState(null); // null = consolidated
   const [expenseDrilldown, setExpenseDrilldown] = useState(null); // { year, month } or null
+  const [revenueDrilldown, setRevenueDrilldown] = useState(null); // { year, month } or null
   const [expandedDept, setExpandedDept] = useState(null); // 'G&A' | 'GTM' | etc. or null
   const [expandedGL, setExpandedGL] = useState(null); // GL name string or null
 
@@ -939,6 +940,7 @@ export default function InVitroDashboard({ data }) {
                     <TableHead className="text-right">Revenue</TableHead>
                     <TableHead className="text-right">EBITDA</TableHead>
                     <TableHead className="text-right">Gross %</TableHead>
+                    <TableHead className="text-right">Key Metrics</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -965,6 +967,25 @@ export default function InVitroDashboard({ data }) {
                       <TableCell className="text-right">
                         {co.grossMargin !== null && co.grossMargin > 0 ? `${(co.grossMargin * 100).toFixed(0)}%` : "N/A"}
                       </TableCell>
+                      <TableCell className="text-right text-[11px]">
+                        {(() => {
+                          const rd = data.revenueDetails;
+                          if (!rd) return '—';
+                          if (co.name === 'AllRx' && rd.AllRx?.segments) {
+                            const rx = rd.AllRx.segments.reduce((s, seg) => s + (seg.metrics['RX Count'] ?? []).filter(inRange).reduce((a, v) => a + (v.value ?? 0), 0), 0);
+                            const rev = rd.AllRx.segments.reduce((s, seg) => s + (seg.metrics['Total Revenues'] ?? seg.metrics['Revenues'] ?? []).filter(inRange).reduce((a, v) => a + (v.value ?? 0), 0), 0);
+                            const arpu = rx > 0 ? rev / rx : 0;
+                            return <><span className="text-blue-600 font-medium">RX: {rx.toLocaleString()}</span> <span className="text-muted-foreground">|</span> <span className="text-blue-600 font-medium">ARPU: ${arpu.toFixed(2)}</span></>;
+                          }
+                          if (co.name === 'AllCare' && rd.AllCare?.serviceLines) {
+                            const sus = rd.AllCare.serviceLines.reduce((s, sl) => s + (sl.metrics['SUs'] ?? []).filter(inRange).reduce((a, v) => a + (v.value ?? 0), 0), 0);
+                            const rev = rd.AllCare.serviceLines.reduce((s, sl) => s + (sl.metrics['Revenues'] ?? []).filter(inRange).reduce((a, v) => a + (v.value ?? 0), 0), 0);
+                            const arpu = sus > 0 ? rev / sus : 0;
+                            return <><span className="text-emerald-600 font-medium">SUs: {sus.toLocaleString()}</span> <span className="text-muted-foreground">|</span> <span className="text-emerald-600 font-medium">ARPU: ${arpu.toFixed(2)}</span></>;
+                          }
+                          return '—';
+                        })()}
+                      </TableCell>
                     </TableRow>
                   ))}
                 </TableBody>
@@ -974,6 +995,7 @@ export default function InVitroDashboard({ data }) {
                     <TableCell className="text-right font-bold">{fmt(totalRowRev)}</TableCell>
                     <TableCell className="text-right font-bold text-emerald-600">{fmt(totalRowEbitda)}</TableCell>
                     <TableCell className="text-right font-bold">{totalRowGrossMargin !== null ? (totalRowGrossMargin * 100).toFixed(0) + '%' : 'N/A'}</TableCell>
+                    <TableCell></TableCell>
                   </TableRow>
                 </TableFooter>
               </Table>
@@ -985,23 +1007,51 @@ export default function InVitroDashboard({ data }) {
             <div className="flex flex-wrap gap-4 mb-6">
               {revenueCompanies.map(name => {
                 const coRev = (data.pnl.find(c => c.name === name)?.metrics['Revenues'] ?? []).filter(inRange).reduce((s, v) => s + (v.value ?? 0), 0);
+                // Revenue KPI badges for AllRx/AllCare from revenueDetails
+                const rd = data.revenueDetails;
+                let kpiBadge = null;
+                if (rd && name === 'AllRx' && rd.AllRx?.segments) {
+                  const totalRx = rd.AllRx.segments.reduce((s, seg) => s + (seg.metrics['RX Count'] ?? []).filter(inRange).reduce((a, v) => a + (v.value ?? 0), 0), 0);
+                  const totalSegRev = rd.AllRx.segments.reduce((s, seg) => s + (seg.metrics['Total Revenues'] ?? seg.metrics['Revenues'] ?? []).filter(inRange).reduce((a, v) => a + (v.value ?? 0), 0), 0);
+                  const arpu = totalRx > 0 ? totalSegRev / totalRx : 0;
+                  kpiBadge = <div className="flex gap-2 mt-1"><span className="text-[10px] text-blue-600 font-medium">RX: {totalRx.toLocaleString()}</span><span className="text-[10px] text-muted-foreground">|</span><span className="text-[10px] text-blue-600 font-medium">ARPU: ${arpu.toFixed(2)}</span></div>;
+                } else if (rd && name === 'AllCare' && rd.AllCare?.serviceLines) {
+                  const totalSUs = rd.AllCare.serviceLines.reduce((s, sl) => s + (sl.metrics['SUs'] ?? []).filter(inRange).reduce((a, v) => a + (v.value ?? 0), 0), 0);
+                  const totalSlRev = rd.AllCare.serviceLines.reduce((s, sl) => s + (sl.metrics['Revenues'] ?? []).filter(inRange).reduce((a, v) => a + (v.value ?? 0), 0), 0);
+                  const arpu = totalSUs > 0 ? totalSlRev / totalSUs : 0;
+                  kpiBadge = <div className="flex gap-2 mt-1"><span className="text-[10px] text-emerald-600 font-medium">SUs: {totalSUs.toLocaleString()}</span><span className="text-[10px] text-muted-foreground">|</span><span className="text-[10px] text-emerald-600 font-medium">ARPU: ${arpu.toFixed(2)}</span></div>;
+                }
                 return (
                   <KPICard key={name} title={`${name} — ${rangeLabel}`}
                     value={fmt(coRev)}
                     subtitle={rangeRevenue > 0 ? `${(coRev / rangeRevenue * 100).toFixed(0)}% of total` : ''}
-                    comparison={compareEnabled && <ComparisonBadge current={coRev}
+                    comparison={<>{compareEnabled && <ComparisonBadge current={coRev}
                       compValue={(data.pnl.find(c => c.name === name)?.metrics['Revenues'] ?? []).filter(v => { const vi = v.year * 100 + v.month; return vi >= compRange.from.year * 100 + compRange.from.month && vi <= compRange.to.year * 100 + compRange.to.month; }).reduce((s, v) => s + (v.value ?? 0), 0)}
-                      compLabel={compLabel} />}
+                      compLabel={compLabel} />}{kpiBadge}</>}
                   />
                 );
               })}
             </div>
 
             <Card className="mb-5">
-              <CardHeader><CardTitle className="text-sm">{viewMode === 'yearly' ? 'Yearly' : 'Monthly'} Revenue by Company ({rangeLabel})</CardTitle></CardHeader>
+              <CardHeader><CardTitle className="text-sm">{viewMode === 'yearly' ? 'Yearly' : 'Monthly'} Revenue by Company ({rangeLabel}) {data.revenueDetails ? '— click a bar for breakdown' : ''}</CardTitle></CardHeader>
               <CardContent>
                 <ResponsiveContainer width="100%" height={340}>
-                  <ComposedChart data={revenueByMonthWithTotal}>
+                  <ComposedChart data={revenueByMonthWithTotal} onClick={(e) => {
+                    if (!data.revenueDetails || !e?.activePayload?.[0]) return;
+                    const label = e.activePayload[0].payload.month;
+                    if (viewMode === 'yearly') {
+                      setRevenueDrilldown({ year: Number(label), month: 0 });
+                    } else {
+                      const MONTH_PARSE = { Jan:1,Feb:2,Mar:3,Apr:4,May:5,Jun:6,Jul:7,Aug:8,Sep:9,Oct:10,Nov:11,Dec:12 };
+                      const parts = String(label).match(/(\w+)\s*'?(\d+)/);
+                      if (parts) {
+                        const m = MONTH_PARSE[parts[1]] || 0;
+                        const y = 2000 + Number(parts[2]);
+                        if (m > 0) setRevenueDrilldown({ year: y, month: m });
+                      }
+                    }
+                  }}>
                     <CartesianGrid strokeDasharray="3 3" stroke={CHART_STYLE.border} />
                     <XAxis dataKey="month" tick={{ fill: CHART_STYLE.muted, fontSize: 11 }} />
                     <YAxis tick={{ fill: CHART_STYLE.muted, fontSize: 11 }} tickFormatter={fmtShort} />
@@ -1031,6 +1081,108 @@ export default function InVitroDashboard({ data }) {
                 </ResponsiveContainer>
               </CardContent>
             </Card>
+
+            {/* Revenue Drill-Down Drawer */}
+            <Drawer open={!!revenueDrilldown} onOpenChange={(open) => { if (!open) setRevenueDrilldown(null); }}>
+              <DrawerContent>
+                {revenueDrilldown && data.revenueDetails && (() => {
+                  const rd = data.revenueDetails;
+                  const ML = ['','Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+                  const isYearDrill = revenueDrilldown.month === 0;
+                  const drillLabel = isYearDrill ? String(revenueDrilldown.year) : `${ML[revenueDrilldown.month]} ${revenueDrilldown.year}`;
+                  const inDrillRange = (v) => isYearDrill ? v.year === revenueDrilldown.year : (v.year === revenueDrilldown.year && v.month === revenueDrilldown.month);
+                  const sumMetric = (metrics, name) => (metrics?.[name] ?? []).filter(inDrillRange).reduce((s, v) => s + (v.value ?? 0), 0);
+                  const gmColor = (pct) => pct >= 40 ? 'text-emerald-600' : pct >= 20 ? 'text-amber-600' : 'text-red-500';
+
+                  // Build sections based on company view
+                  const sections = [];
+                  if (!selectedCompany || selectedCompany === 'AllRx') {
+                    if (rd.AllRx?.segments?.length > 0) {
+                      sections.push({ company: 'AllRx', label: 'AllRx — Customer Segments', items: rd.AllRx.segments, unitLabel: 'RX Count', unitKey: 'RX Count', revKey: 'Revenues' });
+                    }
+                  }
+                  if (!selectedCompany || selectedCompany === 'AllCare') {
+                    if (rd.AllCare?.serviceLines?.length > 0) {
+                      sections.push({ company: 'AllCare', label: 'AllCare — Service Lines', items: rd.AllCare.serviceLines, unitLabel: 'SUs', unitKey: 'SUs', revKey: 'Revenues' });
+                    }
+                  }
+
+                  return (
+                    <>
+                      <DrawerHeader>
+                        <DrawerTitle>Revenue Breakdown &mdash; {drillLabel}{selectedCompany ? ` (${selectedCompany})` : ''}</DrawerTitle>
+                        <DrawerDescription>Sub-product metrics, ARPU, and gross margins</DrawerDescription>
+                      </DrawerHeader>
+                      <div className="px-4 pb-6 overflow-auto space-y-6">
+                        {sections.length === 0 ? (
+                          <p className="text-sm text-muted-foreground">No sub-product data available for this company/period.</p>
+                        ) : sections.map(sec => {
+                          const totals = { units: 0, rev: 0, cos: 0, gp: 0 };
+                          const rows = sec.items.map(item => {
+                            const units = sumMetric(item.metrics, sec.unitKey);
+                            const rev = sumMetric(item.metrics, sec.revKey) || sumMetric(item.metrics, 'Revenues');
+                            const cos = sumMetric(item.metrics, 'Cost of Sales');
+                            const gp = sumMetric(item.metrics, 'Gross Profit');
+                            const gm = rev > 0 ? (gp / rev * 100) : 0;
+                            const arpu = units > 0 ? rev / units : 0;
+                            totals.units += units; totals.rev += rev; totals.cos += cos; totals.gp += gp;
+                            return { name: item.name, units, rev, arpu, cos, gp, gm };
+                          });
+                          const totalGM = totals.rev > 0 ? (totals.gp / totals.rev * 100) : 0;
+                          const totalARPU = totals.units > 0 ? totals.rev / totals.units : 0;
+
+                          return (
+                            <div key={sec.company}>
+                              <h3 className="text-sm font-semibold mb-2 flex items-center gap-2">
+                                <span className="inline-block w-2 h-2 rounded-full" style={{ backgroundColor: colorMap[sec.company] }} />
+                                {sec.label}
+                              </h3>
+                              <Table>
+                                <TableHeader>
+                                  <TableRow>
+                                    <TableHead>{sec.company === 'AllCare' ? 'Service Line' : 'Segment'}</TableHead>
+                                    <TableHead className="text-right">{sec.unitLabel}</TableHead>
+                                    <TableHead className="text-right">Revenue</TableHead>
+                                    <TableHead className="text-right">ARPU</TableHead>
+                                    <TableHead className="text-right">Cost of Sales</TableHead>
+                                    <TableHead className="text-right">Gross Profit</TableHead>
+                                    <TableHead className="text-right">GM %</TableHead>
+                                  </TableRow>
+                                </TableHeader>
+                                <TableBody>
+                                  {rows.map(r => (
+                                    <TableRow key={r.name}>
+                                      <TableCell className="font-medium">{r.name}</TableCell>
+                                      <TableCell className="text-right tabular-nums">{r.units.toLocaleString()}</TableCell>
+                                      <TableCell className="text-right tabular-nums">{fmt(r.rev)}</TableCell>
+                                      <TableCell className="text-right tabular-nums">${r.arpu.toFixed(2)}</TableCell>
+                                      <TableCell className="text-right tabular-nums">{fmt(r.cos)}</TableCell>
+                                      <TableCell className="text-right tabular-nums">{fmt(r.gp)}</TableCell>
+                                      <TableCell className={`text-right font-semibold tabular-nums ${gmColor(r.gm)}`}>{r.gm.toFixed(1)}%</TableCell>
+                                    </TableRow>
+                                  ))}
+                                </TableBody>
+                                <TableFooter>
+                                  <TableRow>
+                                    <TableCell className="font-bold">Total</TableCell>
+                                    <TableCell className="text-right font-bold tabular-nums">{totals.units.toLocaleString()}</TableCell>
+                                    <TableCell className="text-right font-bold tabular-nums">{fmt(totals.rev)}</TableCell>
+                                    <TableCell className="text-right font-bold tabular-nums">${totalARPU.toFixed(2)}</TableCell>
+                                    <TableCell className="text-right font-bold tabular-nums">{fmt(totals.cos)}</TableCell>
+                                    <TableCell className="text-right font-bold tabular-nums">{fmt(totals.gp)}</TableCell>
+                                    <TableCell className={`text-right font-bold tabular-nums ${gmColor(totalGM)}`}>{totalGM.toFixed(1)}%</TableCell>
+                                  </TableRow>
+                                </TableFooter>
+                              </Table>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </>
+                  );
+                })()}
+              </DrawerContent>
+            </Drawer>
           </>)}
 
           {/* ────── PROFITABILITY ────── */}
