@@ -1223,62 +1223,58 @@ export default function InVitroDashboard({ data }) {
             </Card>
 
             <Card>
-              <CardHeader><CardTitle className="text-sm">Gross Margin Trends by Company ({rangeLabel})</CardTitle></CardHeader>
+              <CardHeader><CardTitle className="text-sm">Gross Profit & Margin ({rangeLabel})</CardTitle></CardHeader>
               <CardContent>
-                <ResponsiveContainer width="100%" height={220}>
-                  {grossMarginPctByMonth.length < 3 ? (
-                    <BarChart data={grossMarginPctByMonth}>
-                      <CartesianGrid strokeDasharray="3 3" stroke={CHART_STYLE.border} />
-                      <XAxis dataKey="month" tick={{ fill: CHART_STYLE.muted, fontSize: 11 }} />
-                      <YAxis tick={{ fill: CHART_STYLE.muted, fontSize: 11 }} domain={['auto', 'auto']} tickFormatter={v => `${v.toFixed(0)}%`} />
-                      <Tooltip content={({ active, payload, label }) => {
-                        if (!active || !payload) return null;
-                        return (
-                          <div className="rounded-lg border border-border bg-white px-4 py-3 shadow-lg min-w-[160px]">
-                            <p className="mb-2 text-sm font-semibold text-foreground">{label}</p>
-                            {payload.map((entry, i) => (
-                              <div key={i} className="flex items-center gap-2 my-0.5">
-                                <span className="inline-block w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: entry.color }} />
-                                <span className="text-xs text-muted-foreground">{entry.name}:</span>
-                                <span className="text-xs font-semibold text-foreground ml-auto">{Number(entry.value).toFixed(1)}%</span>
-                              </div>
-                            ))}
-                          </div>
-                        );
-                      }} />
-                      {gmCompanies.map(name => (
-                        <Bar key={name} dataKey={name} fill={colorMap[name]} radius={[4, 4, 0, 0]} />
-                      ))}
-                      <Legend />
-                    </BarChart>
-                  ) : (
-                    <LineChart data={grossMarginPctByMonth}>
-                      <CartesianGrid strokeDasharray="3 3" stroke={CHART_STYLE.border} />
-                      <XAxis dataKey="month" tick={{ fill: CHART_STYLE.muted, fontSize: 11 }} />
-                      <YAxis tick={{ fill: CHART_STYLE.muted, fontSize: 11 }} domain={['auto', 'auto']} tickFormatter={v => `${v.toFixed(0)}%`} />
-                      <Tooltip content={({ active, payload, label }) => {
-                        if (!active || !payload) return null;
-                        return (
-                          <div className="rounded-lg border border-border bg-white px-4 py-3 shadow-lg min-w-[160px]">
-                            <p className="mb-2 text-sm font-semibold text-foreground">{label}</p>
-                            {payload.map((entry, i) => (
-                              <div key={i} className="flex items-center gap-2 my-0.5">
-                                <span className="inline-block w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: entry.color }} />
-                                <span className="text-xs text-muted-foreground">{entry.name}:</span>
-                                <span className="text-xs font-semibold text-foreground ml-auto">{Number(entry.value).toFixed(1)}%</span>
-                              </div>
-                            ))}
-                          </div>
-                        );
-                      }} />
-                      {gmCompanies.map(name => (
-                        <Line key={name} type="monotone" dataKey={name} stroke={colorMap[name]}
-                          strokeWidth={2} dot={false} connectNulls={true} />
-                      ))}
-                      <Legend />
-                    </LineChart>
-                  )}
-                </ResponsiveContainer>
+                {(() => {
+                  // Combine GP dollar values (bars) + margin % (lines) into one dataset
+                  const combinedGM = gpByMonth.map((gpPoint, i) => {
+                    const pctPoint = grossMarginPctByMonth[i] || {};
+                    const point = { month: gpPoint.month };
+                    for (const name of gmCompanies) {
+                      point[`${name}_gp`] = gpPoint[name] ?? 0; // dollar GP for bars
+                      point[`${name}_pct`] = pctPoint[name] ?? null; // margin % for lines
+                    }
+                    return point;
+                  });
+                  return (
+                    <ResponsiveContainer width="100%" height={280}>
+                      <ComposedChart data={combinedGM}>
+                        <CartesianGrid strokeDasharray="3 3" stroke={CHART_STYLE.border} />
+                        <XAxis dataKey="month" tick={{ fill: CHART_STYLE.muted, fontSize: 11 }} />
+                        <YAxis yAxisId="gp" tick={{ fill: CHART_STYLE.muted, fontSize: 11 }} tickFormatter={fmtShort} />
+                        <YAxis yAxisId="pct" orientation="right" tick={{ fill: '#6366f1', fontSize: 11 }} tickFormatter={v => `${v}%`} domain={[0, 'auto']} />
+                        <Tooltip content={({ active, payload, label }) => {
+                          if (!active || !payload) return null;
+                          return (
+                            <div className="rounded-lg border border-border bg-white px-4 py-3 shadow-lg min-w-[200px]">
+                              <p className="mb-2 text-sm font-semibold text-foreground">{label}</p>
+                              {payload.map((entry, i) => (
+                                <div key={i} className="flex items-center gap-2 my-0.5">
+                                  <span className="inline-block w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: entry.color }} />
+                                  <span className="text-xs text-muted-foreground">{entry.name}:</span>
+                                  <span className="text-xs font-semibold text-foreground ml-auto">
+                                    {String(entry.dataKey).endsWith('_pct') ? `${Number(entry.value).toFixed(1)}%` : fmt(entry.value)}
+                                  </span>
+                                </div>
+                              ))}
+                            </div>
+                          );
+                        }} />
+                        {gmCompanies.map((name, i) => (
+                          <Bar key={`${name}_gp`} yAxisId="gp" dataKey={`${name}_gp`} stackId="gp"
+                            fill={colorMap[name]} radius={i === gmCompanies.length - 1 ? [4, 4, 0, 0] : [0, 0, 0, 0]}
+                            name={`${name} GP`} />
+                        ))}
+                        {gmCompanies.map(name => (
+                          <Line key={`${name}_pct`} yAxisId="pct" type="monotone" dataKey={`${name}_pct`}
+                            stroke={colorMap[name]} strokeWidth={2} strokeDasharray="5 3"
+                            dot={{ r: 3 }} connectNulls={true} name={`${name} %`} />
+                        ))}
+                        <Legend />
+                      </ComposedChart>
+                    </ResponsiveContainer>
+                  );
+                })()}
               </CardContent>
             </Card>
           </>)}
