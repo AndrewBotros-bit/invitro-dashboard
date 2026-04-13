@@ -1121,8 +1121,9 @@ export default function InVitroDashboard({ data }) {
                           const rows = sec.items.map(item => {
                             const units = sumMetric(item.metrics, sec.unitKey);
                             const rev = sumMetric(item.metrics, sec.revKey) || sumMetric(item.metrics, 'Revenues');
-                            const cos = sumMetric(item.metrics, 'Cost of Sales');
-                            const gp = sumMetric(item.metrics, 'Gross Profit');
+                            const cos = sumMetric(item.metrics, 'Cost of Sales') || sumMetric(item.metrics, 'Cost of Sales (SDRA)');
+                            const gpExplicit = sumMetric(item.metrics, 'Gross Profit');
+                            const gp = gpExplicit || (rev - cos);
                             const gm = rev > 0 ? (gp / rev * 100) : 0;
                             const arpu = units > 0 ? rev / units : 0;
                             totals.units += units; totals.rev += rev; totals.cos += cos; totals.gp += gp;
