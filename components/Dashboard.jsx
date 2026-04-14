@@ -1449,7 +1449,7 @@ export default function InVitroDashboard({ data }) {
               return (
                 <Card>
                   <CardHeader><CardTitle className="text-sm">
-                    {hasBurn ? 'Normal Cash Burn & Runway' : 'Cash Runway'} ({rangeLabel})
+                    {hasBurn ? 'Normal Cash Burn (excl. Ad hocs) & Runway' : 'Cash Runway'} ({rangeLabel})
                   </CardTitle></CardHeader>
                   <CardContent>
                     <ResponsiveContainer width="100%" height={260}>
