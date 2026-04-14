@@ -940,7 +940,6 @@ export default function InVitroDashboard({ data }) {
                     <TableHead className="text-right">Revenue</TableHead>
                     <TableHead className="text-right">EBITDA</TableHead>
                     <TableHead className="text-right">Gross %</TableHead>
-                    <TableHead className="text-right">Key Metrics</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -967,25 +966,6 @@ export default function InVitroDashboard({ data }) {
                       <TableCell className="text-right">
                         {co.grossMargin !== null && co.grossMargin > 0 ? `${(co.grossMargin * 100).toFixed(0)}%` : "N/A"}
                       </TableCell>
-                      <TableCell className="text-right text-[11px]">
-                        {(() => {
-                          const rd = data.revenueDetails;
-                          if (!rd) return '—';
-                          if (co.name === 'AllRx' && rd.AllRx?.segments) {
-                            const rx = rd.AllRx.segments.reduce((s, seg) => s + (seg.metrics['RX Count'] ?? []).filter(inRange).reduce((a, v) => a + (v.value ?? 0), 0), 0);
-                            const rev = rd.AllRx.segments.reduce((s, seg) => s + (seg.metrics['Total Revenues'] ?? seg.metrics['Revenues'] ?? []).filter(inRange).reduce((a, v) => a + (v.value ?? 0), 0), 0);
-                            const arpu = rx > 0 ? rev / rx : 0;
-                            return <><span className="text-blue-600 font-medium">RX: {rx.toLocaleString()}</span> <span className="text-muted-foreground">|</span> <span className="text-blue-600 font-medium">ARPU: ${arpu.toFixed(2)}</span></>;
-                          }
-                          if (co.name === 'AllCare' && rd.AllCare?.serviceLines) {
-                            const sus = rd.AllCare.serviceLines.reduce((s, sl) => s + (sl.metrics['SUs'] ?? []).filter(inRange).reduce((a, v) => a + (v.value ?? 0), 0), 0);
-                            const rev = rd.AllCare.serviceLines.reduce((s, sl) => s + (sl.metrics['Revenues'] ?? []).filter(inRange).reduce((a, v) => a + (v.value ?? 0), 0), 0);
-                            const arpu = sus > 0 ? rev / sus : 0;
-                            return <><span className="text-emerald-600 font-medium">SUs: {sus.toLocaleString()}</span> <span className="text-muted-foreground">|</span> <span className="text-emerald-600 font-medium">ARPU: ${arpu.toFixed(2)}</span></>;
-                          }
-                          return '—';
-                        })()}
-                      </TableCell>
                     </TableRow>
                   ))}
                 </TableBody>
@@ -995,7 +975,6 @@ export default function InVitroDashboard({ data }) {
                     <TableCell className="text-right font-bold">{fmt(totalRowRev)}</TableCell>
                     <TableCell className="text-right font-bold text-emerald-600">{fmt(totalRowEbitda)}</TableCell>
                     <TableCell className="text-right font-bold">{totalRowGrossMargin !== null ? (totalRowGrossMargin * 100).toFixed(0) + '%' : 'N/A'}</TableCell>
-                    <TableCell></TableCell>
                   </TableRow>
                 </TableFooter>
               </Table>
