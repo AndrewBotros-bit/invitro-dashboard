@@ -1371,6 +1371,52 @@ export default function InVitroDashboard({ data }) {
               </CardContent>
             </Card>
 
+            {/* Monthly Operating Cash Flow by Company — stacked bars */}
+            {(() => {
+              const ML = ['','Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+              const OPS_KEYS = ['Operational Cash Flow', 'Direct Operational Cash Flow', 'Operational Cash Flow (Internal budget)'];
+              const companies = selectedCompany ? [selectedCompany] : DISPLAY_COMPANIES;
+              const monthMap = {};
+              for (const name of companies) {
+                const co = data.cashflow.find(c => c.name === name);
+                if (!co) continue;
+                const metric = OPS_KEYS.reduce((found, key) => found || co.metrics?.[key], null);
+                if (!metric) continue;
+                for (const v of metric) {
+                  if (!inRange(v)) continue;
+                  const label = viewMode === 'yearly' ? String(v.year) : `${ML[v.month]} '${String(v.year).slice(-2)}`;
+                  if (!monthMap[label]) monthMap[label] = { month: label };
+                  monthMap[label][name] = (monthMap[label][name] || 0) + (v.value ?? 0);
+                }
+              }
+              const opsCFData = Object.values(monthMap).map(point => ({
+                ...point,
+                Total: companies.reduce((s, name) => s + (point[name] || 0), 0),
+              }));
+              if (opsCFData.length === 0) return null;
+              return (
+                <Card className="mb-4">
+                  <CardHeader><CardTitle className="text-sm">Monthly Operating Cash Flow by Company ({rangeLabel})</CardTitle></CardHeader>
+                  <CardContent>
+                    <ResponsiveContainer width="100%" height={300}>
+                      <ComposedChart data={opsCFData}>
+                        <CartesianGrid strokeDasharray="3 3" stroke={CHART_STYLE.border} />
+                        <XAxis dataKey="month" tick={{ fill: CHART_STYLE.muted, fontSize: 11 }} />
+                        <YAxis tick={{ fill: CHART_STYLE.muted, fontSize: 11 }} tickFormatter={fmtShort} />
+                        <Tooltip content={<CustomTooltip />} />
+                        {companies.map((name, i) => (
+                          <Bar key={name} dataKey={name} stackId="ops" fill={colorMap[name]}
+                            radius={i === companies.length - 1 ? [4, 4, 0, 0] : [0, 0, 0, 0]} />
+                        ))}
+                        <Line type="monotone" dataKey="Total" stroke={CHART_STYLE.totalLine} strokeWidth={2} dot={{ r: 3, fill: CHART_STYLE.totalLine }} />
+                        <Legend />
+                      </ComposedChart>
+                    </ResponsiveContainer>
+                  </CardContent>
+                </Card>
+              );
+            })()}
+
             {/* Combined: Normal Cash Burn (bars) + Cash Runway (line) — consolidated only shows burn */}
             {(() => {
               const MONTHS_L = ['','Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
