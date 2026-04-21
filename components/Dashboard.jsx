@@ -181,7 +181,17 @@ export default function InVitroDashboard({ data, user }) {
   const perms = user?.permissions || { companies: '*', tabs: '*', breakdowns: '*' };
   const canSeeCompany = (name) => perms.companies === '*' || (Array.isArray(perms.companies) && perms.companies.includes(name));
   const canSeeTab = (tab) => perms.tabs === '*' || (Array.isArray(perms.tabs) && perms.tabs.includes(tab));
-  const canBreakdown = (key) => perms.breakdowns === '*' || perms.breakdowns?.[key] === true;
+  const canBreakdown = (key, company = null) => {
+    if (perms.breakdowns === '*') return true;
+    const val = perms.breakdowns?.[key];
+    if (val === true) return true;
+    if (val === false || val == null) return false;
+    if (Array.isArray(val)) {
+      if (company === null) return val.length > 0;
+      return val.includes(company);
+    }
+    return false;
+  };
   // Deploy state
   const [deploying, setDeploying] = useState(false);
   const [deployMsg, setDeployMsg] = useState(null);
@@ -705,6 +715,7 @@ export default function InVitroDashboard({ data, user }) {
         canSeeTab={canSeeTab}
         canBreakdown={canBreakdown}
         userName={user?.name}
+        userRole={user?.role}
       />
 
       {/* Main content area — offset by sidebar width */}
@@ -1076,7 +1087,7 @@ export default function InVitroDashboard({ data, user }) {
             </Card>
 
             {/* Revenue Drill-Down Drawer */}
-            {canBreakdown('revenueDrilldown') && <Drawer open={!!revenueDrilldown} onOpenChange={(open) => { if (!open) setRevenueDrilldown(null); }}>
+            {canBreakdown('revenueDrilldown', selectedCompany) && <Drawer open={!!revenueDrilldown} onOpenChange={(open) => { if (!open) setRevenueDrilldown(null); }}>
               <DrawerContent>
                 {revenueDrilldown && data.revenueDetails && (() => {
                   const rd = data.revenueDetails;
@@ -1567,7 +1578,7 @@ export default function InVitroDashboard({ data, user }) {
             </Card>
 
             {/* Expense breakdown drawer */}
-            {canBreakdown('expenseDrilldown') && <Drawer open={!!expenseDrilldown} onOpenChange={(open) => { if (!open) setExpenseDrilldown(null); }}>
+            {canBreakdown('expenseDrilldown', selectedCompany) && <Drawer open={!!expenseDrilldown} onOpenChange={(open) => { if (!open) setExpenseDrilldown(null); }}>
               <DrawerContent>
                 {expenseDrilldown && (() => {
                   const MONTHS_FULL = ['','January','February','March','April','May','June','July','August','September','October','November','December'];

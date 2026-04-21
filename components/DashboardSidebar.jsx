@@ -23,6 +23,7 @@ export default function DashboardSidebar({
   canSeeTab = () => true,
   canBreakdown = () => true,
   userName,
+  userRole,
 }) {
   const visibleSections = SECTIONS.filter(s => canSeeTab(s.id));
   return (
@@ -115,6 +116,15 @@ export default function DashboardSidebar({
             >
               <span className="text-base leading-none">🔍</span>
               <span>Audit Console</span>
+            </a>
+          )}
+          {userRole === 'admin' && (
+            <a
+              href="/admin/users"
+              className="flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm font-medium text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
+            >
+              <span className="text-base leading-none">👥</span>
+              <span>User Management</span>
             </a>
           )}
           {userName && (
