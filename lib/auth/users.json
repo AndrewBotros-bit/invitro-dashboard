@@ -9,5 +9,26 @@
       "tabs": "*",
       "breakdowns": "*"
     }
+  },
+  {
+    "username": "Germin",
+    "name": "Germin Elzoghaby",
+    "passwordHash": "$2b$10$/ljgB9xd3eM.n2w/FoiV4OCendP4FglGy5JCs23GZUTmUAEFxsYB.",
+    "role": "viewer",
+    "permissions": {
+      "companies": "*",
+      "tabs": "*",
+      "breakdowns": {
+        "revenueDrilldown": [
+          "AllCare",
+          "Osta",
+          "Needles",
+          "InVitro Studio"
+        ],
+        "expenseDrilldown": true,
+        "auditConsole": false,
+        "hcDetails": true
+      }
+    }
   }
 ]
