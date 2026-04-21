@@ -26,6 +26,7 @@ const SIMPLE_BREAKDOWNS = [
 const EMPTY_FORM = {
   username: '',
   name: '',
+  email: '',
   password: '',
   role: 'viewer',
   companies_mode: 'all',         // 'all' | 'subset'
@@ -42,7 +43,7 @@ const EMPTY_FORM = {
 
 function userToFormState(u) {
   const p = u.permissions || {};
-  const form = { ...EMPTY_FORM, username: u.username, name: u.name, password: '', role: u.role || 'viewer' };
+  const form = { ...EMPTY_FORM, username: u.username, name: u.name, email: u.email || '', password: '', role: u.role || 'viewer' };
 
   // companies
   if (p.companies === '*') form.companies_mode = 'all';
@@ -91,7 +92,7 @@ function formStateToPayload(form, isEdit) {
     },
   };
 
-  const payload = { name: form.name, role: form.role, permissions };
+  const payload = { name: form.name, email: form.email || null, role: form.role, permissions };
   if (!isEdit) payload.username = form.username;
   if (form.password) payload.password = form.password;
   return payload;
@@ -104,6 +105,10 @@ export default function UserAdmin({ currentUser }) {
   const [editingUsername, setEditingUsername] = useState(null); // null = creating
   const [status, setStatus] = useState('');
   const [error, setError] = useState('');
+  // Last saved credentials in plain text — used for Send Invitation.
+  // Cleared after successful invite send or when starting a new user.
+  const [pendingInvite, setPendingInvite] = useState(null);
+  const [inviteStatus, setInviteStatus] = useState('');
 
   async function loadUsers() {
     setLoading(true);
@@ -126,6 +131,8 @@ export default function UserAdmin({ currentUser }) {
     setEditingUsername(null);
     setError('');
     setStatus('');
+    setPendingInvite(null);
+    setInviteStatus('');
   }
 
   function startEdit(u) {
@@ -133,6 +140,29 @@ export default function UserAdmin({ currentUser }) {
     setEditingUsername(u.username);
     setError('');
     setStatus('');
+    setPendingInvite(null);
+    setInviteStatus('');
+  }
+
+  async function sendInvite() {
+    if (!pendingInvite) return;
+    setInviteStatus('Sending invitation email...');
+    try {
+      const res = await fetch('/api/admin/send-invite', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(pendingInvite),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setInviteStatus(`❌ ${data.error || 'Send failed'}`);
+        return;
+      }
+      setInviteStatus(`✅ Invitation sent to ${pendingInvite.email}`);
+      setPendingInvite(null); // clear plain credentials from memory after success
+    } catch (e) {
+      setInviteStatus('❌ Network error');
+    }
   }
 
   async function onSave(e) {
@@ -163,8 +193,26 @@ export default function UserAdmin({ currentUser }) {
       const data = await res.json();
       if (!res.ok) { setStatus(''); setError(data.error || 'Save failed'); return; }
       setStatus('Saved. Redeploying... (~30s until live)');
+
+      // Capture plain credentials for Send Invitation — only when email + password are set
+      const savedUsername = isEdit ? editingUsername : form.username;
+      if (form.email && form.password) {
+        setPendingInvite({
+          username: savedUsername,
+          name: form.name,
+          email: form.email,
+          password: form.password,
+        });
+        setInviteStatus('');
+      }
+
       await loadUsers();
-      if (!isEdit) startNew();
+      if (!isEdit) {
+        // Clear form but keep pendingInvite so admin can send invite
+        setForm(EMPTY_FORM);
+        setEditingUsername(null);
+        setError('');
+      }
     } catch (e) {
       setStatus(''); setError('Network error');
     }
@@ -264,6 +312,34 @@ export default function UserAdmin({ currentUser }) {
               </CardTitle>
             </CardHeader>
             <CardContent>
+              {/* Pending invitation banner — appears after save with plain credentials */}
+              {pendingInvite && (
+                <div className="mb-5 rounded-lg border border-blue-300 bg-blue-50 p-4">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="flex-1">
+                      <p className="text-sm font-semibold text-blue-900">
+                        Send invitation email to <strong>{pendingInvite.name || pendingInvite.username}</strong>?
+                      </p>
+                      <p className="text-xs text-blue-700 mt-1">
+                        An email with the username and password will be sent to <code className="bg-blue-100 px-1 rounded">{pendingInvite.email}</code>.
+                        After sending, the plain password is cleared from memory.
+                      </p>
+                      {inviteStatus && <p className="text-xs mt-2 font-medium">{inviteStatus}</p>}
+                    </div>
+                    <div className="flex gap-2 shrink-0">
+                      <Button type="button" size="sm" onClick={sendInvite}
+                        disabled={inviteStatus === 'Sending invitation email...'}
+                      >
+                        {inviteStatus === 'Sending invitation email...' ? 'Sending...' : 'Send Invitation'}
+                      </Button>
+                      <Button type="button" size="sm" variant="outline" onClick={() => { setPendingInvite(null); setInviteStatus(''); }}>
+                        Skip
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+              )}
+
               <form onSubmit={onSave} className="space-y-5">
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div>
@@ -281,6 +357,15 @@ export default function UserAdmin({ currentUser }) {
                       onChange={e => setForm({ ...form, name: e.target.value })}
                       className="mt-1 flex h-9 w-full rounded-md border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
                       placeholder="e.g. Jane Smith"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-xs font-medium text-foreground uppercase tracking-wide">Email (for invitations)</label>
+                    <input type="email" value={form.email}
+                      onChange={e => setForm({ ...form, email: e.target.value })}
+                      className="mt-1 flex h-9 w-full rounded-md border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                      placeholder="jane@invitrocapital.com"
+                      autoComplete="email"
                     />
                   </div>
                   <div>

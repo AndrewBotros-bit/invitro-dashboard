@@ -8,7 +8,7 @@ import {
   isAdmin,
   COOKIE_NAME,
 } from '@/lib/auth';
-import { commitUsersToGitHub } from '@/lib/auth/github';
+import { commitUsersToGitHub, readUsersFromGitHub } from '@/lib/auth/github';
 
 const ALL_COMPANIES = ['AllRx', 'AllCare', 'Osta', 'Needles', 'InVitro Studio'];
 const ALL_TABS = ['overview', 'revenue', 'expenses', 'profitability', 'cashflow', 'insights'];
@@ -54,8 +54,16 @@ function validatePermissions(permissions) {
 export async function GET() {
   const guard = requireAdmin();
   if (guard.error) return NextResponse.json({ error: guard.error }, { status: guard.status });
-  const users = readUsers().map(stripHash);
-  return NextResponse.json({ users });
+  // Read from GitHub for always-fresh data (bypasses Vercel build cache)
+  try {
+    const users = (await readUsersFromGitHub()).map(stripHash);
+    return NextResponse.json({ users, source: 'github' });
+  } catch (err) {
+    // Fallback to local fs if GitHub fails (e.g., token missing)
+    console.warn('[ADMIN] GitHub read failed, falling back to fs:', err.message);
+    const users = readUsers().map(stripHash);
+    return NextResponse.json({ users, source: 'fs' });
+  }
 }
 
 export async function POST(request) {
@@ -63,10 +71,13 @@ export async function POST(request) {
   if (guard.error) return NextResponse.json({ error: guard.error }, { status: guard.status });
 
   const body = await request.json();
-  const { username, name, password, role, permissions } = body;
+  const { username, name, email, password, role, permissions } = body;
 
   if (!username || !name || !password || !role) {
     return NextResponse.json({ error: 'username, name, password, role required' }, { status: 400 });
+  }
+  if (email && !/^\S+@\S+\.\S+$/.test(email)) {
+    return NextResponse.json({ error: 'Invalid email format' }, { status: 400 });
   }
   if (!['admin', 'viewer'].includes(role)) {
     return NextResponse.json({ error: 'role must be admin or viewer' }, { status: 400 });
@@ -74,13 +85,15 @@ export async function POST(request) {
   const permErr = validatePermissions(permissions);
   if (permErr) return NextResponse.json({ error: permErr }, { status: 400 });
 
-  if (findUser(username)) {
+  const users = await readUsersFromGitHub();
+  if (users.some(u => u.username === username)) {
     return NextResponse.json({ error: 'User already exists' }, { status: 409 });
   }
 
-  const users = readUsers();
   const passwordHash = await hashPassword(password);
-  users.push({ username, name, passwordHash, role, permissions });
+  const newUser = { username, name, passwordHash, role, permissions };
+  if (email) newUser.email = email;
+  users.push(newUser);
 
   await commitUsersToGitHub(users, guard.user.username, `create user ${username}`);
   return NextResponse.json({ ok: true, redeploying: true });
@@ -95,14 +108,17 @@ export async function PUT(request) {
   if (!username) return NextResponse.json({ error: 'username required' }, { status: 400 });
 
   const body = await request.json();
-  const { name, password, role, permissions } = body;
+  const { name, email, password, role, permissions } = body;
 
-  const users = readUsers();
+  const users = await readUsersFromGitHub();
   const idx = users.findIndex(u => u.username === username);
   if (idx === -1) return NextResponse.json({ error: 'User not found' }, { status: 404 });
 
   if (role && !['admin', 'viewer'].includes(role)) {
     return NextResponse.json({ error: 'role must be admin or viewer' }, { status: 400 });
+  }
+  if (email && !/^\S+@\S+\.\S+$/.test(email)) {
+    return NextResponse.json({ error: 'Invalid email format' }, { status: 400 });
   }
   if (permissions) {
     const permErr = validatePermissions(permissions);
@@ -119,6 +135,7 @@ export async function PUT(request) {
 
   const updated = { ...users[idx] };
   if (name) updated.name = name;
+  if (email !== undefined) { if (email) updated.email = email; else delete updated.email; }
   if (role) updated.role = role;
   if (permissions) updated.permissions = permissions;
   if (password) updated.passwordHash = await hashPassword(password);
@@ -136,7 +153,7 @@ export async function DELETE(request) {
   const username = searchParams.get('username');
   if (!username) return NextResponse.json({ error: 'username required' }, { status: 400 });
 
-  const users = readUsers();
+  const users = await readUsersFromGitHub();
   const target = users.find(u => u.username === username);
   if (!target) return NextResponse.json({ error: 'User not found' }, { status: 404 });
 
