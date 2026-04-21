@@ -176,7 +176,12 @@ function InsightCard({ icon, title, body, type = "info" }) {
 }
 
 /* ── Main Dashboard ── */
-export default function InVitroDashboard({ data }) {
+export default function InVitroDashboard({ data, user }) {
+  // Permission helpers
+  const perms = user?.permissions || { companies: '*', tabs: '*', breakdowns: '*' };
+  const canSeeCompany = (name) => perms.companies === '*' || (Array.isArray(perms.companies) && perms.companies.includes(name));
+  const canSeeTab = (tab) => perms.tabs === '*' || (Array.isArray(perms.tabs) && perms.tabs.includes(tab));
+  const canBreakdown = (key) => perms.breakdowns === '*' || perms.breakdowns?.[key] === true;
   // Deploy state
   const [deploying, setDeploying] = useState(false);
   const [deployMsg, setDeployMsg] = useState(null);
@@ -186,7 +191,8 @@ export default function InVitroDashboard({ data }) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
   // Company selector state
-  const DISPLAY_COMPANIES = ['AllRx', 'AllCare', 'Osta', 'Needles', 'InVitro Studio'];
+  const ALL_COMPANIES = ['AllRx', 'AllCare', 'Osta', 'Needles', 'InVitro Studio'];
+  const DISPLAY_COMPANIES = ALL_COMPANIES.filter(canSeeCompany);
   const [selectedCompany, setSelectedCompany] = useState(null); // null = consolidated
   const [expenseDrilldown, setExpenseDrilldown] = useState(null); // { year, month } or null
   const [revenueDrilldown, setRevenueDrilldown] = useState(null); // { year, month } or null
@@ -598,10 +604,15 @@ export default function InVitroDashboard({ data }) {
     return { name: c.name, rev: revCurrent, ebitda, grossMargin, revGrowth: companyRevGrowth, color: colorMap[c.name] };
   });
 
-  // Totals row (excl holdings)
+  // Totals row (excl holdings) — uses range-filtered data to match individual rows
   const totalRowRev = companyRows.filter(c => !dynExcludeRevenue.includes(c.name)).reduce((s, c) => s + c.rev, 0);
   const totalRowEbitda = companyRows.reduce((s, c) => s + c.ebitda, 0);
-  const totalRowGrossMargin = totalRowRev > 0 ? totalGrossProfitCurrent / totalRevCurrent : null;
+  const totalRowGP = companyRows.filter(c => !dynExcludeRevenue.includes(c.name)).reduce((s, c) => {
+    const gp = (data.pnl.find(p => p.name === c.name)?.metrics['Gross Profit'] ?? [])
+      .filter(inRange).reduce((a, v) => a + (v.value ?? 0), 0);
+    return s + gp;
+  }, 0);
+  const totalRowGrossMargin = totalRowRev > 0 ? totalRowGP / totalRowRev : null;
 
   // Gross margin percentage by month — computed from Revenue & Gross Profit
   const rawGpByMonth = buildMonthlySeries(data.pnl, 'Gross Profit', dynExcludeRevenue, null);
@@ -691,6 +702,9 @@ export default function InVitroDashboard({ data }) {
         lastActualLabel={`Actuals till ${prevMonthLabel} ${prevMonthYear}`}
         sidebarOpen={sidebarOpen}
         setSidebarOpen={setSidebarOpen}
+        canSeeTab={canSeeTab}
+        canBreakdown={canBreakdown}
+        userName={user?.name}
       />
 
       {/* Main content area — offset by sidebar width */}
@@ -1062,7 +1076,7 @@ export default function InVitroDashboard({ data }) {
             </Card>
 
             {/* Revenue Drill-Down Drawer */}
-            <Drawer open={!!revenueDrilldown} onOpenChange={(open) => { if (!open) setRevenueDrilldown(null); }}>
+            {canBreakdown('revenueDrilldown') && <Drawer open={!!revenueDrilldown} onOpenChange={(open) => { if (!open) setRevenueDrilldown(null); }}>
               <DrawerContent>
                 {revenueDrilldown && data.revenueDetails && (() => {
                   const rd = data.revenueDetails;
@@ -1162,7 +1176,7 @@ export default function InVitroDashboard({ data }) {
                   );
                 })()}
               </DrawerContent>
-            </Drawer>
+            </Drawer>}
           </>)}
 
           {/* ────── PROFITABILITY ────── */}
@@ -1553,7 +1567,7 @@ export default function InVitroDashboard({ data }) {
             </Card>
 
             {/* Expense breakdown drawer */}
-            <Drawer open={!!expenseDrilldown} onOpenChange={(open) => { if (!open) setExpenseDrilldown(null); }}>
+            {canBreakdown('expenseDrilldown') && <Drawer open={!!expenseDrilldown} onOpenChange={(open) => { if (!open) setExpenseDrilldown(null); }}>
               <DrawerContent>
                 {expenseDrilldown && (() => {
                   const MONTHS_FULL = ['','January','February','March','April','May','June','July','August','September','October','November','December'];
@@ -1784,7 +1798,7 @@ export default function InVitroDashboard({ data }) {
                   );
                 })()}
               </DrawerContent>
-            </Drawer>
+            </Drawer>}
 
             {!selectedCompany && expensePieData.length > 0 && (
               <Card>

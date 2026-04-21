@@ -3,8 +3,8 @@
   "configurations": [
     {
       "name": "dev",
-      "runtimeExecutable": "npm",
-      "runtimeArgs": ["run", "dev", "--prefix", "/Users/andrewmaher/invitro-dashboard-1"],
+      "runtimeExecutable": "bash",
+      "runtimeArgs": ["-c", "cd /Users/andrewmaher/invitro-dashboard-1 && npm run dev"],
       "port": 3000
     }
   ]

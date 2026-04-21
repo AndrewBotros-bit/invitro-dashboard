@@ -20,7 +20,11 @@ export default function DashboardSidebar({
   lastActualLabel,
   sidebarOpen,
   setSidebarOpen,
+  canSeeTab = () => true,
+  canBreakdown = () => true,
+  userName,
 }) {
+  const visibleSections = SECTIONS.filter(s => canSeeTab(s.id));
   return (
     <>
       {/* Mobile overlay */}
@@ -49,7 +53,7 @@ export default function DashboardSidebar({
         <div className="flex-1 overflow-y-auto py-4 px-3">
           <p className="px-2 mb-2 text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">Sections</p>
           <nav className="space-y-0.5">
-            {SECTIONS.map(s => (
+            {visibleSections.map(s => (
               <button
                 key={s.id}
                 onClick={() => { setActiveSection(s.id); setSidebarOpen(false); }}
@@ -103,14 +107,27 @@ export default function DashboardSidebar({
         </div>
 
         {/* Footer */}
-        <div className="border-t border-border px-3 py-3">
-          <a
-            href="/audit"
-            className="flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm font-medium text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
-          >
-            <span className="text-base leading-none">🔍</span>
-            <span>Audit Console</span>
-          </a>
+        <div className="border-t border-border px-3 py-3 space-y-1">
+          {canBreakdown('auditConsole') && (
+            <a
+              href="/audit"
+              className="flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm font-medium text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
+            >
+              <span className="text-base leading-none">🔍</span>
+              <span>Audit Console</span>
+            </a>
+          )}
+          {userName && (
+            <div className="flex items-center justify-between px-3 py-2">
+              <span className="text-xs text-muted-foreground truncate">{userName}</span>
+              <button
+                onClick={async () => { await fetch('/api/auth/logout', { method: 'POST' }); window.location.href = '/login'; }}
+                className="text-[10px] text-red-500 hover:text-red-700 font-medium"
+              >
+                Logout
+              </button>
+            </div>
+          )}
         </div>
       </aside>
 

@@ -1,0 +1,13 @@
+[
+  {
+    "username": "andrew",
+    "passwordHash": "$2b$10$IOLjMK3zGZ.wqeeZYCafOu0Re6DMV4gDSKuACBUHxQpBCmupYj8ci",
+    "name": "Andrew Maher",
+    "role": "admin",
+    "permissions": {
+      "companies": "*",
+      "tabs": "*",
+      "breakdowns": "*"
+    }
+  }
+]
