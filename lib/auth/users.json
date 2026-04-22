@@ -9,27 +9,5 @@
       "tabs": "*",
       "breakdowns": "*"
     }
-  },
-  {
-    "username": "Germin",
-    "name": "Germin Elzoghaby",
-    "passwordHash": "$2b$10$6KTyo/Qm3bx66FUxGJvqd.D85jgQ8KH.XDUoO9pYE9CbLqoxojjF6",
-    "role": "viewer",
-    "permissions": {
-      "companies": "*",
-      "tabs": "*",
-      "breakdowns": {
-        "revenueDrilldown": [
-          "AllCare",
-          "Osta",
-          "Needles",
-          "InVitro Studio"
-        ],
-        "expenseDrilldown": true,
-        "auditConsole": false,
-        "hcDetails": true
-      }
-    },
-    "email": "germin.elzoghby@invitrocapital.com"
   }
 ]
