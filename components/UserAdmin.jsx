@@ -144,6 +144,29 @@ export default function UserAdmin({ currentUser }) {
     setInviteStatus('');
   }
 
+  function buildMailtoHref(invite) {
+    const dashboardUrl = typeof window !== 'undefined'
+      ? `${window.location.origin}/login`
+      : 'https://invitro-dashboard-1.vercel.app/login';
+    const subject = `Welcome to InVitro Capital Dashboard, ${invite.name || invite.username}`;
+    const body = [
+      `Hi ${invite.name || invite.username},`,
+      '',
+      "You've been invited to the InVitro Capital shareholder dashboard.",
+      '',
+      'Your credentials:',
+      `  Username: ${invite.username}`,
+      `  Password: ${invite.password}`,
+      '',
+      `Login here: ${dashboardUrl}`,
+      '',
+      'For security, please change your password after your first login.',
+      '',
+      'Best,',
+    ].join('\n');
+    return `mailto:${encodeURIComponent(invite.email)}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+  }
+
   async function sendInvite() {
     if (!pendingInvite) return;
     setInviteStatus('Sending invitation email...');
@@ -154,14 +177,25 @@ export default function UserAdmin({ currentUser }) {
         body: JSON.stringify(pendingInvite),
       });
       const data = await res.json();
-      if (!res.ok) {
-        setInviteStatus(`❌ ${data.error || 'Send failed'}`);
+      if (res.ok) {
+        setInviteStatus(`✅ Invitation sent to ${pendingInvite.email}`);
+        setPendingInvite(null); // clear plain credentials from memory after success
         return;
       }
-      setInviteStatus(`✅ Invitation sent to ${pendingInvite.email}`);
-      setPendingInvite(null); // clear plain credentials from memory after success
+      // Resend failed or unconfigured — fall back to mailto
+      if (res.status === 503 || String(data.error || '').includes('RESEND')) {
+        const href = buildMailtoHref(pendingInvite);
+        window.location.href = href;
+        setInviteStatus(`📧 Opening your email client... review and send to complete.`);
+        // Keep pendingInvite so admin can retry if mailto didn't open
+        return;
+      }
+      setInviteStatus(`❌ ${data.error || 'Send failed'}`);
     } catch (e) {
-      setInviteStatus('❌ Network error');
+      // Network error — also fall back to mailto
+      const href = buildMailtoHref(pendingInvite);
+      window.location.href = href;
+      setInviteStatus(`📧 Opening your email client... review and send to complete.`);
     }
   }
 
@@ -321,8 +355,8 @@ export default function UserAdmin({ currentUser }) {
                         Send invitation email to <strong>{pendingInvite.name || pendingInvite.username}</strong>?
                       </p>
                       <p className="text-xs text-blue-700 mt-1">
-                        An email with the username and password will be sent to <code className="bg-blue-100 px-1 rounded">{pendingInvite.email}</code>.
-                        After sending, the plain password is cleared from memory.
+                        Sends to <code className="bg-blue-100 px-1 rounded">{pendingInvite.email}</code> via Resend if configured,
+                        otherwise opens your email client to send from your Gmail.
                       </p>
                       {inviteStatus && <p className="text-xs mt-2 font-medium">{inviteStatus}</p>}
                     </div>
