@@ -13,7 +13,7 @@
   {
     "username": "Germin",
     "name": "Germin Elzoghaby",
-    "passwordHash": "$2b$10$/ljgB9xd3eM.n2w/FoiV4OCendP4FglGy5JCs23GZUTmUAEFxsYB.",
+    "passwordHash": "$2b$10$2Rlfsw4eDvLOylkGl41afOsOeTJdeuiDd9ARyZc4DLqtqY34fqvG.",
     "role": "viewer",
     "permissions": {
       "companies": "*",
@@ -29,6 +29,7 @@
         "auditConsole": false,
         "hcDetails": true
       }
-    }
+    },
+    "email": "germin.elzoghby@invitrocapital.com"
   }
 ]
