@@ -1038,10 +1038,12 @@ export default function InVitroDashboard({ data, user }) {
             </div>
 
             <Card className="mb-5">
-              <CardHeader><CardTitle className="text-sm">{viewMode === 'yearly' ? 'Yearly' : 'Monthly'} Revenue by Company ({rangeLabel}) {data.revenueDetails ? '— click a bar for breakdown' : ''}</CardTitle></CardHeader>
+              <CardHeader><CardTitle className="text-sm">{viewMode === 'yearly' ? 'Yearly' : 'Monthly'} Revenue by Company ({rangeLabel}){data.revenueDetails && selectedCompany ? ' — click a bar for breakdown' : ''}</CardTitle></CardHeader>
               <CardContent>
                 <ResponsiveContainer width="100%" height={340}>
                   <ComposedChart data={revenueByMonthWithTotal} onClick={(e) => {
+                    // Drill-down is only available when viewing a single company (not consolidated)
+                    if (!selectedCompany) return;
                     if (!data.revenueDetails || !e?.activePayload?.[0]) return;
                     const label = e.activePayload[0].payload.month;
                     if (viewMode === 'yearly') {
@@ -1087,7 +1089,7 @@ export default function InVitroDashboard({ data, user }) {
             </Card>
 
             {/* Revenue Drill-Down Drawer */}
-            {canBreakdown('revenueDrilldown', selectedCompany) && <Drawer open={!!revenueDrilldown} onOpenChange={(open) => { if (!open) setRevenueDrilldown(null); }}>
+            {canBreakdown('revenueDrilldown', selectedCompany) && selectedCompany && <Drawer open={!!revenueDrilldown} onOpenChange={(open) => { if (!open) setRevenueDrilldown(null); }}>
               <DrawerContent>
                 {revenueDrilldown && data.revenueDetails && (() => {
                   const rd = data.revenueDetails;
