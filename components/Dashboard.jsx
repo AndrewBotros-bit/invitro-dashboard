@@ -1010,7 +1010,16 @@ export default function InVitroDashboard({ data, user }) {
           {activeSection === 'revenue' && (<>
             <div className="flex flex-wrap gap-4 mb-6">
               {revenueCompanies.map(name => {
-                const coRev = (data.pnl.find(c => c.name === name)?.metrics['Revenues'] ?? []).filter(inRange).reduce((s, v) => s + (v.value ?? 0), 0);
+                const coRevValues = (data.pnl.find(c => c.name === name)?.metrics['Revenues'] ?? []).filter(inRange);
+                const coRev = coRevValues.reduce((s, v) => s + (v.value ?? 0), 0);
+
+                // ARR = latest month's revenue × 12. Fall back to most recent non-zero month in range.
+                const sortedDesc = [...coRevValues].sort((a, b) => (b.year * 100 + b.month) - (a.year * 100 + a.month));
+                const latestNonZero = sortedDesc.find(v => (v.value ?? 0) > 0);
+                const latestMonthRev = sortedDesc[0]?.value ?? 0;
+                const arrBase = latestMonthRev > 0 ? latestMonthRev : (latestNonZero?.value ?? 0);
+                const arr = arrBase * 12;
+
                 // Revenue KPI badges for AllRx/AllCare from revenueDetails
                 const rd = data.revenueDetails;
                 let kpiBadge = null;
@@ -1018,12 +1027,33 @@ export default function InVitroDashboard({ data, user }) {
                   const totalRx = rd.AllRx.segments.reduce((s, seg) => s + (seg.metrics['RX Count'] ?? []).filter(inRange).reduce((a, v) => a + (v.value ?? 0), 0), 0);
                   const totalSegRev = rd.AllRx.segments.reduce((s, seg) => s + (seg.metrics['Total Revenues'] ?? seg.metrics['Revenues'] ?? []).filter(inRange).reduce((a, v) => a + (v.value ?? 0), 0), 0);
                   const arpu = totalRx > 0 ? totalSegRev / totalRx : 0;
-                  kpiBadge = <div className="flex gap-2 mt-1"><span className="text-[10px] text-blue-600 font-medium">RX: {totalRx.toLocaleString()}</span><span className="text-[10px] text-muted-foreground">|</span><span className="text-[10px] text-blue-600 font-medium">ARPU: ${arpu.toFixed(2)}</span></div>;
+                  kpiBadge = <div className="flex flex-wrap gap-x-2 gap-y-0.5 mt-1">
+                    <span className="text-[10px] text-blue-600 font-medium">RX: {totalRx.toLocaleString()}</span>
+                    <span className="text-[10px] text-muted-foreground">|</span>
+                    <span className="text-[10px] text-blue-600 font-medium">ARPU: ${arpu.toFixed(2)}</span>
+                    {arr > 0 && <>
+                      <span className="text-[10px] text-muted-foreground">|</span>
+                      <span className="text-[10px] text-blue-600 font-medium">ARR: {fmt(arr)}</span>
+                    </>}
+                  </div>;
                 } else if (rd && name === 'AllCare' && rd.AllCare?.serviceLines) {
                   const totalSUs = rd.AllCare.serviceLines.reduce((s, sl) => s + (sl.metrics['SUs'] ?? []).filter(inRange).reduce((a, v) => a + (v.value ?? 0), 0), 0);
                   const totalSlRev = rd.AllCare.serviceLines.reduce((s, sl) => s + (sl.metrics['Revenues'] ?? []).filter(inRange).reduce((a, v) => a + (v.value ?? 0), 0), 0);
                   const arpu = totalSUs > 0 ? totalSlRev / totalSUs : 0;
-                  kpiBadge = <div className="flex gap-2 mt-1"><span className="text-[10px] text-emerald-600 font-medium">SUs: {totalSUs.toLocaleString()}</span><span className="text-[10px] text-muted-foreground">|</span><span className="text-[10px] text-emerald-600 font-medium">ARPU: ${arpu.toFixed(2)}</span></div>;
+                  kpiBadge = <div className="flex flex-wrap gap-x-2 gap-y-0.5 mt-1">
+                    <span className="text-[10px] text-emerald-600 font-medium">SUs: {totalSUs.toLocaleString()}</span>
+                    <span className="text-[10px] text-muted-foreground">|</span>
+                    <span className="text-[10px] text-emerald-600 font-medium">ARPU: ${arpu.toFixed(2)}</span>
+                    {arr > 0 && <>
+                      <span className="text-[10px] text-muted-foreground">|</span>
+                      <span className="text-[10px] text-emerald-600 font-medium">ARR: {fmt(arr)}</span>
+                    </>}
+                  </div>;
+                } else if (arr > 0) {
+                  // Other companies (Osta, Needles, InVitro Studio) — just show ARR
+                  kpiBadge = <div className="flex gap-2 mt-1">
+                    <span className="text-[10px] text-foreground/70 font-medium">ARR: {fmt(arr)}</span>
+                  </div>;
                 }
                 return (
                   <KPICard key={name} title={`${name} — ${rangeLabel}`}
