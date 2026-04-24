@@ -31,5 +31,22 @@
       }
     },
     "email": "germin.elzoghby@invitrocapital.com"
+  },
+  {
+    "username": "Amir Barsoum",
+    "name": "Amir Barsoum",
+    "passwordHash": "$2b$10$ZAmWHwUE3SlPctbLb8/MduSIm1Vgw7L/TMJ4Cvic4YtffVmlZR9Ja",
+    "role": "viewer",
+    "permissions": {
+      "companies": "*",
+      "tabs": "*",
+      "breakdowns": {
+        "revenueDrilldown": true,
+        "expenseDrilldown": true,
+        "auditConsole": false,
+        "hcDetails": true
+      }
+    },
+    "email": "amir.barsoum@invitrocapital.com"
   }
 ]
