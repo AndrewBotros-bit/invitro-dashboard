@@ -265,6 +265,26 @@ export default function InVitroDashboard({ data, user }) {
   // standard "Gross Profit" (= Revenue - COGS).
   const getGPMetric = (companyName) => companyName === 'Osta' ? 'Gross Profit 2' : 'Gross Profit';
 
+  // Consolidated GP helpers — sum each company's GP using the routed metric.
+  // These replace direct calls to rangeTotal/annualTotal/monthlyTotal on 'Gross Profit'.
+  const consolidatedGPRange = (from, to, exclude = []) => {
+    const fromVal = from.year * 100 + from.month;
+    const toVal = to.year * 100 + to.month;
+    return data.pnl
+      .filter(c => !exclude.includes(c.name))
+      .reduce((sum, c) => {
+        const metric = c.metrics[getGPMetric(c.name)] ?? [];
+        const total = metric
+          .filter(v => { const vi = v.year * 100 + v.month; return vi >= fromVal && vi <= toVal; })
+          .reduce((s, v) => s + (v.value ?? 0), 0);
+        return sum + total;
+      }, 0);
+  };
+  const consolidatedGPMonth = (year, month, exclude = []) =>
+    consolidatedGPRange({ year, month }, { year, month }, exclude);
+  const consolidatedGPYear = (year, exclude = []) =>
+    consolidatedGPRange({ year, month: 1 }, { year, month: 12 }, exclude);
+
   // Dynamic exclude lists based on selectedCompany
   const allNames = data.pnl.map(c => c.name);
   const dynExcludeRevenue = selectedCompany
@@ -296,15 +316,15 @@ export default function InVitroDashboard({ data, user }) {
   const currRevenue = monthlyTotal(data.pnl, 'Revenues', currentYear, currentMonth, dynExcludeRevenue);
   const prevEbitda = monthlyTotal(data.pnl, 'EBITDA', prevMonthYear, prevMonth, dynExcludeEbitda);
   const currEbitda = monthlyTotal(data.pnl, 'EBITDA', currentYear, currentMonth, dynExcludeEbitda);
-  const prevGrossProfit = monthlyTotal(data.pnl, 'Gross Profit', prevMonthYear, prevMonth, dynExcludeRevenue);
+  const prevGrossProfit = consolidatedGPMonth(prevMonthYear, prevMonth, dynExcludeRevenue);
   const prevGrossMargin = prevRevenue > 0 ? prevGrossProfit / prevRevenue : null;
-  const currGrossProfit = monthlyTotal(data.pnl, 'Gross Profit', currentYear, currentMonth, dynExcludeRevenue);
+  const currGrossProfit = consolidatedGPMonth(currentYear, currentMonth, dynExcludeRevenue);
   const currGrossMargin = currRevenue > 0 ? currGrossProfit / currRevenue : null;
 
   // Range-based KPI totals (used when viewMode === 'yearly')
   const rangeRevenue = rangeTotal(data.pnl, 'Revenues', rangeFrom, rangeTo, dynExcludeRevenue);
   const rangeEbitda = rangeTotal(data.pnl, 'EBITDA', rangeFrom, rangeTo, dynExcludeEbitda);
-  const rangeGrossProfit = rangeTotal(data.pnl, 'Gross Profit', rangeFrom, rangeTo, dynExcludeRevenue);
+  const rangeGrossProfit = consolidatedGPRange(rangeFrom, rangeTo, dynExcludeRevenue);
   const rangeGrossMargin = rangeRevenue > 0 ? rangeGrossProfit / rangeRevenue : null;
 
   // Cashflow: use selected company's data, or consolidated "ALL Holdings"
@@ -528,9 +548,9 @@ export default function InVitroDashboard({ data, user }) {
   const ebitdaSwing = hasPriorYear ? totalEbitdaCurrent - totalEbitdaPrior : null;
   const ebitdaMargin = totalRevCurrent > 0 ? totalEbitdaCurrent / totalRevCurrent : null;
 
-  const totalGrossProfitCurrent = annualTotal(data.pnl, 'Gross Profit', currentYear, dynExcludeRevenue);
+  const totalGrossProfitCurrent = consolidatedGPYear(currentYear, dynExcludeRevenue);
   const grossMarginCurrent = totalRevCurrent > 0 ? totalGrossProfitCurrent / totalRevCurrent : null;
-  const totalGrossProfitPrior = annualTotal(data.pnl, 'Gross Profit', priorYear, dynExcludeRevenue);
+  const totalGrossProfitPrior = consolidatedGPYear(priorYear, dynExcludeRevenue);
   const grossMarginPrior = totalRevPrior > 0 ? totalGrossProfitPrior / totalRevPrior : null;
   const grossMarginChange = grossMarginCurrent !== null && grossMarginPrior !== null
     ? grossMarginCurrent - grossMarginPrior
@@ -624,7 +644,7 @@ export default function InVitroDashboard({ data, user }) {
   const totalRowRev = companyRows.filter(c => !dynExcludeRevenue.includes(c.name)).reduce((s, c) => s + c.rev, 0);
   const totalRowEbitda = companyRows.reduce((s, c) => s + c.ebitda, 0);
   const totalRowGP = companyRows.filter(c => !dynExcludeRevenue.includes(c.name)).reduce((s, c) => {
-    const gp = (data.pnl.find(p => p.name === c.name)?.metrics['Gross Profit'] ?? [])
+    const gp = (data.pnl.find(p => p.name === c.name)?.metrics[getGPMetric(c.name)] ?? [])
       .filter(inRange).reduce((a, v) => a + (v.value ?? 0), 0);
     return s + gp;
   }, 0);
@@ -861,7 +881,7 @@ export default function InVitroDashboard({ data, user }) {
               <KPICard title="Operational Cash Flow" value={fmt(totalOpsCF)} trend={runwayMonths !== null ? '~' + runwayMonths.toFixed(1) + ' months' : (totalOpsCF >= 0 ? 'Cash positive' : 'Cash negative')} trendUp={totalOpsCF >= 0} subtitle="at current burn rate"
                 comparison={compareEnabled && <ComparisonBadge current={totalOpsCF} compValue={(() => { const cfKey = selectedCompany ? 'Operational Cash Flow' : 'Holdings net cash movement'; for (const co of (data.cashflow||[])) { const m = co.metrics?.[cfKey]; if (m) { return m.filter(v => { const vi = v.year*100+v.month; return vi >= compRange.from.year*100+compRange.from.month && vi <= compRange.to.year*100+compRange.to.month; }).reduce((s,v) => s+(v.value??0), 0); } } return 0; })()} compLabel={compLabel} />} />
               <KPICard title={`Gross Margin — ${rangeLabel}`} value={pct(rangeGrossMargin)} subtitle="portfolio weighted"
-                comparison={compareEnabled && (() => { const compRev = rangeTotal(data.pnl, 'Revenues', compRange.from, compRange.to, dynExcludeRevenue); const compGP = rangeTotal(data.pnl, 'Gross Profit', compRange.from, compRange.to, dynExcludeRevenue); const compGM = compRev > 0 ? compGP / compRev * 100 : 0; return <ComparisonBadge current={rangeGrossMargin} compValue={compGM} compLabel={compLabel} />; })()} />
+                comparison={compareEnabled && (() => { const compRev = rangeTotal(data.pnl, 'Revenues', compRange.from, compRange.to, dynExcludeRevenue); const compGP = consolidatedGPRange(compRange.from, compRange.to, dynExcludeRevenue); const compGM = compRev > 0 ? compGP / compRev * 100 : 0; return <ComparisonBadge current={rangeGrossMargin} compValue={compGM} compLabel={compLabel} />; })()} />
             </div>
 
             {/* Single-month + compare: show scorecards instead of tiny bar charts */}
@@ -1248,7 +1268,7 @@ export default function InVitroDashboard({ data, user }) {
               <KPICard title={`EBITDA Margin — ${rangeLabel}`} value={rangeRevenue > 0 ? (rangeEbitda / rangeRevenue * 100).toFixed(0) + '%' : 'N/A'}
                 comparison={compareEnabled && (() => { const cRev = rangeTotal(data.pnl, 'Revenues', compRange.from, compRange.to, dynExcludeRevenue); const cEb = rangeTotal(data.pnl, 'EBITDA', compRange.from, compRange.to, dynExcludeEbitda); const cur = rangeRevenue > 0 ? rangeEbitda/rangeRevenue*100 : 0; const comp = cRev > 0 ? cEb/cRev*100 : 0; return <ComparisonBadge current={cur} compValue={comp} compLabel={compLabel} />; })()} />
               <KPICard title={`Gross Margin — ${rangeLabel}`} value={pct(rangeGrossMargin)} subtitle="portfolio weighted"
-                comparison={compareEnabled && (() => { const cRev = rangeTotal(data.pnl, 'Revenues', compRange.from, compRange.to, dynExcludeRevenue); const cGP = rangeTotal(data.pnl, 'Gross Profit', compRange.from, compRange.to, dynExcludeRevenue); return <ComparisonBadge current={rangeGrossMargin} compValue={cRev > 0 ? cGP/cRev*100 : 0} compLabel={compLabel} />; })()} />
+                comparison={compareEnabled && (() => { const cRev = rangeTotal(data.pnl, 'Revenues', compRange.from, compRange.to, dynExcludeRevenue); const cGP = consolidatedGPRange(compRange.from, compRange.to, dynExcludeRevenue); return <ComparisonBadge current={rangeGrossMargin} compValue={cRev > 0 ? cGP/cRev*100 : 0} compLabel={compLabel} />; })()} />
               {breakevenCompany ? (
                 <KPICard title={`${breakevenCompany} Breakeven`} value={`FY ${currentYear}`} trend="Reached EBITDA breakeven" trendUp={true} />
               ) : (
