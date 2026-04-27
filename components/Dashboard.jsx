@@ -208,6 +208,7 @@ export default function InVitroDashboard({ data, user }) {
   const [revenueDrilldown, setRevenueDrilldown] = useState(null); // { year, month } or null
   const [expandedDept, setExpandedDept] = useState(null); // 'G&A' | 'GTM' | etc. or null
   const [expandedGL, setExpandedGL] = useState(null); // GL name string or null
+  const [expandedHCDivision, setExpandedHCDivision] = useState(null); // 'G&A:Executive' (dept:division) or null
 
   // View mode & date range state
   const [viewMode, setViewMode] = useState('monthly'); // 'monthly' | 'yearly'
@@ -1794,26 +1795,62 @@ export default function InVitroDashboard({ data, user }) {
                                                       const priorCost = byDivPrior[div] || 0;
                                                       const pctChg = priorCost > 0 ? ((cost - priorCost) / priorCost * 100) : null;
                                                       const costRevPct = drillRevenue > 0 ? (cost / drillRevenue * 100) : null;
+                                                      const divKey = `${r.department}:${div}`;
+                                                      const isDivExpanded = expandedHCDivision === divKey;
+                                                      // Build employee list for the drilled month under this dept+division
+                                                      const employees = isDivExpanded
+                                                        ? hcPeople
+                                                            .filter(h => (h.division || 'Other') === div)
+                                                            .map(h => {
+                                                              const key = `${drillYear}-${drillMonth}`;
+                                                              const sal = h.salary?.[key] ?? 0;
+                                                              return { name: h.name || 'Unknown', position: h.position || '', salary: sal };
+                                                            })
+                                                            .filter(e => e.salary > 0)
+                                                            .sort((a, b) => b.salary - a.salary)
+                                                        : [];
                                                       return (
-                                                        <div key={div} className="px-4 py-2 text-xs hover:bg-blue-50/50 rounded mx-1">
-                                                          <div className="flex items-center justify-between">
-                                                            <span className="text-foreground/80">
-                                                              {div} <span className="ml-1 text-muted-foreground/50">({bydivCount[div]})</span>
-                                                            </span>
-                                                            <span className="font-medium text-foreground/70 tabular-nums">{fmt(cost)}</span>
-                                                          </div>
-                                                          <div className="flex items-center gap-3 mt-0.5">
-                                                            {pctChg !== null && (
-                                                              <span className={`text-[10px] font-medium ${pctChg > 0 ? 'text-red-500' : pctChg < 0 ? 'text-emerald-600' : 'text-muted-foreground'}`}>
-                                                                {pctChg > 0 ? '▲' : pctChg < 0 ? '▼' : '—'} {Math.abs(pctChg).toFixed(1)}% vs {MONTHS_S[priorM]} {String(priorY).slice(-2)}
+                                                        <div key={div}>
+                                                          <div
+                                                            className="px-4 py-2 text-xs hover:bg-blue-50/50 rounded mx-1 cursor-pointer"
+                                                            onClick={() => setExpandedHCDivision(isDivExpanded ? null : divKey)}
+                                                          >
+                                                            <div className="flex items-center justify-between">
+                                                              <span className="text-foreground/80 flex items-center gap-1">
+                                                                <span className="text-[10px] text-blue-500/60">{isDivExpanded ? '▾' : '▸'}</span>
+                                                                {div} <span className="ml-1 text-muted-foreground/50">({bydivCount[div]})</span>
                                                               </span>
-                                                            )}
-                                                            {costRevPct !== null && (
-                                                              <span className="text-[10px] text-muted-foreground/70">
-                                                                {costRevPct.toFixed(1)}% of rev
-                                                              </span>
-                                                            )}
+                                                              <span className="font-medium text-foreground/70 tabular-nums">{fmt(cost)}</span>
+                                                            </div>
+                                                            <div className="flex items-center gap-3 mt-0.5 ml-3">
+                                                              {pctChg !== null && (
+                                                                <span className={`text-[10px] font-medium ${pctChg > 0 ? 'text-red-500' : pctChg < 0 ? 'text-emerald-600' : 'text-muted-foreground'}`}>
+                                                                  {pctChg > 0 ? '▲' : pctChg < 0 ? '▼' : '—'} {Math.abs(pctChg).toFixed(1)}% vs {MONTHS_S[priorM]} {String(priorY).slice(-2)}
+                                                                </span>
+                                                              )}
+                                                              {costRevPct !== null && (
+                                                                <span className="text-[10px] text-muted-foreground/70">
+                                                                  {costRevPct.toFixed(1)}% of rev
+                                                                </span>
+                                                              )}
+                                                            </div>
                                                           </div>
+                                                          {isDivExpanded && employees.length > 0 && (
+                                                            <div className="mx-3 mb-1 border-l-2 border-blue-200/50 pl-3 py-1">
+                                                              {employees.map(emp => (
+                                                                <div key={emp.name} className="flex items-center justify-between text-[11px] py-1 px-2 hover:bg-blue-50/40 rounded">
+                                                                  <span className="text-foreground/70">
+                                                                    {emp.name}
+                                                                    {emp.position && <span className="text-muted-foreground/60 ml-1">— {emp.position}</span>}
+                                                                  </span>
+                                                                  <span className="text-foreground/60 tabular-nums">{fmt(emp.salary)}</span>
+                                                                </div>
+                                                              ))}
+                                                            </div>
+                                                          )}
+                                                          {isDivExpanded && employees.length === 0 && (
+                                                            <p className="mx-5 my-1 text-[11px] text-muted-foreground italic">No employees with salary in this month</p>
+                                                          )}
                                                         </div>
                                                       );
                                                     }) : (
