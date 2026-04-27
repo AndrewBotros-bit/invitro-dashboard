@@ -653,18 +653,37 @@ export default function InVitroDashboard({ data, user }) {
   // Gross margin percentage by month — computed from Revenue & Gross Profit
   // For Osta, swap in "Gross Profit 2" (after marketing exp) so the chart reflects
   // the after-marketing margin that's relevant for marketplace economics.
+  // NOTE: We can't use buildMonthlySeries(data.pnl, 'Gross Profit 2', ...) because
+  // that helper uses the first company's metric as the timeline source — and only
+  // Osta has 'Gross Profit 2', so it would return an empty array. We build Osta's
+  // GP2 lookups directly from its metric array.
   const rawGpByMonth = buildMonthlySeries(data.pnl, 'Gross Profit', dynExcludeRevenue, null);
-  const rawGp2ByMonth = buildMonthlySeries(data.pnl, 'Gross Profit 2', dynExcludeRevenue, null);
-  const patchOsta = (gpSeries, gp2Series) => gpSeries.map(row => {
-    const gp2Row = gp2Series.find(r => r.month === row.month);
-    if (gp2Row && gp2Row.Osta != null) return { ...row, Osta: gp2Row.Osta };
-    return row;
+  const ostaCompanyForGP = data.pnl.find(c => c.name === 'Osta');
+  const ostaGP2Values = ostaCompanyForGP?.metrics['Gross Profit 2'] ?? [];
+  const MONTHS_SHORT = ['','Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  // Monthly lookup: { 'Mar 26' -> -3000 }
+  const ostaGP2ByMonthLabel = {};
+  for (const mv of ostaGP2Values) {
+    if (mv.value == null) continue;
+    const label = `${MONTHS_SHORT[mv.month]} ${String(mv.year).slice(-2)}`;
+    ostaGP2ByMonthLabel[label] = mv.value;
+  }
+  // Yearly lookup: { '2026' -> sum(...) }
+  const ostaGP2ByYearLabel = {};
+  for (const mv of ostaGP2Values) {
+    if (mv.value == null) continue;
+    const label = String(mv.year);
+    ostaGP2ByYearLabel[label] = (ostaGP2ByYearLabel[label] ?? 0) + mv.value;
+  }
+  const patchOstaInRows = (rows, lookup) => rows.map(row => {
+    const v = lookup[row.month];
+    return v != null ? { ...row, Osta: v } : row;
   });
-  const patchedGpByMonth = patchOsta(rawGpByMonth, rawGp2ByMonth);
+  const patchedGpByMonth = patchOstaInRows(rawGpByMonth, ostaGP2ByMonthLabel);
   const gpByMonth = viewMode === 'yearly'
-    ? patchOsta(
+    ? patchOstaInRows(
         buildYearlySeries(data.pnl, 'Gross Profit', dynExcludeRevenue, yearFrom, yearTo),
-        buildYearlySeries(data.pnl, 'Gross Profit 2', dynExcludeRevenue, yearFrom, yearTo)
+        ostaGP2ByYearLabel
       )
     : filterSeriesToRange(patchedGpByMonth, rangeFrom, rangeTo, availableMonths);
   const grossMarginPctByMonth = revenueByMonth.map((revPoint, i) => {
