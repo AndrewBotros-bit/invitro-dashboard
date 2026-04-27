@@ -1719,6 +1719,28 @@ export default function InVitroDashboard({ data, user }) {
                                     .forEach(e => { byGL[e.gl || 'Other'] = (byGL[e.gl || 'Other'] || 0) + (e.amount ?? 0); });
                                   return Object.entries(byGL).sort((a, b) => b[1] - a[1]).map(([gl, amt]) => ({ gl, amount: amt }));
                                 })() : [];
+                                // Prior-month GL totals for "% vs last month" badges (only for monthly drills)
+                                const drillM = expenseDrilldown?.month;
+                                const drillY = expenseDrilldown?.year;
+                                const priorMonthIdx = drillM === 1 ? 12 : drillM - 1;
+                                const priorYearIdx = drillM === 1 ? drillY - 1 : drillY;
+                                const priorGLTotals = isExpanded && drillM ? (() => {
+                                  const byGL = {};
+                                  (data.expenses ?? [])
+                                    .filter(e => e.year === priorYearIdx && e.month === priorMonthIdx)
+                                    .filter(e => e.department === r.department && e.category === 'NON-HC')
+                                    .filter(e => e.department !== 'Direct Cost' && !EXCLUDED_GL.includes(e.gl))
+                                    .filter(e => selectedCompany ? e.company === selectedCompany : DISPLAY_COMPANIES.includes(e.company))
+                                    .forEach(e => { byGL[e.gl || 'Other'] = (byGL[e.gl || 'Other'] || 0) + Math.abs(e.amount ?? 0); });
+                                  return byGL;
+                                })() : {};
+                                // Revenue for cost/rev ratio (computed once, used by HC and Non-HC sections)
+                                const deptDrillRevenue = drillM && drillY ? (selectedCompany
+                                  ? (data.pnl.find(c => c.name === selectedCompany)?.metrics['Revenues'] ?? [])
+                                      .filter(v => v.year === drillY && v.month === drillM)
+                                      .reduce((s, v) => s + (v.value ?? 0), 0)
+                                  : rangeTotal(data.pnl, 'Revenues', { year: drillY, month: drillM }, { year: drillY, month: drillM }, dynExcludeRevenue)
+                                ) : 0;
                                 return (
                                   <Fragment key={r.department}>
                                     {/* ── Level 1: Department row ── */}
@@ -1879,17 +1901,37 @@ export default function InVitroDashboard({ data, user }) {
                                                         .forEach(e => { const m = e.merchant?.trim() || 'Unknown'; byMerchant[m] = (byMerchant[m] || 0) + (e.amount ?? 0); });
                                                       return Object.entries(byMerchant).sort((a, b) => b[1] - a[1]).map(([name, amt]) => ({ name, amount: amt }));
                                                     })() : [];
+                                                    // Comparison badges: % vs prior month, % of revenue
+                                                    const priorAmt = priorGLTotals[g.gl] || 0;
+                                                    const pctChg = priorAmt > 0 ? ((g.amount - priorAmt) / priorAmt * 100) : null;
+                                                    const costRevPct = deptDrillRevenue > 0 ? (g.amount / deptDrillRevenue * 100) : null;
                                                     return (
                                                       <div key={g.gl}>
                                                         <div
-                                                          className="flex items-center justify-between px-4 py-2 text-xs cursor-pointer hover:bg-amber-50/50 rounded mx-1"
+                                                          className="px-4 py-2 text-xs cursor-pointer hover:bg-amber-50/50 rounded mx-1"
                                                           onClick={() => setExpandedGL(glExpanded ? null : g.gl)}
                                                         >
-                                                          <span className="font-medium text-foreground/80">
-                                                            <span className="inline-block w-3 mr-1 text-muted-foreground">{glExpanded ? '▾' : '›'}</span>
-                                                            {g.gl}
-                                                          </span>
-                                                          <span className="font-medium text-foreground/70 tabular-nums">{fmt(g.amount)}</span>
+                                                          <div className="flex items-center justify-between">
+                                                            <span className="font-medium text-foreground/80">
+                                                              <span className="inline-block w-3 mr-1 text-muted-foreground">{glExpanded ? '▾' : '›'}</span>
+                                                              {g.gl}
+                                                            </span>
+                                                            <span className="font-medium text-foreground/70 tabular-nums">{fmt(g.amount)}</span>
+                                                          </div>
+                                                          {(pctChg !== null || costRevPct !== null) && (
+                                                            <div className="flex items-center gap-3 mt-0.5 ml-4">
+                                                              {pctChg !== null && (
+                                                                <span className={`text-[10px] font-medium ${pctChg > 0 ? 'text-red-500' : pctChg < 0 ? 'text-emerald-600' : 'text-muted-foreground'}`}>
+                                                                  {pctChg > 0 ? '▲' : pctChg < 0 ? '▼' : '—'} {Math.abs(pctChg).toFixed(1)}% vs {MONTHS_S[priorMonthIdx]} {String(priorYearIdx).slice(-2)}
+                                                                </span>
+                                                              )}
+                                                              {costRevPct !== null && (
+                                                                <span className="text-[10px] text-muted-foreground/70">
+                                                                  {costRevPct.toFixed(1)}% of rev
+                                                                </span>
+                                                              )}
+                                                            </div>
+                                                          )}
                                                         </div>
                                                         {glExpanded && (
                                                           <div className="ml-7 mb-1 border-l-2 border-amber-200/40 pl-3">
