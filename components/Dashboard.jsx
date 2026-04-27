@@ -259,6 +259,12 @@ export default function InVitroDashboard({ data, user }) {
   // Color map from dynamic company list
   const colorMap = buildColorMap(data.companies);
 
+  // Per-company gross profit metric routing.
+  // Osta uses "Gross Profit 2" (after marketing exp) because marketing is a structural
+  // cost of revenue acquisition for marketplace-style companies. Other companies use
+  // standard "Gross Profit" (= Revenue - COGS).
+  const getGPMetric = (companyName) => companyName === 'Osta' ? 'Gross Profit 2' : 'Gross Profit';
+
   // Dynamic exclude lists based on selectedCompany
   const allNames = data.pnl.map(c => c.name);
   const dynExcludeRevenue = selectedCompany
@@ -608,7 +614,7 @@ export default function InVitroDashboard({ data, user }) {
       ? (c.metrics['Revenues'] ?? []).filter(inCompRange).reduce((s, v) => s + (v.value ?? 0), 0)
       : (c.metrics['Revenues'] ?? []).filter(v => v.year === priorYear).reduce((s, v) => s + (v.value ?? 0), 0);
     const ebitda = (c.metrics['EBITDA'] ?? []).filter(inRange).reduce((s, v) => s + (v.value ?? 0), 0);
-    const gp = (c.metrics['Gross Profit'] ?? []).filter(inRange).reduce((s, v) => s + (v.value ?? 0), 0);
+    const gp = (c.metrics[getGPMetric(c.name)] ?? []).filter(inRange).reduce((s, v) => s + (v.value ?? 0), 0);
     const grossMargin = revCurrent > 0 ? gp / revCurrent : null;
     const companyRevGrowth = revPrior > 0 ? (revCurrent - revPrior) / revPrior : null;
     return { name: c.name, rev: revCurrent, ebitda, grossMargin, revGrowth: companyRevGrowth, color: colorMap[c.name] };
@@ -625,10 +631,22 @@ export default function InVitroDashboard({ data, user }) {
   const totalRowGrossMargin = totalRowRev > 0 ? totalRowGP / totalRowRev : null;
 
   // Gross margin percentage by month — computed from Revenue & Gross Profit
+  // For Osta, swap in "Gross Profit 2" (after marketing exp) so the chart reflects
+  // the after-marketing margin that's relevant for marketplace economics.
   const rawGpByMonth = buildMonthlySeries(data.pnl, 'Gross Profit', dynExcludeRevenue, null);
+  const rawGp2ByMonth = buildMonthlySeries(data.pnl, 'Gross Profit 2', dynExcludeRevenue, null);
+  const patchOsta = (gpSeries, gp2Series) => gpSeries.map(row => {
+    const gp2Row = gp2Series.find(r => r.month === row.month);
+    if (gp2Row && gp2Row.Osta != null) return { ...row, Osta: gp2Row.Osta };
+    return row;
+  });
+  const patchedGpByMonth = patchOsta(rawGpByMonth, rawGp2ByMonth);
   const gpByMonth = viewMode === 'yearly'
-    ? buildYearlySeries(data.pnl, 'Gross Profit', dynExcludeRevenue, yearFrom, yearTo)
-    : filterSeriesToRange(rawGpByMonth, rangeFrom, rangeTo, availableMonths);
+    ? patchOsta(
+        buildYearlySeries(data.pnl, 'Gross Profit', dynExcludeRevenue, yearFrom, yearTo),
+        buildYearlySeries(data.pnl, 'Gross Profit 2', dynExcludeRevenue, yearFrom, yearTo)
+      )
+    : filterSeriesToRange(patchedGpByMonth, rangeFrom, rangeTo, availableMonths);
   const grossMarginPctByMonth = revenueByMonth.map((revPoint, i) => {
     const gpPoint = gpByMonth[i] || {};
     const pctPoint = { month: revPoint.month };
