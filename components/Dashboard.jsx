@@ -1692,6 +1692,46 @@ export default function InVitroDashboard({ data, user }) {
                   const totalHc = breakdown.reduce((s, r) => s + r.hc, 0);
                   const totalNonHc = breakdown.reduce((s, r) => s + r.nonHc, 0);
                   const totalAll = totalHc + totalNonHc;
+                  // Prior-month totals (across all departments) for the footer badges
+                  const totalDrillM = expenseDrilldown?.month;
+                  const totalDrillY = expenseDrilldown?.year;
+                  const totalPriorM = totalDrillM === 1 ? 12 : totalDrillM - 1;
+                  const totalPriorY = totalDrillM === 1 ? totalDrillY - 1 : totalDrillY;
+                  const totalPriorMatch = (e) =>
+                    e.year === totalPriorY && e.month === totalPriorM &&
+                    e.department !== 'Direct Cost' &&
+                    !EXCLUDED_GL.includes(e.gl) &&
+                    (selectedCompany ? e.company === selectedCompany : DISPLAY_COMPANIES.includes(e.company));
+                  const priorTotalHc = totalDrillM ? (data.expenses ?? []).filter(totalPriorMatch).filter(e => e.category === 'HC').reduce((s, e) => s + Math.abs(e.amount ?? 0), 0) : 0;
+                  const priorTotalNonHc = totalDrillM ? (data.expenses ?? []).filter(totalPriorMatch).filter(e => e.category === 'NON-HC').reduce((s, e) => s + Math.abs(e.amount ?? 0), 0) : 0;
+                  const priorTotalAll = priorTotalHc + priorTotalNonHc;
+                  // Drill-month revenue across all included companies (for % of rev)
+                  const totalDrillRevenue = totalDrillM && totalDrillY ? (selectedCompany
+                    ? (data.pnl.find(c => c.name === selectedCompany)?.metrics['Revenues'] ?? [])
+                        .filter(v => v.year === totalDrillY && v.month === totalDrillM)
+                        .reduce((s, v) => s + (v.value ?? 0), 0)
+                    : rangeTotal(data.pnl, 'Revenues', { year: totalDrillY, month: totalDrillM }, { year: totalDrillY, month: totalDrillM }, dynExcludeRevenue)
+                  ) : 0;
+                  const totalCellBadges = (curr, prior) => {
+                    if (!totalDrillM) return null;
+                    const pctChg = prior > 0 ? ((curr - prior) / prior * 100) : null;
+                    const costRevPct = totalDrillRevenue > 0 ? (curr / totalDrillRevenue * 100) : null;
+                    if (pctChg === null && costRevPct === null) return null;
+                    return (
+                      <div className="flex items-center justify-end gap-2 mt-0.5">
+                        {pctChg !== null && (
+                          <span className={`text-[9px] font-medium ${pctChg > 0 ? 'text-red-500' : pctChg < 0 ? 'text-emerald-600' : 'text-muted-foreground'}`}>
+                            {pctChg > 0 ? '▲' : pctChg < 0 ? '▼' : '—'} {Math.abs(pctChg).toFixed(1)}%
+                          </span>
+                        )}
+                        {costRevPct !== null && (
+                          <span className="text-[9px] text-muted-foreground/70">
+                            {costRevPct.toFixed(1)}% of rev
+                          </span>
+                        )}
+                      </div>
+                    );
+                  };
                   return (
                     <>
                       <DrawerHeader>
@@ -2003,9 +2043,18 @@ export default function InVitroDashboard({ data, user }) {
                             <TableFooter>
                               <TableRow>
                                 <TableCell className="font-bold">Total</TableCell>
-                                <TableCell className="text-right font-bold">{fmt(totalHc)}</TableCell>
-                                <TableCell className="text-right font-bold">{fmt(totalNonHc)}</TableCell>
-                                <TableCell className="text-right font-bold">{fmt(totalAll)}</TableCell>
+                                <TableCell className="text-right font-bold">
+                                  <div>{fmt(totalHc)}</div>
+                                  {totalCellBadges(totalHc, priorTotalHc)}
+                                </TableCell>
+                                <TableCell className="text-right font-bold">
+                                  <div>{fmt(totalNonHc)}</div>
+                                  {totalCellBadges(totalNonHc, priorTotalNonHc)}
+                                </TableCell>
+                                <TableCell className="text-right font-bold">
+                                  <div>{fmt(totalAll)}</div>
+                                  {totalCellBadges(totalAll, priorTotalAll)}
+                                </TableCell>
                               </TableRow>
                             </TableFooter>
                           </Table>
