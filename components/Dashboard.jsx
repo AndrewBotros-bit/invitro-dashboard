@@ -1741,6 +1741,37 @@ export default function InVitroDashboard({ data, user }) {
                                       .reduce((s, v) => s + (v.value ?? 0), 0)
                                   : rangeTotal(data.pnl, 'Revenues', { year: drillY, month: drillM }, { year: drillY, month: drillM }, dynExcludeRevenue)
                                 ) : 0;
+                                // Prior-month department totals (HC, Non-HC, Total) for row-level badges
+                                const priorMonthMatch = (e) =>
+                                  e.year === priorYearIdx && e.month === priorMonthIdx &&
+                                  e.department === r.department &&
+                                  e.department !== 'Direct Cost' &&
+                                  !EXCLUDED_GL.includes(e.gl) &&
+                                  (selectedCompany ? e.company === selectedCompany : DISPLAY_COMPANIES.includes(e.company));
+                                const priorHc = drillM ? (data.expenses ?? []).filter(priorMonthMatch).filter(e => e.category === 'HC').reduce((s, e) => s + Math.abs(e.amount ?? 0), 0) : 0;
+                                const priorNonHc = drillM ? (data.expenses ?? []).filter(priorMonthMatch).filter(e => e.category === 'NON-HC').reduce((s, e) => s + Math.abs(e.amount ?? 0), 0) : 0;
+                                const priorTotal = priorHc + priorNonHc;
+                                // Helper to render the badge stack under a cell value
+                                const cellBadges = (curr, prior) => {
+                                  if (!drillM) return null;
+                                  const pctChg = prior > 0 ? ((curr - prior) / prior * 100) : null;
+                                  const costRevPct = deptDrillRevenue > 0 ? (curr / deptDrillRevenue * 100) : null;
+                                  if (pctChg === null && costRevPct === null) return null;
+                                  return (
+                                    <div className="flex items-center justify-end gap-2 mt-0.5">
+                                      {pctChg !== null && (
+                                        <span className={`text-[9px] font-medium ${pctChg > 0 ? 'text-red-500' : pctChg < 0 ? 'text-emerald-600' : 'text-muted-foreground'}`}>
+                                          {pctChg > 0 ? '▲' : pctChg < 0 ? '▼' : '—'} {Math.abs(pctChg).toFixed(1)}%
+                                        </span>
+                                      )}
+                                      {costRevPct !== null && (
+                                        <span className="text-[9px] text-muted-foreground/70">
+                                          {costRevPct.toFixed(1)}% of rev
+                                        </span>
+                                      )}
+                                    </div>
+                                  );
+                                };
                                 return (
                                   <Fragment key={r.department}>
                                     {/* ── Level 1: Department row ── */}
@@ -1752,9 +1783,18 @@ export default function InVitroDashboard({ data, user }) {
                                         <span className={cn("inline-flex items-center justify-center w-5 h-5 rounded text-xs mr-2", isExpanded ? "bg-primary/15 text-primary" : "bg-muted text-muted-foreground")}>{isExpanded ? '▾' : '›'}</span>
                                         {r.department}
                                       </TableCell>
-                                      <TableCell className="text-right font-medium text-blue-600">{fmt(r.hc)}</TableCell>
-                                      <TableCell className="text-right font-medium text-amber-600">{fmt(r.nonHc)}</TableCell>
-                                      <TableCell className="text-right font-bold">{fmt(r.total)}</TableCell>
+                                      <TableCell className="text-right font-medium text-blue-600">
+                                        <div>{fmt(r.hc)}</div>
+                                        {cellBadges(r.hc, priorHc)}
+                                      </TableCell>
+                                      <TableCell className="text-right font-medium text-amber-600">
+                                        <div>{fmt(r.nonHc)}</div>
+                                        {cellBadges(r.nonHc, priorNonHc)}
+                                      </TableCell>
+                                      <TableCell className="text-right font-bold">
+                                        <div>{fmt(r.total)}</div>
+                                        {cellBadges(r.total, priorTotal)}
+                                      </TableCell>
                                     </TableRow>
                                     {/* ── Expanded: HC + Non-HC card sections ── */}
                                     {isExpanded && (
