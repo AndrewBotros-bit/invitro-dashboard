@@ -70,7 +70,6 @@
       ],
       "breakdowns": {
         "revenueDrilldown": [
-          "AllRx",
           "AllCare",
           "Needles",
           "Osta"
