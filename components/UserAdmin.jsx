@@ -109,6 +109,41 @@ export default function UserAdmin({ currentUser }) {
   // Cleared after successful invite send or when starting a new user.
   const [pendingInvite, setPendingInvite] = useState(null);
   const [inviteStatus, setInviteStatus] = useState('');
+  // Display URL state — { username, url } shown in a banner after generation.
+  const [displayUrl, setDisplayUrl] = useState(null);
+  const [displayStatus, setDisplayStatus] = useState('');
+
+  async function generateDisplayUrl(username) {
+    setDisplayStatus(`Generating display URL for ${username}…`);
+    setDisplayUrl(null);
+    try {
+      const res = await fetch('/api/admin/display-token', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setDisplayStatus(`❌ ${data.error || 'Failed to generate display URL'}`);
+        return;
+      }
+      setDisplayUrl({ username, url: data.url });
+      setDisplayStatus('');
+    } catch (e) {
+      setDisplayStatus('❌ Network error');
+    }
+  }
+
+  async function copyDisplayUrl() {
+    if (!displayUrl) return;
+    try {
+      await navigator.clipboard.writeText(displayUrl.url);
+      setDisplayStatus(`✅ Copied to clipboard`);
+      setTimeout(() => setDisplayStatus(''), 2000);
+    } catch {
+      setDisplayStatus('❌ Could not copy — select and copy manually');
+    }
+  }
 
   async function loadUsers() {
     setLoading(true);
@@ -283,6 +318,38 @@ export default function UserAdmin({ currentUser }) {
           <a href="/" className="text-sm text-primary hover:underline">← Back to dashboard</a>
         </div>
 
+        {/* Display URL banner — shown after clicking "TV URL" on a user row */}
+        {displayUrl && (
+          <div className="mb-4 rounded-lg border border-blue-300 bg-blue-50 p-4">
+            <div className="flex items-start justify-between gap-4 mb-3">
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-semibold text-blue-900">
+                  Display URL for <strong>{displayUrl.username}</strong>
+                </p>
+                <p className="text-xs text-blue-700 mt-1">
+                  Paste this URL into Juuno&apos;s Website App. It contains a 365-day token that auto-authenticates as <code className="bg-blue-100 px-1 rounded">{displayUrl.username}</code>.
+                  Anyone with this URL has the same view as that user — keep it private. Sensitive routes (/admin, /audit) are blocked from this token.
+                </p>
+              </div>
+              <div className="flex gap-2 shrink-0">
+                <Button type="button" size="sm" onClick={copyDisplayUrl}>Copy</Button>
+                <Button type="button" size="sm" variant="outline" onClick={() => { setDisplayUrl(null); setDisplayStatus(''); }}>Close</Button>
+              </div>
+            </div>
+            <input
+              type="text"
+              value={displayUrl.url}
+              readOnly
+              onFocus={e => e.target.select()}
+              className="w-full font-mono text-[11px] bg-white border border-blue-200 rounded px-2 py-1.5 text-foreground"
+            />
+            {displayStatus && <p className="text-xs mt-2 font-medium">{displayStatus}</p>}
+          </div>
+        )}
+        {!displayUrl && displayStatus && (
+          <div className="mb-4 text-sm font-medium">{displayStatus}</div>
+        )}
+
         <div className="grid grid-cols-1 lg:grid-cols-5 gap-4">
           {/* Users list */}
           <Card className="lg:col-span-2">
@@ -321,14 +388,23 @@ export default function UserAdmin({ currentUser }) {
                           )}>{u.role}</span>
                         </TableCell>
                         <TableCell className="text-right">
-                          <button
-                            onClick={(e) => { e.stopPropagation(); onDelete(u.username); }}
-                            className="text-xs text-red-500 hover:text-red-700"
-                            disabled={u.username === currentUser.username}
-                            title={u.username === currentUser.username ? "Can't delete yourself" : "Delete user"}
-                          >
-                            Delete
-                          </button>
+                          <div className="flex justify-end gap-3">
+                            <button
+                              onClick={(e) => { e.stopPropagation(); generateDisplayUrl(u.username); }}
+                              className="text-xs text-blue-600 hover:text-blue-800"
+                              title="Generate a long-lived URL for kiosk/Juuno TV display"
+                            >
+                              TV URL
+                            </button>
+                            <button
+                              onClick={(e) => { e.stopPropagation(); onDelete(u.username); }}
+                              className="text-xs text-red-500 hover:text-red-700"
+                              disabled={u.username === currentUser.username}
+                              title={u.username === currentUser.username ? "Can't delete yourself" : "Delete user"}
+                            >
+                              Delete
+                            </button>
+                          </div>
                         </TableCell>
                       </TableRow>
                     ))}
