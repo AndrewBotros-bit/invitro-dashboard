@@ -48,5 +48,37 @@
       }
     },
     "email": "amir.barsoum@invitrocapital.com"
+  },
+  {
+    "username": "Hall Room",
+    "name": "Hall room screen",
+    "passwordHash": "$2b$10$SqnERDt3eS.YRYmKl2lk4exAPi3yUuTxW5nX2lcMH9/s0H5tl2n7u",
+    "role": "viewer",
+    "permissions": {
+      "companies": [
+        "AllRx",
+        "Osta",
+        "AllCare",
+        "Needles"
+      ],
+      "tabs": [
+        "overview",
+        "expenses",
+        "revenue",
+        "profitability",
+        "insights"
+      ],
+      "breakdowns": {
+        "revenueDrilldown": [
+          "AllRx",
+          "AllCare",
+          "Needles",
+          "Osta"
+        ],
+        "expenseDrilldown": false,
+        "auditConsole": false,
+        "hcDetails": false
+      }
+    }
   }
 ]
