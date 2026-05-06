@@ -175,11 +175,14 @@ export default function IRRValuation({ data, user }) {
                 </div>
               )}
 
-              {/* LP roster table */}
-              {v.lps.length > 0 && (
+              {/* LP roster table — admins see everyone, LP users see only themselves */}
+              {v.lps.length > 0 && (() => {
+                const rosterLps = lpName ? v.lps.filter(lp => lp.name === lpName) : v.lps;
+                if (rosterLps.length === 0) return null;
+                return (
                 <div>
                   <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-2">
-                    Shareholders ({v.lps.length})
+                    {lpName ? 'My Stake' : `Shareholders (${v.lps.length})`}
                   </p>
                   <Table>
                     <TableHeader>
@@ -193,7 +196,7 @@ export default function IRRValuation({ data, user }) {
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {v.lps.map(lp => {
+                      {rosterLps.map(lp => {
                         const ownPct = lp.ownership?.[yearIdx] ?? 0;
                         const value = ownership * (ownPct / 100);
                         const invest = investment * (ownPct / 100);
@@ -226,7 +229,8 @@ export default function IRRValuation({ data, user }) {
                     </TableBody>
                   </Table>
                 </div>
-              )}
+                );
+              })()}
             </CardContent>
           </Card>
         );
