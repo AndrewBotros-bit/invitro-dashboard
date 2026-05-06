@@ -43,16 +43,23 @@ export default function IRRValuation({ data, user }) {
     ? irr.vehicles.filter(v => v.lps.some(lp => lp.name === lpName))
     : irr.vehicles;
 
-  // Companies invested in by a vehicle, in the selected year
+  // Companies invested in by a vehicle, in the selected year.
+  // `inv` is year-only (what was put in this year), `cumInv` is the running total
+  // through the selected year — this matches the sheet's vehicle-rollup convention
+  // where the vehicle's "Investment" line is cumulative.
   function vehicleCompanies(vehicleName) {
     return irr.companies
       .map(co => {
-        const inv = co.investments?.[vehicleName]?.[yearIdx] ?? 0;
+        const series = co.investments?.[vehicleName] ?? [];
+        const inv = series[yearIdx] ?? 0;
+        const cumInv = series
+          .slice(0, yearIdx + 1)
+          .reduce((s, v) => s + (v ?? 0), 0);
         const own = co.ownership?.[vehicleName]?.[yearIdx] ?? 0;
         const valuation = co.financials?.valuation?.[yearIdx] ?? 0;
-        return { co, inv, own, valuation };
+        return { co, inv, cumInv, own, valuation };
       })
-      .filter(x => x.inv > 0 || x.own > 0);
+      .filter(x => x.cumInv > 0 || x.own > 0);
   }
 
   return (
@@ -104,7 +111,7 @@ export default function IRRValuation({ data, user }) {
               <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                 <KpiTile label="Ownership Value" value={fmt(ownership)} />
                 <KpiTile label="Total Investment" value={fmt(investment)} />
-                <KpiTile label="IRR" value={irrPct != null ? `${(irrPct * 100).toFixed(0)}%` : '—'}
+                <KpiTile label="IRR" value={irrPct != null ? `${irrPct.toFixed(1)}%` : '—'}
                   tone={irrPct == null ? 'neutral' : irrPct >= 0 ? 'positive' : 'negative'} />
                 <KpiTile label="MOIC" value={moic != null ? `${moic.toFixed(1)}x` : '—'}
                   tone={moic == null ? 'neutral' : moic >= 1 ? 'positive' : 'negative'} />
@@ -124,7 +131,7 @@ export default function IRRValuation({ data, user }) {
                   <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                     <KpiTile label="My Ownership Value" value={fmt(myValue)} compact />
                     <KpiTile label="My Investment" value={fmt(myInvestment)} compact />
-                    <KpiTile label="My IRR" value={irrPct != null ? `${(irrPct * 100).toFixed(0)}%` : '—'}
+                    <KpiTile label="My IRR" value={irrPct != null ? `${irrPct.toFixed(1)}%` : '—'}
                       tone={irrPct == null ? 'neutral' : irrPct >= 0 ? 'positive' : 'negative'} compact />
                     <KpiTile label="My MOIC" value={moic != null ? `${moic.toFixed(1)}x` : '—'}
                       tone={moic == null ? 'neutral' : moic >= 1 ? 'positive' : 'negative'} compact />
@@ -142,19 +149,21 @@ export default function IRRValuation({ data, user }) {
                     <TableHeader>
                       <TableRow>
                         <TableHead>Company</TableHead>
-                        <TableHead className="text-right">Investment</TableHead>
+                        <TableHead className="text-right">{selectedYear} Investment</TableHead>
+                        <TableHead className="text-right">Cum. Investment</TableHead>
                         <TableHead className="text-right">Ownership %</TableHead>
                         <TableHead className="text-right">Stake Value</TableHead>
                         <TableHead className="text-right">Company Valuation</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {cos.map(({ co, inv, own, valuation }) => {
+                      {cos.map(({ co, inv, cumInv, own, valuation }) => {
                         const stakeValue = (own / 100) * valuation;
                         return (
                           <TableRow key={co.name}>
                             <TableCell className="font-medium">{co.name}</TableCell>
                             <TableCell className="text-right tabular-nums">{fmt(inv)}</TableCell>
+                            <TableCell className="text-right tabular-nums font-medium">{fmt(cumInv)}</TableCell>
                             <TableCell className="text-right tabular-nums">{own.toFixed(1)}%</TableCell>
                             <TableCell className="text-right tabular-nums">{fmt(stakeValue)}</TableCell>
                             <TableCell className="text-right tabular-nums">{fmt(valuation)}</TableCell>
@@ -206,7 +215,7 @@ export default function IRRValuation({ data, user }) {
                               "text-right tabular-nums",
                               irrPct != null && (irrPct >= 0 ? "text-emerald-600" : "text-red-500")
                             )}>
-                              {irrPct != null ? `${(irrPct * 100).toFixed(0)}%` : '—'}
+                              {irrPct != null ? `${irrPct.toFixed(1)}%` : '—'}
                             </TableCell>
                             <TableCell className="text-right tabular-nums">
                               {moic != null ? `${moic.toFixed(1)}x` : '—'}
