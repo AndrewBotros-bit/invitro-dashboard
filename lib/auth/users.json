@@ -45,7 +45,8 @@
         "expenseDrilldown": true,
         "auditConsole": false,
         "hcDetails": true
-      }
+      },
+      "lpName": "Amir Barsoum"
     },
     "email": "amir.barsoum@invitrocapital.com"
   },
