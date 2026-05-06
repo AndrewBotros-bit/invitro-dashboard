@@ -1,6 +1,7 @@
 import { cookies } from 'next/headers';
 import { redirect } from 'next/navigation';
 import { verifySessionToken, isAdmin, COOKIE_NAME } from '@/lib/auth';
+import { fetchAllData } from '@/lib/data';
 import UserAdmin from '@/components/UserAdmin';
 
 export const metadata = {
@@ -8,7 +9,10 @@ export const metadata = {
   robots: 'noindex, nofollow',
 };
 
-export default function AdminUsersPage() {
+// Page is dynamic — depends on cookies
+export const dynamic = 'force-dynamic';
+
+export default async function AdminUsersPage() {
   const session = cookies().get(COOKIE_NAME);
   const user = session?.value ? verifySessionToken(session.value) : null;
 
@@ -25,5 +29,15 @@ export default function AdminUsersPage() {
     );
   }
 
-  return <UserAdmin currentUser={user} />;
+  // Pull LP names from the IRR sheet for the admin form's LP dropdown.
+  // Graceful fallback to [] if the sheet load fails — admin form still works.
+  let lpNames = [];
+  try {
+    const data = await fetchAllData();
+    lpNames = data?.irrValuation?.allLpNames ?? [];
+  } catch (err) {
+    console.warn('[admin/users] Could not load LP names:', err.message);
+  }
+
+  return <UserAdmin currentUser={user} lpNames={lpNames} />;
 }

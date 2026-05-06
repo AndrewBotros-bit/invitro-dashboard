@@ -15,6 +15,7 @@ import { Button } from "@/components/ui/button";
 import { generateInsights } from "@/lib/insights";
 import { Drawer, DrawerContent, DrawerHeader, DrawerTitle, DrawerDescription, DrawerClose } from "@/components/ui/drawer";
 import DashboardSidebar from "@/components/DashboardSidebar";
+import IRRValuation from "@/components/IRRValuation";
 
 /* ── Chart styling constants ── */
 const CHART_STYLE = {
@@ -2085,6 +2086,10 @@ export default function InVitroDashboard({ data, user }) {
               </Card>
             )}
           </>)}
+
+          {activeSection === 'irr' && (
+            <IRRValuation data={data} user={user} />
+          )}
 
           {activeSection === 'insights' && (<>
             <div className="mb-4">

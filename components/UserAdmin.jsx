@@ -12,6 +12,7 @@ const ALL_TABS = [
   { id: 'expenses', label: 'Expenses' },
   { id: 'profitability', label: 'Profitability' },
   { id: 'cashflow', label: 'Cash Flow' },
+  { id: 'irr', label: 'IRR & Valuation' },
   { id: 'insights', label: 'Insights' },
 ];
 const DRILL_BREAKDOWNS = [
@@ -39,6 +40,7 @@ const EMPTY_FORM = {
   bd_expense_list: [],
   bd_audit: false,
   bd_hc: false,
+  lpName: '',
 };
 
 function userToFormState(u) {
@@ -71,6 +73,9 @@ function userToFormState(u) {
     form.bd_audit = p.breakdowns.auditConsole === true;
     form.bd_hc = p.breakdowns.hcDetails === true;
   }
+
+  // LP identity (optional, for IRR & Valuation scoping)
+  form.lpName = p.lpName || '';
   return form;
 }
 
@@ -90,6 +95,7 @@ function formStateToPayload(form, isEdit) {
       auditConsole: form.bd_audit,
       hcDetails: form.bd_hc,
     },
+    lpName: form.lpName || null,
   };
 
   const payload = { name: form.name, email: form.email || null, role: form.role, permissions };
@@ -98,7 +104,7 @@ function formStateToPayload(form, isEdit) {
   return payload;
 }
 
-export default function UserAdmin({ currentUser }) {
+export default function UserAdmin({ currentUser, lpNames = [] }) {
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [form, setForm] = useState(EMPTY_FORM);
@@ -498,6 +504,21 @@ export default function UserAdmin({ currentUser }) {
                       <option value="viewer">Viewer</option>
                       <option value="admin">Admin</option>
                     </select>
+                  </div>
+                  <div className="md:col-span-2">
+                    <label className="text-xs font-medium text-foreground uppercase tracking-wide">
+                      LP Identity (for IRR &amp; Valuation scoping — optional)
+                    </label>
+                    <select value={form.lpName}
+                      onChange={e => setForm({ ...form, lpName: e.target.value })}
+                      className="mt-1 flex h-9 w-full rounded-md border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                    >
+                      <option value="">(none — sees all vehicles, no LP scoping)</option>
+                      {lpNames.map(name => <option key={name} value={name}>{name}</option>)}
+                    </select>
+                    <p className="text-[10px] text-muted-foreground mt-1">
+                      When set, the IRR &amp; Valuation tab filters to vehicles where this LP appears, with their stake highlighted.
+                    </p>
                   </div>
                 </div>
 

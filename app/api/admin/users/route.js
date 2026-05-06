@@ -11,7 +11,7 @@ import {
 import { commitUsersToGitHub, readUsersFromGitHub } from '@/lib/auth/github';
 
 const ALL_COMPANIES = ['AllRx', 'AllCare', 'Osta', 'Needles', 'InVitro Studio'];
-const ALL_TABS = ['overview', 'revenue', 'expenses', 'profitability', 'cashflow', 'insights'];
+const ALL_TABS = ['overview', 'revenue', 'expenses', 'profitability', 'cashflow', 'irr', 'insights'];
 const BREAKDOWN_KEYS = ['revenueDrilldown', 'expenseDrilldown', 'auditConsole', 'hcDetails'];
 
 function requireAdmin() {
@@ -31,7 +31,7 @@ function stripHash(u) {
 
 function validatePermissions(permissions) {
   if (!permissions || typeof permissions !== 'object') return 'permissions must be an object';
-  const { companies, tabs, breakdowns } = permissions;
+  const { companies, tabs, breakdowns, lpName } = permissions;
   if (companies !== '*' && !(Array.isArray(companies) && companies.every(c => ALL_COMPANIES.includes(c)))) {
     return 'companies must be "*" or array of valid company names';
   }
@@ -48,6 +48,7 @@ function validatePermissions(permissions) {
       }
     }
   }
+  if (lpName != null && typeof lpName !== 'string') return 'lpName must be a string or null';
   return null;
 }
 

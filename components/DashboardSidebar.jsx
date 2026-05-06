@@ -7,6 +7,7 @@ const SECTIONS = [
   { id: 'expenses', label: 'Expenses', icon: '📋' },
   { id: 'profitability', label: 'Profitability', icon: '📈' },
   { id: 'cashflow', label: 'Cash Flow', icon: '🏦' },
+  { id: 'irr', label: 'IRR & Valuation', icon: '📊' },
   { id: 'insights', label: 'Insights', icon: '💡' },
 ];
 
