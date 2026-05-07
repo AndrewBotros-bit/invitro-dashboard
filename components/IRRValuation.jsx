@@ -6,6 +6,44 @@ import { fmt, pct } from "@/lib/formatters";
 import { cn } from "@/lib/utils";
 
 /**
+ * Compute LP-specific returns for the selected year using the same CAGR
+ * formula as the vehicle rollup (Andrew's house formula):
+ *
+ *   LP_Value      = vehicle.ownershipValue × LP.ownership%
+ *   LP_CumInvest  = Σ LP.investment[0..yearIdx]   (year-only, summed forward)
+ *   LP_MOIC       = LP_Value / LP_CumInvest
+ *   LP_IRR        = LP_MOIC^(1/years) - 1         (years = vehicle hold period)
+ *
+ * Returns IRR in percent units (43 means 43%) so the existing toFixed(1) +
+ * "%" rendering stays correct without further normalization.
+ *
+ * Edge cases: when cumInvest is 0 (LP not yet invested) or value <= 0 we
+ * return null for moic/irr so the UI shows "—" instead of NaN/Infinity.
+ */
+function computeLpReturns(lp, vehicle, yearIdx) {
+  const ownPct = lp.ownership?.[yearIdx] ?? 0;
+  const vehicleValue = vehicle.ownershipValue?.[yearIdx] ?? 0;
+  const lpValue = vehicleValue * (ownPct / 100);
+
+  const series = lp.investment ?? [];
+  const cumInvest = series
+    .slice(0, yearIdx + 1)
+    .reduce((s, v) => s + (v ?? 0), 0);
+
+  const years = vehicle.holdPeriod?.[yearIdx];
+  let moic = null;
+  let irr = null;
+  if (cumInvest > 0 && lpValue > 0) {
+    moic = lpValue / cumInvest;
+    if (years && years > 0) {
+      irr = (Math.pow(moic, 1 / years) - 1) * 100;
+    }
+  }
+
+  return { ownPct, lpValue, cumInvest, moic, irr };
+}
+
+/**
  * IRR & Valuation tab.
  * Shows per-vehicle: KPI strip, per-company table, optional "My Performance"
  * card for LP users, LP roster table.
@@ -92,9 +130,15 @@ export default function IRRValuation({ data, user }) {
         const moic = v.moic?.[yearIdx];
         const cos = vehicleCompanies(v.name);
         const myLp = lpName ? v.lps.find(lp => lp.name === lpName) : null;
-        const myOwnPct = myLp?.ownership?.[yearIdx] ?? 0;
-        const myValue = ownership * (myOwnPct / 100);
-        const myInvestment = investment * (myOwnPct / 100);
+        // LP-specific returns: ownership %, value, cumulative invested,
+        // MOIC, IRR — computed using the actual sheet-provided investment
+        // amounts (not vehicle investment × ownership %).
+        const myReturns = myLp ? computeLpReturns(myLp, v, yearIdx) : null;
+        const myOwnPct = myReturns?.ownPct ?? 0;
+        const myValue = myReturns?.lpValue ?? 0;
+        const myInvestment = myReturns?.cumInvest ?? 0;
+        const myIrr = myReturns?.irr;
+        const myMoic = myReturns?.moic;
 
         return (
           <Card key={v.name}>
@@ -131,10 +175,10 @@ export default function IRRValuation({ data, user }) {
                   <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                     <KpiTile label="My Ownership Value" value={fmt(myValue)} compact />
                     <KpiTile label="My Investment" value={fmt(myInvestment)} compact />
-                    <KpiTile label="My IRR" value={irrPct != null ? `${irrPct.toFixed(1)}%` : '—'}
-                      tone={irrPct == null ? 'neutral' : irrPct >= 0 ? 'positive' : 'negative'} compact />
-                    <KpiTile label="My MOIC" value={moic != null ? `${moic.toFixed(1)}x` : '—'}
-                      tone={moic == null ? 'neutral' : moic >= 1 ? 'positive' : 'negative'} compact />
+                    <KpiTile label="My IRR" value={myIrr != null ? `${myIrr.toFixed(1)}%` : '—'}
+                      tone={myIrr == null ? 'neutral' : myIrr >= 0 ? 'positive' : 'negative'} compact />
+                    <KpiTile label="My MOIC" value={myMoic != null ? `${myMoic.toFixed(1)}x` : '—'}
+                      tone={myMoic == null ? 'neutral' : myMoic >= 1 ? 'positive' : 'negative'} compact />
                   </div>
                 </div>
               )}
@@ -190,16 +234,15 @@ export default function IRRValuation({ data, user }) {
                         <TableHead>LP / Shareholder</TableHead>
                         <TableHead className="text-right">Ownership %</TableHead>
                         <TableHead className="text-right">Ownership Value</TableHead>
-                        <TableHead className="text-right">Investment</TableHead>
+                        <TableHead className="text-right">Cum. Investment</TableHead>
                         <TableHead className="text-right">IRR</TableHead>
                         <TableHead className="text-right">MOIC</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
                       {rosterLps.map(lp => {
-                        const ownPct = lp.ownership?.[yearIdx] ?? 0;
-                        const value = ownership * (ownPct / 100);
-                        const invest = investment * (ownPct / 100);
+                        const { ownPct, lpValue, cumInvest, moic: lpMoic, irr: lpIrr } =
+                          computeLpReturns(lp, v, yearIdx);
                         const isMe = lpName && lp.name === lpName;
                         return (
                           <TableRow
@@ -212,16 +255,19 @@ export default function IRRValuation({ data, user }) {
                               {lp.name}{isMe && <span className="ml-2 text-[10px] uppercase tracking-wide text-primary/70">you</span>}
                             </TableCell>
                             <TableCell className="text-right tabular-nums">{ownPct.toFixed(2)}%</TableCell>
-                            <TableCell className="text-right tabular-nums">{fmt(value)}</TableCell>
-                            <TableCell className="text-right tabular-nums">{fmt(invest)}</TableCell>
+                            <TableCell className="text-right tabular-nums">{fmt(lpValue)}</TableCell>
+                            <TableCell className="text-right tabular-nums">{fmt(cumInvest)}</TableCell>
                             <TableCell className={cn(
                               "text-right tabular-nums",
-                              irrPct != null && (irrPct >= 0 ? "text-emerald-600" : "text-red-500")
+                              lpIrr != null && (lpIrr >= 0 ? "text-emerald-600" : "text-red-500")
                             )}>
-                              {irrPct != null ? `${irrPct.toFixed(1)}%` : '—'}
+                              {lpIrr != null ? `${lpIrr.toFixed(1)}%` : '—'}
                             </TableCell>
-                            <TableCell className="text-right tabular-nums">
-                              {moic != null ? `${moic.toFixed(1)}x` : '—'}
+                            <TableCell className={cn(
+                              "text-right tabular-nums",
+                              lpMoic != null && (lpMoic >= 1 ? "text-emerald-600" : "text-red-500")
+                            )}>
+                              {lpMoic != null ? `${lpMoic.toFixed(2)}x` : '—'}
                             </TableCell>
                           </TableRow>
                         );
