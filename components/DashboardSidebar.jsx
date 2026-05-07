@@ -1,5 +1,11 @@
 "use client";
+import { useState } from "react";
 import { cn } from "@/lib/utils";
+
+// Sentinel used to track which picker row is expanded. We can't reuse
+// `selectedCompany` because we need to allow "selected but collapsed" — the
+// user may want to hide the tab dropdown without deselecting the company.
+const CONSOLIDATED_KEY = '__consolidated__';
 
 // Top-level groups. Investment Performance covers vehicle/LP-level analysis
 // (portfolio-agnostic); Portfolio Performance drills into a specific company.
@@ -55,12 +61,33 @@ export default function DashboardSidebar({
   const visiblePortfolioTabs = PORTFOLIO_TABS.filter(s => canSeeTab(s.id));
   const showPortfolioGroup = visiblePortfolioTabs.length > 0;
 
-  // Picker click: select the company, AND if currently on a picker-agnostic
-  // section (IRR), auto-switch to a portfolio tab so the user actually sees
-  // the company they just drilled into. Without this, clicking AllRx on IRR
-  // would silently set selectedCompany but show no visible change.
+  // Which picker row is currently disclosed (showing its nested tabs).
+  // Decoupled from selectedCompany so the user can collapse the dropdown
+  // without losing their company selection. Initial value matches the
+  // selected company so tabs are visible on first paint.
+  const [expandedKey, setExpandedKey] = useState(
+    () => selectedCompany ?? CONSOLIDATED_KEY
+  );
+
+  // Picker click. Three cases:
+  //  (a) clicking an already-expanded row → collapse it (toggle off)
+  //  (b) clicking a different row → select that company AND expand its tabs
+  //  (c) clicking from a picker-agnostic section (IRR) → also switch
+  //      activeSection to a portfolio tab so the click has a visible effect
   const handlePickerClick = (companyName) => {
+    const key = companyName ?? CONSOLIDATED_KEY;
+
+    if (expandedKey === key) {
+      // (a) toggle off — keep selection, just hide the dropdown
+      setExpandedKey(null);
+      return;
+    }
+
+    // (b) switch selection and expand
     setSelectedCompany(companyName);
+    setExpandedKey(key);
+
+    // (c) auto-switch away from picker-agnostic sections
     if (PICKER_AGNOSTIC_SECTIONS.has(activeSection)) {
       const fallback = visiblePortfolioTabs.find(t => t.id === FALLBACK_PORTFOLIO_TAB)
         || visiblePortfolioTabs[0];
@@ -163,28 +190,38 @@ export default function DashboardSidebar({
               </p>
 
               <nav className="space-y-0.5">
-                {/* Consolidated row + (when selected) its nested tabs */}
-                <button
-                  onClick={() => handlePickerClick(null)}
-                  className={cn(
-                    NAV_BUTTON_BASE,
-                    !selectedCompany
-                      ? "text-foreground font-semibold"
-                      : "text-muted-foreground hover:bg-muted hover:text-foreground"
-                  )}
-                  aria-expanded={!selectedCompany}
-                >
-                  <span className={cn(
-                    "inline-block w-2 h-2 rounded-full",
-                    !selectedCompany ? "bg-primary" : "bg-muted-foreground/40"
-                  )} />
-                  <span>Consolidated</span>
-                </button>
-                {!selectedCompany && renderNestedTabs()}
+                {/* Consolidated row + (when expanded) its nested tabs */}
+                {(() => {
+                  const isSelected = !selectedCompany;
+                  const isExpanded = expandedKey === CONSOLIDATED_KEY;
+                  return (
+                    <div>
+                      <button
+                        onClick={() => handlePickerClick(null)}
+                        className={cn(
+                          NAV_BUTTON_BASE,
+                          isSelected
+                            ? "text-foreground font-semibold"
+                            : "text-muted-foreground hover:bg-muted hover:text-foreground"
+                        )}
+                        aria-expanded={isExpanded}
+                      >
+                        <span className={cn(
+                          "inline-block w-2 h-2 rounded-full",
+                          isSelected ? "bg-primary" : "bg-muted-foreground/40"
+                        )} />
+                        <span>Consolidated</span>
+                        <Chevron expanded={isExpanded} />
+                      </button>
+                      {isExpanded && renderNestedTabs()}
+                    </div>
+                  );
+                })()}
 
-                {/* Per-company rows + (for the selected one) nested tabs */}
+                {/* Per-company rows + (for the expanded one) nested tabs */}
                 {companies.map(name => {
                   const isSelected = selectedCompany === name;
+                  const isExpanded = expandedKey === name;
                   return (
                     <div key={name}>
                       <button
@@ -196,15 +233,16 @@ export default function DashboardSidebar({
                             : "text-muted-foreground hover:bg-muted hover:text-foreground"
                         )}
                         style={isSelected ? { color: colorMap[name] } : undefined}
-                        aria-expanded={isSelected}
+                        aria-expanded={isExpanded}
                       >
                         <span
                           className="inline-block w-2 h-2 rounded-full shrink-0"
                           style={{ backgroundColor: colorMap[name] || '#94a3b8' }}
                         />
                         <span>{name}</span>
+                        <Chevron expanded={isExpanded} />
                       </button>
-                      {isSelected && renderNestedTabs()}
+                      {isExpanded && renderNestedTabs()}
                     </div>
                   );
                 })}
@@ -269,5 +307,28 @@ export default function DashboardSidebar({
         <svg width="18" height="18" viewBox="0 0 16 16" fill="none"><path d="M2 4h12M2 8h12M2 12h12" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/></svg>
       </button>
     </>
+  );
+}
+
+/** Subtle disclosure chevron — rotates 180° when its row is expanded. */
+function Chevron({ expanded }) {
+  return (
+    <svg
+      className={cn(
+        "ml-auto h-3 w-3 text-muted-foreground/50 shrink-0 transition-transform duration-200",
+        expanded && "rotate-180"
+      )}
+      viewBox="0 0 12 12"
+      fill="none"
+      aria-hidden="true"
+    >
+      <path
+        d="M3 4.5l3 3 3-3"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
   );
 }
