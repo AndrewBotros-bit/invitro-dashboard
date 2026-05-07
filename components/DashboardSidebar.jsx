@@ -1,13 +1,20 @@
 "use client";
 import { cn } from "@/lib/utils";
 
-const SECTIONS = [
+// Top-level groups. "Investment Performance" deals with vehicles/LPs and
+// is portfolio-agnostic (the company picker doesn't apply). "Portfolio
+// Performance" drills into a specific company via the picker shown
+// alongside its tabs.
+const INVESTMENT_TABS = [
+  { id: 'irr', label: 'IRR & Valuation', icon: '📈' },
+];
+
+const PORTFOLIO_TABS = [
   { id: 'overview', label: 'Overview', icon: '📊' },
   { id: 'revenue', label: 'Revenue', icon: '💰' },
   { id: 'expenses', label: 'Expenses', icon: '📋' },
   { id: 'profitability', label: 'Profitability', icon: '📈' },
   { id: 'cashflow', label: 'Cash Flow', icon: '🏦' },
-  { id: 'irr', label: 'IRR & Valuation', icon: '📊' },
   { id: 'insights', label: 'Insights', icon: '💡' },
 ];
 
@@ -26,7 +33,9 @@ export default function DashboardSidebar({
   userName,
   userRole,
 }) {
-  const visibleSections = SECTIONS.filter(s => canSeeTab(s.id));
+  const visibleInvestmentTabs = INVESTMENT_TABS.filter(s => canSeeTab(s.id));
+  const visiblePortfolioTabs = PORTFOLIO_TABS.filter(s => canSeeTab(s.id));
+  const showPortfolioGroup = visiblePortfolioTabs.length > 0;
   return (
     <>
       {/* Mobile overlay */}
@@ -51,61 +60,96 @@ export default function DashboardSidebar({
           </div>
         </div>
 
-        {/* Navigation sections */}
+        {/* Navigation sections — two top-level groups */}
         <div className="flex-1 overflow-y-auto py-4 px-3">
-          <p className="px-2 mb-2 text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">Sections</p>
-          <nav className="space-y-0.5">
-            {visibleSections.map(s => (
-              <button
-                key={s.id}
-                onClick={() => { setActiveSection(s.id); setSidebarOpen(false); }}
-                className={cn(
-                  "w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm font-medium transition-colors",
-                  activeSection === s.id
-                    ? "bg-primary/10 text-primary"
-                    : "text-muted-foreground hover:bg-muted hover:text-foreground"
-                )}
-              >
-                <span className="text-base leading-none">{s.icon}</span>
-                <span>{s.label}</span>
-              </button>
-            ))}
-          </nav>
+          {/* Group 1: Investment Performance (vehicle / LP lens) */}
+          {visibleInvestmentTabs.length > 0 && (
+            <div>
+              <p className="px-2 mb-2 text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
+                Investment Performance
+              </p>
+              <nav className="space-y-0.5">
+                {visibleInvestmentTabs.map(s => (
+                  <button
+                    key={s.id}
+                    onClick={() => { setActiveSection(s.id); setSidebarOpen(false); }}
+                    className={cn(
+                      "w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm font-medium transition-colors",
+                      activeSection === s.id
+                        ? "bg-primary/10 text-primary"
+                        : "text-muted-foreground hover:bg-muted hover:text-foreground"
+                    )}
+                  >
+                    <span className="text-base leading-none">{s.icon}</span>
+                    <span>{s.label}</span>
+                  </button>
+                ))}
+              </nav>
+            </div>
+          )}
 
-          {/* Company selector */}
-          <div className="mt-6">
-            <p className="px-2 mb-2 text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">Portfolio</p>
-            <nav className="space-y-0.5">
-              <button
-                onClick={() => { setSelectedCompany(null); }}
-                className={cn(
-                  "w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm font-medium transition-colors",
-                  !selectedCompany
-                    ? "bg-primary/10 text-primary"
-                    : "text-muted-foreground hover:bg-muted hover:text-foreground"
-                )}
-              >
-                <span className="inline-block w-2 h-2 rounded-full bg-primary"></span>
-                <span>Consolidated</span>
-              </button>
-              {companies.map(name => (
+          {/* Group 2: Portfolio Performance — company picker + drill-in tabs */}
+          {showPortfolioGroup && (
+            <div className={cn(visibleInvestmentTabs.length > 0 && "mt-6")}>
+              <p className="px-2 mb-2 text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
+                Portfolio Performance
+              </p>
+
+              {/* Company picker — drives what the tabs below show */}
+              <nav className="space-y-0.5 mb-3">
                 <button
-                  key={name}
-                  onClick={() => { setSelectedCompany(name); }}
+                  onClick={() => { setSelectedCompany(null); }}
                   className={cn(
                     "w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm font-medium transition-colors",
-                    selectedCompany === name
-                      ? "text-foreground"
+                    !selectedCompany
+                      ? "bg-primary/10 text-primary"
                       : "text-muted-foreground hover:bg-muted hover:text-foreground"
                   )}
-                  style={selectedCompany === name ? { backgroundColor: `${colorMap[name]}15`, color: colorMap[name] } : {}}
                 >
-                  <span className="inline-block w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: colorMap[name] || '#94a3b8' }}></span>
-                  <span>{name}</span>
+                  <span className="inline-block w-2 h-2 rounded-full bg-primary"></span>
+                  <span>Consolidated</span>
                 </button>
-              ))}
-            </nav>
-          </div>
+                {companies.map(name => (
+                  <button
+                    key={name}
+                    onClick={() => { setSelectedCompany(name); }}
+                    className={cn(
+                      "w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm font-medium transition-colors",
+                      selectedCompany === name
+                        ? "text-foreground"
+                        : "text-muted-foreground hover:bg-muted hover:text-foreground"
+                    )}
+                    style={selectedCompany === name ? { backgroundColor: `${colorMap[name]}15`, color: colorMap[name] } : {}}
+                  >
+                    <span className="inline-block w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: colorMap[name] || '#94a3b8' }}></span>
+                    <span>{name}</span>
+                  </button>
+                ))}
+              </nav>
+
+              {/* Divider between picker and tabs — same group, different role */}
+              <div className="mx-2 my-2 border-t border-border/60" />
+
+              {/* Drill-in tabs — operate on whichever company is selected above */}
+              <nav className="space-y-0.5">
+                {visiblePortfolioTabs.map(s => (
+                  <button
+                    key={s.id}
+                    onClick={() => { setActiveSection(s.id); setSidebarOpen(false); }}
+                    className={cn(
+                      "w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm font-medium transition-colors",
+                      activeSection === s.id
+                        ? "bg-primary/10 text-primary"
+                        : "text-muted-foreground hover:bg-muted hover:text-foreground"
+                    )}
+                  >
+                    <span className="text-base leading-none">{s.icon}</span>
+                    <span>{s.label}</span>
+                  </button>
+                ))}
+              </nav>
+            </div>
+          )}
         </div>
 
         {/* Footer */}
