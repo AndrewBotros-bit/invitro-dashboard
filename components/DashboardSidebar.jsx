@@ -1,15 +1,13 @@
 "use client";
 import { cn } from "@/lib/utils";
 
-// Top-level groups. "Investment Performance" deals with vehicles/LPs and
-// is portfolio-agnostic (the company picker doesn't apply). "Portfolio
-// Performance" drills into a specific company via the picker shown
-// alongside its tabs.
+// Top-level groups. Investment Performance covers vehicle/LP-level analysis
+// (portfolio-agnostic); Portfolio Performance drills into a specific company.
 //
-// Investment Performance currently has only IRR & Valuation, so it renders
-// as a single promoted item at the top with no group label — adding a
-// group header for one item would feel orphaned. Portfolio Performance
-// keeps its label since it contains a picker + 6 tabs.
+// Mental model: the operating tabs (Overview, Revenue, etc.) are NOT siblings
+// of the company picker — they're children. Clicking a company expands its
+// tabs as a nested dropdown. This makes "I'm drilled into AllRx, looking at
+// Revenue" one nested selection instead of two independent ones.
 const INVESTMENT_TABS = [
   { id: 'irr', label: 'IRR & Valuation', icon: '📈' },
 ];
@@ -23,16 +21,20 @@ const PORTFOLIO_TABS = [
   { id: 'insights', label: 'Insights', icon: '💡' },
 ];
 
-// Active sections that ignore the company picker. When one of these is
-// active, the picker dims and goes inert — preventing silent state mutation
-// (clicking AllRx on IRR would otherwise change selectedCompany invisibly,
-// surprising the user when they next visit a tab that uses it).
+// Sections that don't use the company picker. Used by the auto-switch:
+// clicking a company while on one of these sections also switches to a
+// portfolio-aware tab so the click has a visible consequence.
 const PICKER_AGNOSTIC_SECTIONS = new Set(['irr']);
+const FALLBACK_PORTFOLIO_TAB = 'overview';
 
-// Shared button class — gives 44px+ minimum height on mobile (Apple HIG)
-// while keeping desktop dense at ~36px.
+// Shared button styles. min-h-[44px] on mobile (Apple HIG); dense desktop.
 const NAV_BUTTON_BASE =
   "w-full flex items-center gap-2.5 px-3 rounded-lg text-sm font-medium transition-colors min-h-[44px] md:min-h-0 md:py-2 py-2.5";
+
+// Sub-nav (nested tabs under a selected company). Slightly tighter and
+// smaller to communicate hierarchy.
+const SUB_NAV_BUTTON =
+  "w-full flex items-center gap-2.5 px-3 rounded-md text-[13px] font-medium transition-colors min-h-[40px] md:min-h-0 md:py-1.5 py-2";
 
 export default function DashboardSidebar({
   activeSection,
@@ -52,7 +54,47 @@ export default function DashboardSidebar({
   const visibleInvestmentTabs = INVESTMENT_TABS.filter(s => canSeeTab(s.id));
   const visiblePortfolioTabs = PORTFOLIO_TABS.filter(s => canSeeTab(s.id));
   const showPortfolioGroup = visiblePortfolioTabs.length > 0;
-  const pickerInert = PICKER_AGNOSTIC_SECTIONS.has(activeSection);
+
+  // Picker click: select the company, AND if currently on a picker-agnostic
+  // section (IRR), auto-switch to a portfolio tab so the user actually sees
+  // the company they just drilled into. Without this, clicking AllRx on IRR
+  // would silently set selectedCompany but show no visible change.
+  const handlePickerClick = (companyName) => {
+    setSelectedCompany(companyName);
+    if (PICKER_AGNOSTIC_SECTIONS.has(activeSection)) {
+      const fallback = visiblePortfolioTabs.find(t => t.id === FALLBACK_PORTFOLIO_TAB)
+        || visiblePortfolioTabs[0];
+      if (fallback) setActiveSection(fallback.id);
+    }
+    setSidebarOpen(false);
+  };
+
+  const handleTabClick = (sectionId) => {
+    setActiveSection(sectionId);
+    setSidebarOpen(false);
+  };
+
+  // Renders the nested operating tabs under whichever company is currently
+  // selected (Consolidated when selectedCompany === null).
+  const renderNestedTabs = () => (
+    <div className="ml-3 mt-1 mb-2 border-l border-border/50 pl-2 space-y-0.5">
+      {visiblePortfolioTabs.map(s => (
+        <button
+          key={s.id}
+          onClick={() => handleTabClick(s.id)}
+          className={cn(
+            SUB_NAV_BUTTON,
+            activeSection === s.id
+              ? "bg-primary/10 text-primary"
+              : "text-muted-foreground hover:bg-muted hover:text-foreground"
+          )}
+        >
+          <span className="text-sm leading-none">{s.icon}</span>
+          <span>{s.label}</span>
+        </button>
+      ))}
+    </div>
+  );
 
   return (
     <>
@@ -80,101 +122,17 @@ export default function DashboardSidebar({
 
         {/* Navigation sections */}
         <div className="flex-1 overflow-y-auto py-4 px-3">
-          {/* Investment Performance — promoted standalone (no group label since
-              there's only one item; a header for one item feels orphaned). */}
+          {/* Group 1: Investment Performance */}
           {visibleInvestmentTabs.length > 0 && (
-            <nav className="space-y-0.5">
-              {visibleInvestmentTabs.map(s => (
-                <button
-                  key={s.id}
-                  onClick={() => { setActiveSection(s.id); setSidebarOpen(false); }}
-                  className={cn(
-                    NAV_BUTTON_BASE,
-                    activeSection === s.id
-                      ? "bg-primary/10 text-primary"
-                      : "text-muted-foreground hover:bg-muted hover:text-foreground"
-                  )}
-                >
-                  <span className="text-base leading-none">{s.icon}</span>
-                  <span>{s.label}</span>
-                </button>
-              ))}
-            </nav>
-          )}
-
-          {/* Group separator — only when both groups visible */}
-          {visibleInvestmentTabs.length > 0 && showPortfolioGroup && (
-            <div className="mx-2 my-4 border-t border-border" />
-          )}
-
-          {/* Portfolio Performance — company picker + drill-in tabs */}
-          {showPortfolioGroup && (
             <div>
               <p className="px-2 mb-2 text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
-                Portfolio Performance
+                Investment Performance
               </p>
-
-              {/* Company picker — dims and goes inert on picker-agnostic
-                  sections to communicate "filter doesn't apply here" and
-                  prevent silent state mutation. */}
-              <div
-                className={cn(
-                  "transition-opacity duration-200",
-                  pickerInert && "opacity-40 pointer-events-none"
-                )}
-                aria-disabled={pickerInert}
-                title={pickerInert ? "Company filter does not apply to this view" : undefined}
-              >
-                <nav className="space-y-0.5 mb-3">
-                  <button
-                    onClick={() => { setSelectedCompany(null); }}
-                    className={cn(
-                      NAV_BUTTON_BASE,
-                      !selectedCompany
-                        ? "text-foreground font-semibold"
-                        : "text-muted-foreground hover:bg-muted hover:text-foreground"
-                    )}
-                  >
-                    <span className={cn(
-                      "inline-block w-2 h-2 rounded-full",
-                      !selectedCompany ? "bg-primary" : "bg-muted-foreground/40"
-                    )} />
-                    <span>Consolidated</span>
-                  </button>
-                  {companies.map(name => {
-                    const isSelected = selectedCompany === name;
-                    return (
-                      <button
-                        key={name}
-                        onClick={() => { setSelectedCompany(name); }}
-                        className={cn(
-                          NAV_BUTTON_BASE,
-                          isSelected
-                            ? "font-semibold"
-                            : "text-muted-foreground hover:bg-muted hover:text-foreground"
-                        )}
-                        style={isSelected ? { color: colorMap[name] } : undefined}
-                      >
-                        <span
-                          className="inline-block w-2 h-2 rounded-full shrink-0"
-                          style={{ backgroundColor: colorMap[name] || '#94a3b8' }}
-                        />
-                        <span>{name}</span>
-                      </button>
-                    );
-                  })}
-                </nav>
-              </div>
-
-              {/* Subtle divider between picker and tabs — same group, different role */}
-              <div className="mx-2 my-2 border-t border-border/40" />
-
-              {/* Drill-in tabs — operate on whichever company is selected above */}
               <nav className="space-y-0.5">
-                {visiblePortfolioTabs.map(s => (
+                {visibleInvestmentTabs.map(s => (
                   <button
                     key={s.id}
-                    onClick={() => { setActiveSection(s.id); setSidebarOpen(false); }}
+                    onClick={() => handleTabClick(s.id)}
                     className={cn(
                       NAV_BUTTON_BASE,
                       activeSection === s.id
@@ -189,12 +147,75 @@ export default function DashboardSidebar({
               </nav>
             </div>
           )}
+
+          {/* Group separator */}
+          {visibleInvestmentTabs.length > 0 && showPortfolioGroup && (
+            <div className="mx-2 my-4 border-t border-border" />
+          )}
+
+          {/* Group 2: Portfolio Performance.
+              The picker doubles as a tree: the selected company expands
+              inline to reveal its operating tabs as nested sub-items. */}
+          {showPortfolioGroup && (
+            <div>
+              <p className="px-2 mb-2 text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
+                Portfolio Performance
+              </p>
+
+              <nav className="space-y-0.5">
+                {/* Consolidated row + (when selected) its nested tabs */}
+                <button
+                  onClick={() => handlePickerClick(null)}
+                  className={cn(
+                    NAV_BUTTON_BASE,
+                    !selectedCompany
+                      ? "text-foreground font-semibold"
+                      : "text-muted-foreground hover:bg-muted hover:text-foreground"
+                  )}
+                  aria-expanded={!selectedCompany}
+                >
+                  <span className={cn(
+                    "inline-block w-2 h-2 rounded-full",
+                    !selectedCompany ? "bg-primary" : "bg-muted-foreground/40"
+                  )} />
+                  <span>Consolidated</span>
+                </button>
+                {!selectedCompany && renderNestedTabs()}
+
+                {/* Per-company rows + (for the selected one) nested tabs */}
+                {companies.map(name => {
+                  const isSelected = selectedCompany === name;
+                  return (
+                    <div key={name}>
+                      <button
+                        onClick={() => handlePickerClick(name)}
+                        className={cn(
+                          NAV_BUTTON_BASE,
+                          isSelected
+                            ? "font-semibold"
+                            : "text-muted-foreground hover:bg-muted hover:text-foreground"
+                        )}
+                        style={isSelected ? { color: colorMap[name] } : undefined}
+                        aria-expanded={isSelected}
+                      >
+                        <span
+                          className="inline-block w-2 h-2 rounded-full shrink-0"
+                          style={{ backgroundColor: colorMap[name] || '#94a3b8' }}
+                        />
+                        <span>{name}</span>
+                      </button>
+                      {isSelected && renderNestedTabs()}
+                    </div>
+                  );
+                })}
+              </nav>
+            </div>
+          )}
         </div>
 
         {/* Footer — three zones with explicit dividers:
             (1) admin tools, (2) user identity + logout */}
         <div className="border-t border-border">
-          {/* Zone 1: admin tools (only renders if user has access) */}
           {(canBreakdown('auditConsole') || userRole === 'admin') && (
             <div className="px-3 pt-3 pb-1 space-y-0.5">
               {canBreakdown('auditConsole') && (
@@ -218,7 +239,6 @@ export default function DashboardSidebar({
             </div>
           )}
 
-          {/* Zone 2: user identity + logout */}
           {userName && (
             <div className="px-5 py-3 border-t border-border/60">
               <div className="flex items-center justify-between gap-2">
@@ -240,7 +260,7 @@ export default function DashboardSidebar({
         </div>
       </aside>
 
-      {/* Mobile toggle button */}
+      {/* Mobile toggle */}
       <button
         onClick={() => setSidebarOpen(!sidebarOpen)}
         className="fixed top-4 left-4 z-50 md:hidden flex h-11 w-11 items-center justify-center rounded-lg bg-white border border-border shadow-sm"
