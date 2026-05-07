@@ -5,6 +5,11 @@ import { cn } from "@/lib/utils";
 // is portfolio-agnostic (the company picker doesn't apply). "Portfolio
 // Performance" drills into a specific company via the picker shown
 // alongside its tabs.
+//
+// Investment Performance currently has only IRR & Valuation, so it renders
+// as a single promoted item at the top with no group label — adding a
+// group header for one item would feel orphaned. Portfolio Performance
+// keeps its label since it contains a picker + 6 tabs.
 const INVESTMENT_TABS = [
   { id: 'irr', label: 'IRR & Valuation', icon: '📈' },
 ];
@@ -17,6 +22,17 @@ const PORTFOLIO_TABS = [
   { id: 'cashflow', label: 'Cash Flow', icon: '🏦' },
   { id: 'insights', label: 'Insights', icon: '💡' },
 ];
+
+// Active sections that ignore the company picker. When one of these is
+// active, the picker dims and goes inert — preventing silent state mutation
+// (clicking AllRx on IRR would otherwise change selectedCompany invisibly,
+// surprising the user when they next visit a tab that uses it).
+const PICKER_AGNOSTIC_SECTIONS = new Set(['irr']);
+
+// Shared button class — gives 44px+ minimum height on mobile (Apple HIG)
+// while keeping desktop dense at ~36px.
+const NAV_BUTTON_BASE =
+  "w-full flex items-center gap-2.5 px-3 rounded-lg text-sm font-medium transition-colors min-h-[44px] md:min-h-0 md:py-2 py-2.5";
 
 export default function DashboardSidebar({
   activeSection,
@@ -36,6 +52,8 @@ export default function DashboardSidebar({
   const visibleInvestmentTabs = INVESTMENT_TABS.filter(s => canSeeTab(s.id));
   const visiblePortfolioTabs = PORTFOLIO_TABS.filter(s => canSeeTab(s.id));
   const showPortfolioGroup = visiblePortfolioTabs.length > 0;
+  const pickerInert = PICKER_AGNOSTIC_SECTIONS.has(activeSection);
+
   return (
     <>
       {/* Mobile overlay */}
@@ -60,75 +78,96 @@ export default function DashboardSidebar({
           </div>
         </div>
 
-        {/* Navigation sections — two top-level groups */}
+        {/* Navigation sections */}
         <div className="flex-1 overflow-y-auto py-4 px-3">
-          {/* Group 1: Investment Performance (vehicle / LP lens) */}
+          {/* Investment Performance — promoted standalone (no group label since
+              there's only one item; a header for one item feels orphaned). */}
           {visibleInvestmentTabs.length > 0 && (
-            <div>
-              <p className="px-2 mb-2 text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
-                Investment Performance
-              </p>
-              <nav className="space-y-0.5">
-                {visibleInvestmentTabs.map(s => (
-                  <button
-                    key={s.id}
-                    onClick={() => { setActiveSection(s.id); setSidebarOpen(false); }}
-                    className={cn(
-                      "w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm font-medium transition-colors",
-                      activeSection === s.id
-                        ? "bg-primary/10 text-primary"
-                        : "text-muted-foreground hover:bg-muted hover:text-foreground"
-                    )}
-                  >
-                    <span className="text-base leading-none">{s.icon}</span>
-                    <span>{s.label}</span>
-                  </button>
-                ))}
-              </nav>
-            </div>
-          )}
-
-          {/* Group 2: Portfolio Performance — company picker + drill-in tabs */}
-          {showPortfolioGroup && (
-            <div className={cn(visibleInvestmentTabs.length > 0 && "mt-6")}>
-              <p className="px-2 mb-2 text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
-                Portfolio Performance
-              </p>
-
-              {/* Company picker — drives what the tabs below show */}
-              <nav className="space-y-0.5 mb-3">
+            <nav className="space-y-0.5">
+              {visibleInvestmentTabs.map(s => (
                 <button
-                  onClick={() => { setSelectedCompany(null); }}
+                  key={s.id}
+                  onClick={() => { setActiveSection(s.id); setSidebarOpen(false); }}
                   className={cn(
-                    "w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm font-medium transition-colors",
-                    !selectedCompany
+                    NAV_BUTTON_BASE,
+                    activeSection === s.id
                       ? "bg-primary/10 text-primary"
                       : "text-muted-foreground hover:bg-muted hover:text-foreground"
                   )}
                 >
-                  <span className="inline-block w-2 h-2 rounded-full bg-primary"></span>
-                  <span>Consolidated</span>
+                  <span className="text-base leading-none">{s.icon}</span>
+                  <span>{s.label}</span>
                 </button>
-                {companies.map(name => (
+              ))}
+            </nav>
+          )}
+
+          {/* Group separator — only when both groups visible */}
+          {visibleInvestmentTabs.length > 0 && showPortfolioGroup && (
+            <div className="mx-2 my-4 border-t border-border" />
+          )}
+
+          {/* Portfolio Performance — company picker + drill-in tabs */}
+          {showPortfolioGroup && (
+            <div>
+              <p className="px-2 mb-2 text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
+                Portfolio Performance
+              </p>
+
+              {/* Company picker — dims and goes inert on picker-agnostic
+                  sections to communicate "filter doesn't apply here" and
+                  prevent silent state mutation. */}
+              <div
+                className={cn(
+                  "transition-opacity duration-200",
+                  pickerInert && "opacity-40 pointer-events-none"
+                )}
+                aria-disabled={pickerInert}
+                title={pickerInert ? "Company filter does not apply to this view" : undefined}
+              >
+                <nav className="space-y-0.5 mb-3">
                   <button
-                    key={name}
-                    onClick={() => { setSelectedCompany(name); }}
+                    onClick={() => { setSelectedCompany(null); }}
                     className={cn(
-                      "w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm font-medium transition-colors",
-                      selectedCompany === name
-                        ? "text-foreground"
+                      NAV_BUTTON_BASE,
+                      !selectedCompany
+                        ? "text-foreground font-semibold"
                         : "text-muted-foreground hover:bg-muted hover:text-foreground"
                     )}
-                    style={selectedCompany === name ? { backgroundColor: `${colorMap[name]}15`, color: colorMap[name] } : {}}
                   >
-                    <span className="inline-block w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: colorMap[name] || '#94a3b8' }}></span>
-                    <span>{name}</span>
+                    <span className={cn(
+                      "inline-block w-2 h-2 rounded-full",
+                      !selectedCompany ? "bg-primary" : "bg-muted-foreground/40"
+                    )} />
+                    <span>Consolidated</span>
                   </button>
-                ))}
-              </nav>
+                  {companies.map(name => {
+                    const isSelected = selectedCompany === name;
+                    return (
+                      <button
+                        key={name}
+                        onClick={() => { setSelectedCompany(name); }}
+                        className={cn(
+                          NAV_BUTTON_BASE,
+                          isSelected
+                            ? "font-semibold"
+                            : "text-muted-foreground hover:bg-muted hover:text-foreground"
+                        )}
+                        style={isSelected ? { color: colorMap[name] } : undefined}
+                      >
+                        <span
+                          className="inline-block w-2 h-2 rounded-full shrink-0"
+                          style={{ backgroundColor: colorMap[name] || '#94a3b8' }}
+                        />
+                        <span>{name}</span>
+                      </button>
+                    );
+                  })}
+                </nav>
+              </div>
 
-              {/* Divider between picker and tabs — same group, different role */}
-              <div className="mx-2 my-2 border-t border-border/60" />
+              {/* Subtle divider between picker and tabs — same group, different role */}
+              <div className="mx-2 my-2 border-t border-border/40" />
 
               {/* Drill-in tabs — operate on whichever company is selected above */}
               <nav className="space-y-0.5">
@@ -137,7 +176,7 @@ export default function DashboardSidebar({
                     key={s.id}
                     onClick={() => { setActiveSection(s.id); setSidebarOpen(false); }}
                     className={cn(
-                      "w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm font-medium transition-colors",
+                      NAV_BUTTON_BASE,
                       activeSection === s.id
                         ? "bg-primary/10 text-primary"
                         : "text-muted-foreground hover:bg-muted hover:text-foreground"
@@ -152,35 +191,50 @@ export default function DashboardSidebar({
           )}
         </div>
 
-        {/* Footer */}
-        <div className="border-t border-border px-3 py-3 space-y-1">
-          {canBreakdown('auditConsole') && (
-            <a
-              href="/audit"
-              className="flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm font-medium text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
-            >
-              <span className="text-base leading-none">🔍</span>
-              <span>Audit Console</span>
-            </a>
+        {/* Footer — three zones with explicit dividers:
+            (1) admin tools, (2) user identity + logout */}
+        <div className="border-t border-border">
+          {/* Zone 1: admin tools (only renders if user has access) */}
+          {(canBreakdown('auditConsole') || userRole === 'admin') && (
+            <div className="px-3 pt-3 pb-1 space-y-0.5">
+              {canBreakdown('auditConsole') && (
+                <a
+                  href="/audit"
+                  className="flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm font-medium text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
+                >
+                  <span className="text-base leading-none">🔍</span>
+                  <span>Audit Console</span>
+                </a>
+              )}
+              {userRole === 'admin' && (
+                <a
+                  href="/admin/users"
+                  className="flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm font-medium text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
+                >
+                  <span className="text-base leading-none">👥</span>
+                  <span>User Management</span>
+                </a>
+              )}
+            </div>
           )}
-          {userRole === 'admin' && (
-            <a
-              href="/admin/users"
-              className="flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm font-medium text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
-            >
-              <span className="text-base leading-none">👥</span>
-              <span>User Management</span>
-            </a>
-          )}
+
+          {/* Zone 2: user identity + logout */}
           {userName && (
-            <div className="flex items-center justify-between px-3 py-2">
-              <span className="text-xs text-muted-foreground truncate">{userName}</span>
-              <button
-                onClick={async () => { await fetch('/api/auth/logout', { method: 'POST' }); window.location.href = '/login'; }}
-                className="text-[10px] text-red-500 hover:text-red-700 font-medium"
-              >
-                Logout
-              </button>
+            <div className="px-5 py-3 border-t border-border/60">
+              <div className="flex items-center justify-between gap-2">
+                <div className="min-w-0">
+                  <p className="text-xs font-medium text-foreground truncate">{userName}</p>
+                  {userRole && (
+                    <p className="text-[10px] text-muted-foreground capitalize">{userRole}</p>
+                  )}
+                </div>
+                <button
+                  onClick={async () => { await fetch('/api/auth/logout', { method: 'POST' }); window.location.href = '/login'; }}
+                  className="text-[10px] font-medium text-muted-foreground hover:text-foreground transition-colors px-2 py-1 rounded hover:bg-muted"
+                >
+                  Logout
+                </button>
+              </div>
             </div>
           )}
         </div>
@@ -189,9 +243,10 @@ export default function DashboardSidebar({
       {/* Mobile toggle button */}
       <button
         onClick={() => setSidebarOpen(!sidebarOpen)}
-        className="fixed top-4 left-4 z-50 md:hidden flex h-9 w-9 items-center justify-center rounded-lg bg-white border border-border shadow-sm"
+        className="fixed top-4 left-4 z-50 md:hidden flex h-11 w-11 items-center justify-center rounded-lg bg-white border border-border shadow-sm"
+        aria-label="Toggle sidebar"
       >
-        <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M2 4h12M2 8h12M2 12h12" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/></svg>
+        <svg width="18" height="18" viewBox="0 0 16 16" fill="none"><path d="M2 4h12M2 8h12M2 12h12" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/></svg>
       </button>
     </>
   );
