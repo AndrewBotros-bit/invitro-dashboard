@@ -202,6 +202,13 @@ export default function IRRValuation({ data, user }) {
                     </TableHeader>
                     <TableBody>
                       {cos.map(({ co, inv, cumInv, own, valuation }) => {
+                        // InVitro Studio is the parent venture studio entity —
+                        // its valuation derives from the very portfolio companies
+                        // each vehicle already holds stakes in. Showing a stake
+                        // value here would double-count against the vehicle's
+                        // actual ownership total. Investment columns stay live
+                        // (real cash flowed); valuation/stake suppressed.
+                        const isParentStudio = co.name === 'InVitro Studio';
                         const stakeValue = (own / 100) * valuation;
                         return (
                           <TableRow key={co.name}>
@@ -209,8 +216,18 @@ export default function IRRValuation({ data, user }) {
                             <TableCell className="text-right tabular-nums">{fmt(inv)}</TableCell>
                             <TableCell className="text-right tabular-nums font-medium">{fmt(cumInv)}</TableCell>
                             <TableCell className="text-right tabular-nums">{own.toFixed(1)}%</TableCell>
-                            <TableCell className="text-right tabular-nums">{fmt(stakeValue)}</TableCell>
-                            <TableCell className="text-right tabular-nums">{fmt(valuation)}</TableCell>
+                            <TableCell className={cn(
+                              "text-right tabular-nums",
+                              isParentStudio && "text-muted-foreground"
+                            )}>
+                              {isParentStudio ? '—' : fmt(stakeValue)}
+                            </TableCell>
+                            <TableCell className={cn(
+                              "text-right tabular-nums",
+                              isParentStudio && "text-muted-foreground"
+                            )}>
+                              {isParentStudio ? '—' : fmt(valuation)}
+                            </TableCell>
                           </TableRow>
                         );
                       })}
