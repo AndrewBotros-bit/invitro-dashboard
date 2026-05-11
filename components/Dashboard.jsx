@@ -136,6 +136,75 @@ function ComparisonBadge({ current, compValue, compLabel, invertColor = false })
   );
 }
 
+/**
+ * ComparisonBarChart — two side-by-side bar charts for "this period vs that
+ * period." Used when the user toggles Compare on, regardless of whether the
+ * range is a single month or multiple months. Each chart aggregates each
+ * company's $ for its period, so visual scale is directly comparable across
+ * the two panels (shared maxVal sets the same Y-axis ceiling).
+ *
+ * Why side-by-side instead of grouped bars: at 5 companies and two periods,
+ * a grouped bar chart gets visually noisy (10 bars + spacing competition).
+ * Two panels keep each chart simple — 5 bars apiece — and the eye does the
+ * comparison by glancing left-to-right.
+ */
+function ComparisonBarChart({ title, companies, currentData, currentLabel, compData, compLabel, colorMap, formatter = fmt }) {
+  // Find the shared max across both periods so the two charts use the
+  // same Y-axis ceiling — otherwise bars of equal $ values would render
+  // at different heights in each panel, defeating visual comparison.
+  const maxVal = Math.max(
+    ...currentData.map(d => Math.abs(d.value ?? 0)),
+    ...compData.map(d => Math.abs(d.value ?? 0)),
+    1
+  );
+  const curTotal = currentData.reduce((s, d) => s + (d.value ?? 0), 0);
+  const compTotal = compData.reduce((s, d) => s + (d.value ?? 0), 0);
+  const totalPct = compTotal !== 0 ? ((curTotal - compTotal) / Math.abs(compTotal) * 100).toFixed(1) : null;
+  const totalUp = totalPct !== null && Number(totalPct) >= 0;
+
+  const renderPanel = (data, label, total) => (
+    <div>
+      <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground mb-1">{label}</p>
+      <p className="text-base font-bold tabular-nums mb-2">{formatter(total)}</p>
+      <ResponsiveContainer width="100%" height={200}>
+        <BarChart data={data} margin={{ top: 4, right: 4, left: -16, bottom: 0 }}>
+          <CartesianGrid strokeDasharray="3 3" stroke={CHART_STYLE.border} vertical={false} />
+          <XAxis dataKey="name" tick={{ fill: CHART_STYLE.muted, fontSize: 10 }} interval={0} angle={0} />
+          <YAxis tick={{ fill: CHART_STYLE.muted, fontSize: 10 }} tickFormatter={fmtShort} domain={[0, maxVal]} />
+          <Tooltip
+            cursor={{ fill: 'rgba(0,0,0,0.04)' }}
+            formatter={(v) => formatter(v)}
+            labelStyle={{ fontSize: 11, color: '#475569' }}
+            contentStyle={{ fontSize: 11, borderRadius: 6, border: '1px solid #e2e8f0', padding: '6px 8px' }}
+          />
+          <Bar dataKey="value" radius={[4, 4, 0, 0]} maxBarSize={48}>
+            {data.map(d => <Cell key={d.name} fill={colorMap[d.name] || '#94a3b8'} />)}
+          </Bar>
+        </BarChart>
+      </ResponsiveContainer>
+    </div>
+  );
+
+  return (
+    <Card>
+      <CardHeader className="flex flex-row items-center justify-between">
+        <CardTitle className="text-sm">{title}</CardTitle>
+        {totalPct !== null && (
+          <span className={`text-xs font-semibold ${totalUp ? 'text-emerald-600' : 'text-red-500'}`}>
+            {totalUp ? '▲' : '▼'} {Math.abs(Number(totalPct))}%
+          </span>
+        )}
+      </CardHeader>
+      <CardContent>
+        <div className="grid grid-cols-2 gap-4">
+          {renderPanel(currentData, currentLabel, curTotal)}
+          {renderPanel(compData, compLabel, compTotal)}
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
 function KPICard({ title, value, subtitle, trend, trendUp, comparison }) {
   // Compact KPI card. Sized for 5+ cards per row on desktop (min-w-[170px])
   // and wraps gracefully on narrower viewports. Each size knob is balanced:
@@ -943,27 +1012,43 @@ export default function InVitroDashboard({ data, user }) {
                 comparison={compareEnabled && <ComparisonBadge current={totalOpsCF} compValue={(() => { const cfKey = selectedCompany ? 'Operational Cash Flow' : 'Holdings net cash movement'; for (const co of (data.cashflow||[])) { const m = co.metrics?.[cfKey]; if (m) { return m.filter(v => { const vi = v.year*100+v.month; return vi >= compRange.from.year*100+compRange.from.month && vi <= compRange.to.year*100+compRange.to.month; }).reduce((s,v) => s+(v.value??0), 0); } } return 0; })()} compLabel={compLabel} />} />
             </div>
 
-            {/* Single-month + compare: show scorecards instead of tiny bar charts */}
-            {compareEnabled && revenueByMonthWithTotal.length === 1 ? (
+            {/* Compare mode: side-by-side bar charts per period (works for
+                both single-month and multi-month — aggregates the comparison
+                period's $ per company). Andrew prefers the bar form over the
+                horizontal scorecard or the stacked-monthly-trend chart.
+                When compare is OFF and the range is multi-month, we keep
+                the monthly trend chart below (still useful for showing the
+                shape of revenue over time). */}
+            {compareEnabled ? (
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-8">
-                <ComparisonScorecard
+                <ComparisonBarChart
                   title={`Revenue Comparison — ${rangeLabel} vs ${compLabel}`}
                   companies={revenueCompanies}
-                  currentData={revenueCompanies.map(name => ({ name, value: revenueByMonthWithTotal[0]?.[name] ?? 0 }))}
-                  compData={revenueCompanies.map(name => {
-                    const compPoint = compRevenueByMonth[0];
-                    return { name, value: compPoint?.[name] ?? 0 };
-                  })}
+                  currentData={revenueCompanies.map(name => ({
+                    name,
+                    value: revenueByMonthWithTotal.reduce((s, p) => s + (p[name] ?? 0), 0),
+                  }))}
+                  currentLabel={rangeLabel}
+                  compData={revenueCompanies.map(name => ({
+                    name,
+                    value: compRevenueByMonth.reduce((s, p) => s + (p[name] ?? 0), 0),
+                  }))}
+                  compLabel={compLabel}
                   colorMap={colorMap}
                 />
-                <ComparisonScorecard
+                <ComparisonBarChart
                   title={`EBITDA Comparison — ${rangeLabel} vs ${compLabel}`}
                   companies={allCompanyNames}
-                  currentData={allCompanyNames.map(name => ({ name, value: ebitdaByMonthWithTotal[0]?.[name] ?? 0 }))}
-                  compData={allCompanyNames.map(name => {
-                    const compPoint = compEbitdaByMonth[0];
-                    return { name, value: compPoint?.[name] ?? 0 };
-                  })}
+                  currentData={allCompanyNames.map(name => ({
+                    name,
+                    value: ebitdaByMonthWithTotal.reduce((s, p) => s + (p[name] ?? 0), 0),
+                  }))}
+                  currentLabel={rangeLabel}
+                  compData={allCompanyNames.map(name => ({
+                    name,
+                    value: compEbitdaByMonth.reduce((s, p) => s + (p[name] ?? 0), 0),
+                  }))}
+                  compLabel={compLabel}
                   colorMap={colorMap}
                 />
               </div>
