@@ -1277,6 +1277,28 @@ export default function InVitroDashboard({ data, user }) {
               })}
             </div>
 
+            {/* When Compare is on: side-by-side bar charts per period
+                (aggregated $ per company per period). Otherwise: monthly
+                stacked-bar trend chart (good for shape-over-time view). */}
+            {compareEnabled ? (
+              <div className="mb-5">
+                <ComparisonBarChart
+                  title={`Revenue Comparison — ${rangeLabel} vs ${compLabel}`}
+                  companies={revenueCompanies}
+                  currentData={revenueCompanies.map(name => ({
+                    name,
+                    value: revenueByMonthWithTotal.reduce((s, p) => s + (p[name] ?? 0), 0),
+                  }))}
+                  currentLabel={rangeLabel}
+                  compData={revenueCompanies.map(name => ({
+                    name,
+                    value: compRevenueByMonth.reduce((s, p) => s + (p[name] ?? 0), 0),
+                  }))}
+                  compLabel={compLabel}
+                  colorMap={colorMap}
+                />
+              </div>
+            ) : (
             <Card className="mb-5">
               <CardHeader><CardTitle className="text-sm">{viewMode === 'yearly' ? 'Yearly' : 'Monthly'} Revenue by Company ({rangeLabel}){data.revenueDetails && selectedCompany ? ' — click a bar for breakdown' : ''}</CardTitle></CardHeader>
               <CardContent>
@@ -1307,12 +1329,12 @@ export default function InVitroDashboard({ data, user }) {
                         radius={i === revenueCompanies.length - 1 ? [4, 4, 0, 0] : [0, 0, 0, 0]} />
                     ))}
                     <Line type="monotone" dataKey="Total" stroke={CHART_STYLE.totalLine} strokeWidth={2} dot={false} />
-                    {compareEnabled && <Line type="monotone" dataKey="Total_comp" stroke={CHART_STYLE.totalLine} strokeWidth={1.5} strokeDasharray="6 3" dot={false} name={`Total (${compLabel})`} />}
                     <Legend />
                   </ComposedChart>
                 </ResponsiveContainer>
               </CardContent>
             </Card>
+            )}
 
             <Card>
               <CardHeader><CardTitle className="text-sm">Revenue Mix ({rangeLabel}) &mdash; excl. Holdings</CardTitle></CardHeader>
@@ -1794,7 +1816,28 @@ export default function InVitroDashboard({ data, user }) {
               )}
             </div>
 
-            {/* Chart always full-width, breakdown in bottom drawer */}
+            {/* Chart: when Compare is on, swap to side-by-side panels per
+                period (same pattern as Overview/Revenue). Otherwise keep
+                the monthly stacked-bar with click-to-drill behavior. */}
+            {compareEnabled ? (
+              <div className="mb-5">
+                <ComparisonBarChart
+                  title={`Expenses Comparison — ${rangeLabel} vs ${compLabel}`}
+                  companies={expenseChartCompanies}
+                  currentData={expenseChartCompanies.map(name => ({
+                    name,
+                    value: expenseByMonthWithTotal.reduce((s, p) => s + (p[name] ?? 0), 0),
+                  }))}
+                  currentLabel={rangeLabel}
+                  compData={expenseChartCompanies.map(name => ({
+                    name,
+                    value: compExpenseByMonth.reduce((s, p) => s + Math.abs(p[name] ?? 0), 0),
+                  }))}
+                  compLabel={compLabel}
+                  colorMap={colorMap}
+                />
+              </div>
+            ) : (
             <Card className="mb-5">
               <CardHeader><CardTitle className="text-sm">{viewMode === 'yearly' ? 'Yearly' : 'Monthly'} Expenses ({rangeLabel}) &mdash; click a bar for breakdown</CardTitle></CardHeader>
               <CardContent>
@@ -1822,12 +1865,12 @@ export default function InVitroDashboard({ data, user }) {
                         radius={i === expenseChartCompanies.length - 1 ? [4, 4, 0, 0] : [0, 0, 0, 0]} />
                     ))}
                     <Line type="monotone" dataKey="Total" stroke={CHART_STYLE.totalLine} strokeWidth={2} dot={false} />
-                    {compareEnabled && <Line type="monotone" dataKey="Total_comp" stroke={CHART_STYLE.totalLine} strokeWidth={1.5} strokeDasharray="6 3" dot={false} name={`Total (${compLabel})`} />}
                     <Legend />
                   </ComposedChart>
                 </ResponsiveContainer>
               </CardContent>
             </Card>
+            )}
 
             {/* Expense breakdown drawer */}
             {canBreakdown('expenseDrilldown', selectedCompany) && <Drawer open={!!expenseDrilldown} onOpenChange={(open) => { if (!open) setExpenseDrilldown(null); }}>
