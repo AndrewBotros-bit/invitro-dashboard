@@ -902,13 +902,26 @@ export default function InVitroDashboard({ data, user }) {
           {/* ────── OVERVIEW ────── */}
           {activeSection === 'overview' && (<>
             {/* KPI strip — ordered left-to-right to narrate the P&L:
-                Revenue → Expenses → Gross Profit → EBITDA → Operational Cash Flow.
+                Revenue → Gross Profit → Expenses → EBITDA → Operational Cash Flow.
                 Each card pairs $ value (primary) with a context line below
                 (margin %, % of revenue, runway months — whatever's most
                 informative for that metric). */}
             <div className="flex flex-wrap gap-4 mb-6">
               <KPICard title={`Revenue — ${rangeLabel}`} value={fmt(rangeRevenue)} subtitle="excl. holdings"
                 comparison={compareEnabled && <ComparisonBadge current={rangeRevenue} compValue={rangeTotal(data.pnl, 'Revenues', compRange.from, compRange.to, dynExcludeRevenue)} compLabel={compLabel} />} />
+
+              {/* Gross Profit + Gross Margin — folded into one card.
+                  Mirrors the Company Performance table treatment:
+                  $ value primary, % derivation as subtitle.
+                  NOTE: rangeGrossMargin is a *fraction* (e.g. 0.7276); the
+                  pct() helper would multiply, but we want "X.X% margin" with
+                  custom formatting, so we * 100 explicitly here. */}
+              <KPICard title={`Gross Profit — ${rangeLabel}`} value={fmt(rangeGrossProfit)}
+                subtitle={rangeGrossMargin !== null && rangeRevenue > 0 ? `${(rangeGrossMargin * 100).toFixed(1)}% margin` : ''}
+                comparison={compareEnabled && (() => {
+                  const compGP = consolidatedGPRange(compRange.from, compRange.to, dynExcludeRevenue);
+                  return <ComparisonBadge current={rangeGrossProfit} compValue={compGP} compLabel={compLabel} />;
+                })()} />
 
               {/* Expenses: total opex for the range, shown as a positive
                   magnitude (rangeExpenses is stored negative on the P&L).
@@ -922,16 +935,6 @@ export default function InVitroDashboard({ data, user }) {
                   compLabel={compLabel}
                   invertColor
                 />} />
-
-              {/* Gross Profit + Gross Margin — folded into one card.
-                  Mirrors the Company Performance table treatment:
-                  $ value primary, % derivation as subtitle. */}
-              <KPICard title={`Gross Profit — ${rangeLabel}`} value={fmt(rangeGrossProfit)}
-                subtitle={rangeGrossMargin !== null && rangeRevenue > 0 ? `${rangeGrossMargin.toFixed(1)}% margin` : ''}
-                comparison={compareEnabled && (() => {
-                  const compGP = consolidatedGPRange(compRange.from, compRange.to, dynExcludeRevenue);
-                  return <ComparisonBadge current={rangeGrossProfit} compValue={compGP} compLabel={compLabel} />;
-                })()} />
 
               <KPICard title={`EBITDA — ${rangeLabel}`} value={fmt(rangeEbitda)} subtitle={rangeRevenue > 0 ? (rangeEbitda / rangeRevenue * 100).toFixed(0) + '% margin' : ''}
                 comparison={compareEnabled && <ComparisonBadge current={rangeEbitda} compValue={rangeTotal(data.pnl, 'EBITDA', compRange.from, compRange.to, dynExcludeEbitda)} compLabel={compLabel} />} />
