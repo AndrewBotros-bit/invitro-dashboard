@@ -119,13 +119,17 @@ function ComparisonScorecard({ title, companies, currentData, compData, colorMap
   );
 }
 
-function ComparisonBadge({ current, compValue, compLabel }) {
+function ComparisonBadge({ current, compValue, compLabel, invertColor = false }) {
   if (!compValue || compValue === 0 || current == null) return null;
   const pct = ((current - compValue) / Math.abs(compValue) * 100).toFixed(1);
   const up = Number(pct) >= 0;
+  // For metrics where "up" is bad (expenses, burn rate), flip the color sense:
+  // an increase renders red, a decrease renders green. Arrow direction stays
+  // semantic (▲ still means "went up"); only the color flips.
+  const isGood = invertColor ? !up : up;
   return (
     <div className="mt-1">
-      <span className={`text-[10px] font-medium ${up ? 'text-emerald-600' : 'text-red-500'}`}>
+      <span className={`text-[10px] font-medium ${isGood ? 'text-emerald-600' : 'text-red-500'}`}>
         {up ? '▲' : '▼'} {Math.abs(Number(pct))}% vs {compLabel}
       </span>
     </div>
@@ -133,18 +137,21 @@ function ComparisonBadge({ current, compValue, compLabel }) {
 }
 
 function KPICard({ title, value, subtitle, trend, trendUp, comparison }) {
+  // Compact KPI card. Sized for 5+ cards per row on desktop (min-w-[170px])
+  // and wraps gracefully on narrower viewports. Each size knob is balanced:
+  // tighter width \u2192 smaller value text \u2192 tighter padding.
   return (
-    <Card className="flex-1 min-w-[220px] gap-2 py-4 shadow-sm hover:shadow-md transition-shadow">
-      <CardContent className="space-y-1 px-5">
-        <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">{title}</p>
-        <p className="text-2xl font-bold tracking-tight text-foreground">{value}</p>
-        <div className="flex items-center gap-2">
+    <Card className="flex-1 min-w-[170px] gap-1 py-3 shadow-sm hover:shadow-md transition-shadow">
+      <CardContent className="space-y-1 px-4">
+        <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground leading-tight">{title}</p>
+        <p className="text-xl font-bold tracking-tight text-foreground">{value}</p>
+        <div className="flex items-center gap-1.5 flex-wrap">
           {trend && (
-            <span className={`text-[11px] font-semibold ${trendUp ? "text-emerald-600" : "text-red-500"}`}>
+            <span className={`text-[10px] font-semibold ${trendUp ? "text-emerald-600" : "text-red-500"}`}>
               {trendUp ? "\u25B2" : "\u25BC"} {trend}
             </span>
           )}
-          {subtitle && <span className="text-[11px] text-muted-foreground">{subtitle}</span>}
+          {subtitle && <span className="text-[10px] text-muted-foreground">{subtitle}</span>}
         </div>
         {comparison}
       </CardContent>
@@ -903,6 +910,18 @@ export default function InVitroDashboard({ data, user }) {
                 comparison={compareEnabled && <ComparisonBadge current={totalOpsCF} compValue={(() => { const cfKey = selectedCompany ? 'Operational Cash Flow' : 'Holdings net cash movement'; for (const co of (data.cashflow||[])) { const m = co.metrics?.[cfKey]; if (m) { return m.filter(v => { const vi = v.year*100+v.month; return vi >= compRange.from.year*100+compRange.from.month && vi <= compRange.to.year*100+compRange.to.month; }).reduce((s,v) => s+(v.value??0), 0); } } return 0; })()} compLabel={compLabel} />} />
               <KPICard title={`Gross Margin — ${rangeLabel}`} value={pct(rangeGrossMargin)} subtitle="portfolio weighted"
                 comparison={compareEnabled && (() => { const compRev = rangeTotal(data.pnl, 'Revenues', compRange.from, compRange.to, dynExcludeRevenue); const compGP = consolidatedGPRange(compRange.from, compRange.to, dynExcludeRevenue); const compGM = compRev > 0 ? compGP / compRev * 100 : 0; return <ComparisonBadge current={rangeGrossMargin} compValue={compGM} compLabel={compLabel} />; })()} />
+              {/* Expenses: total opex for the range, shown as a positive
+                  magnitude (rangeExpenses is stored negative on the P&L).
+                  Subtitle expresses cost intensity as % of revenue — a more
+                  useful framing than a raw $ in isolation. */}
+              <KPICard title={`Expenses — ${rangeLabel}`} value={fmt(Math.abs(rangeExpenses))}
+                subtitle={rangeRevenue > 0 ? `${(Math.abs(rangeExpenses) / rangeRevenue * 100).toFixed(0)}% of revenue` : ''}
+                comparison={compareEnabled && <ComparisonBadge
+                  current={Math.abs(rangeExpenses)}
+                  compValue={Math.abs(rangeTotal(data.pnl, selectedCompany ? 'SG&A + R&D Expenses' : 'Total Expenses', compRange.from, compRange.to, selectedCompany ? [...EXCLUDE_ALWAYS.filter(n => n !== selectedCompany)] : dynExcludeEbitda))}
+                  compLabel={compLabel}
+                  invertColor /* expenses going UP is bad — flip the color sense */
+                />} />
             </div>
 
             {/* Single-month + compare: show scorecards instead of tiny bar charts */}
