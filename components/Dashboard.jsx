@@ -662,15 +662,26 @@ export default function InVitroDashboard({ data, user }) {
     .filter(c => c.value > 0)
     .sort((a, b) => b.value - a.value);
 
-  // Expense range totals (depend on inRange)
-  const rangeExpenses = (() => {
+  // Expense total for an arbitrary [from, to] window. Same source as the
+  // current-period rangeExpenses below, so current and comparison values
+  // are computed by the SAME logic — avoiding the asymmetric-sourcing bug
+  // where rangeTotal() on 'Total Expenses' returns 0 because it skips the
+  // 'ALL Holdings' aggregate entity (which is the only entity carrying
+  // that metric). Always returns a signed value (negative on the P&L);
+  // callers Math.abs() when they want magnitude.
+  const expensesInRange = (from, to) => {
+    const inWindow = (v) => {
+      const vi = v.year * 100 + v.month;
+      return vi >= from.year * 100 + from.month && vi <= to.year * 100 + to.month;
+    };
     if (selectedCompany) {
       const co = data.pnl.find(c => c.name === selectedCompany);
-      return getCompanyExpenseValues(co).filter(inRange).reduce((s, v) => s + (v.value ?? 0), 0);
+      return getCompanyExpenseValues(co).filter(inWindow).reduce((s, v) => s + (v.value ?? 0), 0);
     }
     const allH = data.pnl.find(c => c.name === 'ALL Holdings');
-    return (allH?.metrics['Total Expenses'] ?? []).filter(inRange).reduce((s, v) => s + (v.value ?? 0), 0);
-  })();
+    return (allH?.metrics['Total Expenses'] ?? []).filter(inWindow).reduce((s, v) => s + (v.value ?? 0), 0);
+  };
+  const rangeExpenses = expensesInRange(rangeFrom, rangeTo);
   const avgMonthlyExpense = monthCount > 0 ? rangeExpenses / monthCount : 0;
 
   // Cash runway from consolidated sheet row 180 (only for consolidated view)
@@ -995,12 +1006,16 @@ export default function InVitroDashboard({ data, user }) {
               {/* Expenses: total opex for the range, shown as a positive
                   magnitude (rangeExpenses is stored negative on the P&L).
                   Subtitle = cost intensity as % of revenue. invertColor on
-                  the comparison badge so "up vs prior" renders red. */}
+                  the comparison badge so "up vs prior" renders red.
+                  Compare value uses expensesInRange() — same source as
+                  rangeExpenses — so the periods are symmetrically sourced
+                  (rangeTotal would return 0 for the consolidated case
+                  because ALL Holdings is excluded from its scan). */}
               <KPICard title={`Expenses — ${rangeLabel}`} value={fmt(Math.abs(rangeExpenses))}
                 subtitle={rangeRevenue > 0 ? `${(Math.abs(rangeExpenses) / rangeRevenue * 100).toFixed(0)}% of revenue` : ''}
                 comparison={compareEnabled && <ComparisonBadge
                   current={Math.abs(rangeExpenses)}
-                  compValue={Math.abs(rangeTotal(data.pnl, selectedCompany ? 'SG&A + R&D Expenses' : 'Total Expenses', compRange.from, compRange.to, selectedCompany ? [...EXCLUDE_ALWAYS.filter(n => n !== selectedCompany)] : dynExcludeEbitda))}
+                  compValue={Math.abs(expensesInRange(compRange.from, compRange.to))}
                   compLabel={compLabel}
                   invertColor
                 />} />
@@ -1752,19 +1767,29 @@ export default function InVitroDashboard({ data, user }) {
                   return adHocVal > 0 ? `Incl. ${fmt(adHocVal)} ad hocs · Excl: ${fmt(exclAdHoc)}` : 'all entities';
                 })()}
                 comparison={compareEnabled && <ComparisonBadge current={Math.abs(rangeExpenses)}
-                  compValue={Math.abs(rangeTotal(data.pnl, selectedCompany ? 'SG&A + R&D Expenses' : 'Total Expenses', compRange.from, compRange.to, selectedCompany ? [...EXCLUDE_ALWAYS.filter(n => n !== selectedCompany)] : dynExcludeEbitda))}
-                  compLabel={compLabel} />}
+                  compValue={Math.abs(expensesInRange(compRange.from, compRange.to))}
+                  compLabel={compLabel} invertColor />}
               />
               <KPICard title={`Avg Monthly Expense`}
                 value={fmt(Math.abs(avgMonthlyExpense))}
                 subtitle="average per month"
-                comparison={compareEnabled && (() => { const compExp = Math.abs(rangeTotal(data.pnl, selectedCompany ? 'SG&A + R&D Expenses' : 'Total Expenses', compRange.from, compRange.to, selectedCompany ? [...EXCLUDE_ALWAYS.filter(n => n !== selectedCompany)] : dynExcludeEbitda)); const compMo = (compRange.to.year*12+compRange.to.month) - (compRange.from.year*12+compRange.from.month) + 1; return <ComparisonBadge current={Math.abs(avgMonthlyExpense)} compValue={compMo > 0 ? compExp/compMo : 0} compLabel={compLabel} />; })()}
+                comparison={compareEnabled && (() => {
+                  const compExp = Math.abs(expensesInRange(compRange.from, compRange.to));
+                  const compMo = (compRange.to.year*12 + compRange.to.month) - (compRange.from.year*12 + compRange.from.month) + 1;
+                  return <ComparisonBadge current={Math.abs(avgMonthlyExpense)} compValue={compMo > 0 ? compExp/compMo : 0} compLabel={compLabel} invertColor />;
+                })()}
               />
               {rangeRevenue > 0 && (
                 <KPICard title={`Expense Ratio — ${rangeLabel}`}
                   value={`${(Math.abs(rangeExpenses) / rangeRevenue * 100).toFixed(1)}%`}
                   subtitle="expenses / revenue"
-                  comparison={compareEnabled && (() => { const cExp = Math.abs(rangeTotal(data.pnl, selectedCompany ? 'SG&A + R&D Expenses' : 'Total Expenses', compRange.from, compRange.to, selectedCompany ? [...EXCLUDE_ALWAYS.filter(n => n !== selectedCompany)] : dynExcludeEbitda)); const cRev = rangeTotal(data.pnl, 'Revenues', compRange.from, compRange.to, dynExcludeRevenue); const cur = rangeRevenue > 0 ? Math.abs(rangeExpenses)/rangeRevenue*100 : 0; const comp = cRev > 0 ? cExp/cRev*100 : 0; return <ComparisonBadge current={cur} compValue={comp} compLabel={compLabel} />; })()}
+                  comparison={compareEnabled && (() => {
+                    const cExp = Math.abs(expensesInRange(compRange.from, compRange.to));
+                    const cRev = rangeTotal(data.pnl, 'Revenues', compRange.from, compRange.to, dynExcludeRevenue);
+                    const cur = rangeRevenue > 0 ? Math.abs(rangeExpenses)/rangeRevenue*100 : 0;
+                    const comp = cRev > 0 ? cExp/cRev*100 : 0;
+                    return <ComparisonBadge current={cur} compValue={comp} compLabel={compLabel} invertColor />;
+                  })()}
                 />
               )}
             </div>
