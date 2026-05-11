@@ -901,27 +901,43 @@ export default function InVitroDashboard({ data, user }) {
 
           {/* ────── OVERVIEW ────── */}
           {activeSection === 'overview' && (<>
+            {/* KPI strip — ordered left-to-right to narrate the P&L:
+                Revenue → Expenses → Gross Profit → EBITDA → Operational Cash Flow.
+                Each card pairs $ value (primary) with a context line below
+                (margin %, % of revenue, runway months — whatever's most
+                informative for that metric). */}
             <div className="flex flex-wrap gap-4 mb-6">
               <KPICard title={`Revenue — ${rangeLabel}`} value={fmt(rangeRevenue)} subtitle="excl. holdings"
                 comparison={compareEnabled && <ComparisonBadge current={rangeRevenue} compValue={rangeTotal(data.pnl, 'Revenues', compRange.from, compRange.to, dynExcludeRevenue)} compLabel={compLabel} />} />
-              <KPICard title={`EBITDA — ${rangeLabel}`} value={fmt(rangeEbitda)} subtitle={rangeRevenue > 0 ? (rangeEbitda / rangeRevenue * 100).toFixed(0) + '% margin' : ''}
-                comparison={compareEnabled && <ComparisonBadge current={rangeEbitda} compValue={rangeTotal(data.pnl, 'EBITDA', compRange.from, compRange.to, dynExcludeEbitda)} compLabel={compLabel} />} />
-              <KPICard title="Operational Cash Flow" value={fmt(totalOpsCF)} trend={runwayMonths !== null ? '~' + runwayMonths.toFixed(1) + ' months' : (totalOpsCF >= 0 ? 'Cash positive' : 'Cash negative')} trendUp={totalOpsCF >= 0} subtitle="at current burn rate"
-                comparison={compareEnabled && <ComparisonBadge current={totalOpsCF} compValue={(() => { const cfKey = selectedCompany ? 'Operational Cash Flow' : 'Holdings net cash movement'; for (const co of (data.cashflow||[])) { const m = co.metrics?.[cfKey]; if (m) { return m.filter(v => { const vi = v.year*100+v.month; return vi >= compRange.from.year*100+compRange.from.month && vi <= compRange.to.year*100+compRange.to.month; }).reduce((s,v) => s+(v.value??0), 0); } } return 0; })()} compLabel={compLabel} />} />
-              <KPICard title={`Gross Margin — ${rangeLabel}`} value={pct(rangeGrossMargin)} subtitle="portfolio weighted"
-                comparison={compareEnabled && (() => { const compRev = rangeTotal(data.pnl, 'Revenues', compRange.from, compRange.to, dynExcludeRevenue); const compGP = consolidatedGPRange(compRange.from, compRange.to, dynExcludeRevenue); const compGM = compRev > 0 ? compGP / compRev * 100 : 0; return <ComparisonBadge current={rangeGrossMargin} compValue={compGM} compLabel={compLabel} />; })()} />
+
               {/* Expenses: total opex for the range, shown as a positive
                   magnitude (rangeExpenses is stored negative on the P&L).
-                  Subtitle expresses cost intensity as % of revenue — a more
-                  useful framing than a raw $ in isolation. */}
+                  Subtitle = cost intensity as % of revenue. invertColor on
+                  the comparison badge so "up vs prior" renders red. */}
               <KPICard title={`Expenses — ${rangeLabel}`} value={fmt(Math.abs(rangeExpenses))}
                 subtitle={rangeRevenue > 0 ? `${(Math.abs(rangeExpenses) / rangeRevenue * 100).toFixed(0)}% of revenue` : ''}
                 comparison={compareEnabled && <ComparisonBadge
                   current={Math.abs(rangeExpenses)}
                   compValue={Math.abs(rangeTotal(data.pnl, selectedCompany ? 'SG&A + R&D Expenses' : 'Total Expenses', compRange.from, compRange.to, selectedCompany ? [...EXCLUDE_ALWAYS.filter(n => n !== selectedCompany)] : dynExcludeEbitda))}
                   compLabel={compLabel}
-                  invertColor /* expenses going UP is bad — flip the color sense */
+                  invertColor
                 />} />
+
+              {/* Gross Profit + Gross Margin — folded into one card.
+                  Mirrors the Company Performance table treatment:
+                  $ value primary, % derivation as subtitle. */}
+              <KPICard title={`Gross Profit — ${rangeLabel}`} value={fmt(rangeGrossProfit)}
+                subtitle={rangeGrossMargin !== null && rangeRevenue > 0 ? `${rangeGrossMargin.toFixed(1)}% margin` : ''}
+                comparison={compareEnabled && (() => {
+                  const compGP = consolidatedGPRange(compRange.from, compRange.to, dynExcludeRevenue);
+                  return <ComparisonBadge current={rangeGrossProfit} compValue={compGP} compLabel={compLabel} />;
+                })()} />
+
+              <KPICard title={`EBITDA — ${rangeLabel}`} value={fmt(rangeEbitda)} subtitle={rangeRevenue > 0 ? (rangeEbitda / rangeRevenue * 100).toFixed(0) + '% margin' : ''}
+                comparison={compareEnabled && <ComparisonBadge current={rangeEbitda} compValue={rangeTotal(data.pnl, 'EBITDA', compRange.from, compRange.to, dynExcludeEbitda)} compLabel={compLabel} />} />
+
+              <KPICard title="Operational Cash Flow" value={fmt(totalOpsCF)} trend={runwayMonths !== null ? '~' + runwayMonths.toFixed(1) + ' months' : (totalOpsCF >= 0 ? 'Cash positive' : 'Cash negative')} trendUp={totalOpsCF >= 0} subtitle="at current burn rate"
+                comparison={compareEnabled && <ComparisonBadge current={totalOpsCF} compValue={(() => { const cfKey = selectedCompany ? 'Operational Cash Flow' : 'Holdings net cash movement'; for (const co of (data.cashflow||[])) { const m = co.metrics?.[cfKey]; if (m) { return m.filter(v => { const vi = v.year*100+v.month; return vi >= compRange.from.year*100+compRange.from.month && vi <= compRange.to.year*100+compRange.to.month; }).reduce((s,v) => s+(v.value??0), 0); } } return 0; })()} compLabel={compLabel} />} />
             </div>
 
             {/* Single-month + compare: show scorecards instead of tiny bar charts */}
