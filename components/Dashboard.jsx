@@ -639,7 +639,7 @@ export default function InVitroDashboard({ data, user }) {
     const gp = (c.metrics[getGPMetric(c.name)] ?? []).filter(inRange).reduce((s, v) => s + (v.value ?? 0), 0);
     const grossMargin = revCurrent > 0 ? gp / revCurrent : null;
     const companyRevGrowth = revPrior > 0 ? (revCurrent - revPrior) / revPrior : null;
-    return { name: c.name, rev: revCurrent, ebitda, grossMargin, revGrowth: companyRevGrowth, color: colorMap[c.name] };
+    return { name: c.name, rev: revCurrent, ebitda, grossProfit: gp, grossMargin, revGrowth: companyRevGrowth, color: colorMap[c.name] };
   });
 
   // Totals row (excl holdings) — uses range-filtered data to match individual rows
@@ -1022,8 +1022,8 @@ export default function InVitroDashboard({ data, user }) {
                   <TableRow className="border-border/60 hover:bg-transparent">
                     <TableHead className="w-[180px]">Company</TableHead>
                     <TableHead className="text-right">Revenue</TableHead>
+                    <TableHead className="text-right">Gross Profit</TableHead>
                     <TableHead className="text-right">EBITDA</TableHead>
-                    <TableHead className="text-right">Gross %</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -1044,11 +1044,14 @@ export default function InVitroDashboard({ data, user }) {
                         )}
                       </TableCell>
                       <TableCell className="text-right">
-                        <div className={`font-semibold ${co.ebitda >= 0 ? "text-emerald-600" : "text-red-500"}`}>{fmt(co.ebitda)}</div>
-                        <div className="text-[11px] text-muted-foreground">{co.rev > 0 ? (co.ebitda / co.rev * 100).toFixed(1) + '% margin' : 'N/A'}</div>
+                        <div className={`font-semibold ${co.grossProfit >= 0 ? "text-emerald-600" : "text-red-500"}`}>{fmt(co.grossProfit)}</div>
+                        <div className="text-[11px] text-muted-foreground">
+                          {co.grossMargin !== null && co.rev > 0 ? `${(co.grossMargin * 100).toFixed(1)}% margin` : 'N/A'}
+                        </div>
                       </TableCell>
                       <TableCell className="text-right">
-                        {co.grossMargin !== null && co.grossMargin > 0 ? `${(co.grossMargin * 100).toFixed(0)}%` : "N/A"}
+                        <div className={`font-semibold ${co.ebitda >= 0 ? "text-emerald-600" : "text-red-500"}`}>{fmt(co.ebitda)}</div>
+                        <div className="text-[11px] text-muted-foreground">{co.rev > 0 ? (co.ebitda / co.rev * 100).toFixed(1) + '% margin' : 'N/A'}</div>
                       </TableCell>
                     </TableRow>
                   ))}
@@ -1057,8 +1060,18 @@ export default function InVitroDashboard({ data, user }) {
                   <TableRow className="bg-muted hover:bg-muted">
                     <TableCell className="font-bold">TOTAL (excl. holdings)</TableCell>
                     <TableCell className="text-right font-bold">{fmt(totalRowRev)}</TableCell>
-                    <TableCell className="text-right font-bold text-emerald-600">{fmt(totalRowEbitda)}</TableCell>
-                    <TableCell className="text-right font-bold">{totalRowGrossMargin !== null ? (totalRowGrossMargin * 100).toFixed(0) + '%' : 'N/A'}</TableCell>
+                    <TableCell className="text-right">
+                      <div className={`font-bold ${totalRowGP >= 0 ? "text-emerald-600" : "text-red-500"}`}>{fmt(totalRowGP)}</div>
+                      <div className="text-[11px] text-muted-foreground font-normal">
+                        {totalRowGrossMargin !== null ? `${(totalRowGrossMargin * 100).toFixed(1)}% margin` : 'N/A'}
+                      </div>
+                    </TableCell>
+                    <TableCell className="text-right">
+                      <div className="font-bold text-emerald-600">{fmt(totalRowEbitda)}</div>
+                      <div className="text-[11px] text-muted-foreground font-normal">
+                        {totalRowRev > 0 ? `${(totalRowEbitda / totalRowRev * 100).toFixed(1)}% margin` : 'N/A'}
+                      </div>
+                    </TableCell>
                   </TableRow>
                 </TableFooter>
               </Table>
