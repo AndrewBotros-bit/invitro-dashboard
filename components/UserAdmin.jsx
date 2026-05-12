@@ -83,6 +83,20 @@ const ROLE_PRESETS = {
     bd_audit: false, bd_hc: true,
     lpName: '',
   },
+  // Hybrid case: someone who operates a portfolio company AND has a stake
+  // in one or more vehicles (e.g. Amir Barsoum runs a portco AND is an LP
+  // in Barsoum Brothers / Curenta / InVitro Ventures). Same as Operator
+  // but admin should also set LP Identity below — that's what gives the
+  // IRR view its LP-scoped filter.
+  'LP + Operator (set companies + LP Identity after)': {
+    role: 'viewer',
+    companies_mode: 'subset', companies_list: [],
+    tabs_mode: 'all', tabs_list: [],
+    bd_revenue_mode: 'all', bd_revenue_list: [],
+    bd_expense_mode: 'all', bd_expense_list: [],
+    bd_audit: false, bd_hc: true,
+    lpName: '',
+  },
 };
 
 const EMPTY_FORM = {
@@ -700,27 +714,35 @@ export default function UserAdmin({ currentUser, lpNames = [] }) {
               )}
 
               {/* Quick-start strip — presets + copy-from-user */}
-              <div className="mb-5 grid grid-cols-1 sm:grid-cols-2 gap-3 p-3 bg-muted/40 rounded-lg">
-                <div>
-                  <label className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">Apply preset</label>
-                  <select onChange={e => { applyPreset(e.target.value); e.target.value = ''; }}
-                    defaultValue=""
-                    className="mt-1 h-8 w-full rounded-md border border-input bg-background px-2 text-xs focus:outline-none focus:ring-2 focus:ring-ring">
-                    <option value="" disabled>Select a preset…</option>
-                    {Object.keys(ROLE_PRESETS).map(p => <option key={p} value={p}>{p}</option>)}
-                  </select>
+              <div className="mb-5 p-3 bg-muted/40 rounded-lg space-y-3">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">Apply preset</label>
+                    <select onChange={e => { applyPreset(e.target.value); e.target.value = ''; }}
+                      defaultValue=""
+                      className="mt-1 h-8 w-full rounded-md border border-input bg-background px-2 text-xs focus:outline-none focus:ring-2 focus:ring-ring">
+                      <option value="" disabled>Select a preset…</option>
+                      {Object.keys(ROLE_PRESETS).map(p => <option key={p} value={p}>{p}</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">Copy permissions from</label>
+                    <select onChange={e => { copyFromUser(e.target.value); e.target.value = ''; }}
+                      defaultValue=""
+                      className="mt-1 h-8 w-full rounded-md border border-input bg-background px-2 text-xs focus:outline-none focus:ring-2 focus:ring-ring">
+                      <option value="" disabled>Select an existing user…</option>
+                      {users.filter(u => u.username !== editingUsername).map(u => (
+                        <option key={u.username} value={u.username}>{u.name} (@{u.username})</option>
+                      ))}
+                    </select>
+                  </div>
                 </div>
-                <div>
-                  <label className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">Copy permissions from</label>
-                  <select onChange={e => { copyFromUser(e.target.value); e.target.value = ''; }}
-                    defaultValue=""
-                    className="mt-1 h-8 w-full rounded-md border border-input bg-background px-2 text-xs focus:outline-none focus:ring-2 focus:ring-ring">
-                    <option value="" disabled>Select an existing user…</option>
-                    {users.filter(u => u.username !== editingUsername).map(u => (
-                      <option key={u.username} value={u.username}>{u.name} (@{u.username})</option>
-                    ))}
-                  </select>
-                </div>
+                <p className="text-[10px] text-muted-foreground leading-relaxed">
+                  <strong className="text-foreground">Presets are starting points.</strong> Apply one, then customize.
+                  For <strong>hybrid users</strong> (e.g. Amir Barsoum runs a portco AND is an LP), apply
+                  <em> &ldquo;LP + Operator&rdquo;</em> then set <em>Companies</em> and <em>LP Identity</em> below — the LP
+                  field scopes the IRR view independently of any preset.
+                </p>
               </div>
 
               <form onSubmit={onSave} className="space-y-5">
@@ -770,14 +792,25 @@ export default function UserAdmin({ currentUser, lpNames = [] }) {
                     </select>
                   </div>
                   <div>
-                    <label className="text-xs font-medium text-foreground uppercase tracking-wide">LP Identity (optional)</label>
+                    <label className="text-xs font-medium text-foreground uppercase tracking-wide flex items-center gap-2">
+                      <span>LP Identity (optional)</span>
+                      {form.lpName && (
+                        <span className="px-1.5 py-0.5 text-[9px] font-bold rounded uppercase tracking-wide bg-violet-100 text-violet-700 normal-case">
+                          LP scoping ON
+                        </span>
+                      )}
+                    </label>
                     <select value={form.lpName} onChange={e => setForm({ ...form, lpName: e.target.value })}
-                      className="mt-1 flex h-9 w-full rounded-md border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring">
+                      className={cn(
+                        "mt-1 flex h-9 w-full rounded-md border bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring",
+                        form.lpName ? "border-violet-300 ring-1 ring-violet-100" : "border-input"
+                      )}>
                       <option value="">(none — sees all vehicles)</option>
                       {lpNames.map(name => <option key={name} value={name}>{name}</option>)}
                     </select>
                     <p className="text-[10px] text-muted-foreground mt-1">
-                      When set, the IRR &amp; Valuation tab filters to vehicles where this LP appears.
+                      Independent of role presets. When set, the IRR &amp; Valuation tab filters to vehicles where this LP appears,
+                      with their stake highlighted. Leave blank for non-LP users.
                     </p>
                   </div>
                 </div>
