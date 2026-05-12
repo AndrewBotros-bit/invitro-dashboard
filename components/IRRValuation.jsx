@@ -52,7 +52,7 @@ function computeLpReturns(lp, vehicle, yearIdx) {
  *  - lpName set → only show vehicles where this LP appears, highlight LP's row.
  *  - lpName unset → show all 4 vehicles (admin / general viewer).
  */
-export default function IRRValuation({ data, user }) {
+export default function IRRValuation({ data, user, selectedYear: selectedYearProp, compareYear }) {
   const irr = data?.irrValuation;
 
   // No IRR data available — could be missing tab access or sheet load failure
@@ -65,15 +65,22 @@ export default function IRRValuation({ data, user }) {
   }
 
   const years = irr.years;
-  const [selectedYear, setSelectedYear] = useState(() => {
-    // Default to most recent year that has any vehicle data
+  // Year selection comes from the header (Dashboard owns the state). Fall
+  // back to "most recent year with data" if the prop isn't provided (e.g.
+  // standalone usage without the parent's header).
+  const fallbackYear = (() => {
     for (let i = years.length - 1; i >= 0; i--) {
       const hasData = irr.vehicles.some(v => v.ownershipValue?.[i] != null && v.ownershipValue[i] > 0);
       if (hasData) return years[i];
     }
     return years[years.length - 1];
-  });
+  })();
+  const selectedYear = selectedYearProp ?? fallbackYear;
   const yearIdx = years.indexOf(selectedYear);
+  // Comparison year (optional). When set, vehicle KPI tiles render a delta
+  // badge underneath their primary value.
+  const compIdx = compareYear != null ? years.indexOf(compareYear) : -1;
+  const compEnabled = compIdx >= 0 && compIdx !== yearIdx;
 
   // LP scoping
   const lpName = user?.permissions?.lpName || null;
@@ -102,24 +109,16 @@ export default function IRRValuation({ data, user }) {
 
   return (
     <div className="space-y-6">
-      {/* Header with year selector */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h2 className="text-xl font-semibold tracking-tight">IRR &amp; Valuation</h2>
-          <p className="text-sm text-muted-foreground">
-            {lpName ? <>Viewing your stakes as <strong>{lpName}</strong></> : <>All investment vehicles</>}
-          </p>
-        </div>
-        <div className="flex items-center gap-2">
-          <span className="text-xs text-muted-foreground">Year</span>
-          <select
-            value={selectedYear}
-            onChange={e => setSelectedYear(Number(e.target.value))}
-            className="h-8 rounded-md border border-border bg-background px-2 text-sm font-medium"
-          >
-            {years.map(y => <option key={y} value={y}>{y}</option>)}
-          </select>
-        </div>
+      {/* Title / LP scope label. Year + Compare selectors live in the
+          page header (Dashboard component) so they're consistent with
+          the other tabs' header treatment. */}
+      <div>
+        <h2 className="text-xl font-semibold tracking-tight">
+          IRR &amp; Valuation — {selectedYear}{compEnabled ? ` vs ${compareYear}` : ''}
+        </h2>
+        <p className="text-sm text-muted-foreground">
+          {lpName ? <>Viewing your stakes as <strong>{lpName}</strong></> : <>All investment vehicles</>}
+        </p>
       </div>
 
       {/* Vehicles */}
@@ -128,6 +127,13 @@ export default function IRRValuation({ data, user }) {
         const investment = v.investment?.[yearIdx] ?? 0;
         const irrPct = v.irr?.[yearIdx];
         const moic = v.moic?.[yearIdx];
+        // Comparison-year values for the delta badges (only used when
+        // compEnabled is true; otherwise compIdx is -1 and DeltaBadge
+        // returns null because prior is null).
+        const ownershipPrior = compEnabled ? (v.ownershipValue?.[compIdx] ?? null) : null;
+        const investmentPrior = compEnabled ? (v.investment?.[compIdx] ?? null) : null;
+        const irrPrior = compEnabled ? (v.irr?.[compIdx] ?? null) : null;
+        const moicPrior = compEnabled ? (v.moic?.[compIdx] ?? null) : null;
         const cos = vehicleCompanies(v.name);
         const myLp = lpName ? v.lps.find(lp => lp.name === lpName) : null;
         // LP-specific returns: ownership %, value, cumulative invested,
@@ -151,14 +157,19 @@ export default function IRRValuation({ data, user }) {
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-6">
-              {/* Vehicle KPI strip */}
+              {/* Vehicle KPI strip — when compEnabled, each tile gets a
+                  delta badge showing change vs the comparison year. */}
               <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                <KpiTile label="Ownership Value" value={fmt(ownership)} />
-                <KpiTile label="Total Investment" value={fmt(investment)} />
+                <KpiTile label="Ownership Value" value={fmt(ownership)}
+                  delta={compEnabled && <DeltaBadge current={ownership} prior={ownershipPrior} compareYear={compareYear} />} />
+                <KpiTile label="Total Investment" value={fmt(investment)}
+                  delta={compEnabled && <DeltaBadge current={investment} prior={investmentPrior} compareYear={compareYear} />} />
                 <KpiTile label="IRR" value={irrPct != null ? `${irrPct.toFixed(1)}%` : '—'}
-                  tone={irrPct == null ? 'neutral' : irrPct >= 0 ? 'positive' : 'negative'} />
+                  tone={irrPct == null ? 'neutral' : irrPct >= 0 ? 'positive' : 'negative'}
+                  delta={compEnabled && <DeltaBadge current={irrPct} prior={irrPrior} compareYear={compareYear} />} />
                 <KpiTile label="MOIC" value={moic != null ? `${moic.toFixed(1)}x` : '—'}
-                  tone={moic == null ? 'neutral' : moic >= 1 ? 'positive' : 'negative'} />
+                  tone={moic == null ? 'neutral' : moic >= 1 ? 'positive' : 'negative'}
+                  delta={compEnabled && <DeltaBadge current={moic} prior={moicPrior} compareYear={compareYear} />} />
               </div>
 
               {/* My Performance card — only for LP users */}
@@ -311,7 +322,7 @@ export default function IRRValuation({ data, user }) {
 }
 
 /** Compact KPI tile used inside a card header strip. */
-function KpiTile({ label, value, tone = 'neutral', compact = false }) {
+function KpiTile({ label, value, tone = 'neutral', compact = false, delta = null }) {
   const toneCls = {
     positive: 'text-emerald-600',
     negative: 'text-red-500',
@@ -324,6 +335,27 @@ function KpiTile({ label, value, tone = 'neutral', compact = false }) {
     )}>
       <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">{label}</p>
       <p className={cn("font-bold tabular-nums mt-0.5", compact ? "text-base" : "text-lg", toneCls)}>{value}</p>
+      {delta}
     </div>
+  );
+}
+
+/**
+ * Small "▲/▼ X.X% vs YYYY" badge rendered under a KPI tile value when
+ * compare mode is on. Pure formatting — no business logic; pass in the
+ * already-computed numeric delta and the comparison label.
+ */
+function DeltaBadge({ current, prior, compareYear, format = 'percent', invertColor = false }) {
+  if (current == null || prior == null || prior === 0) return null;
+  const pctChange = ((current - prior) / Math.abs(prior)) * 100;
+  const up = pctChange >= 0;
+  const isGood = invertColor ? !up : up;
+  return (
+    <p className={cn(
+      "text-[10px] font-medium mt-1",
+      isGood ? 'text-emerald-600' : 'text-red-500'
+    )}>
+      {up ? '▲' : '▼'} {Math.abs(pctChange).toFixed(1)}% vs {compareYear}
+    </p>
   );
 }

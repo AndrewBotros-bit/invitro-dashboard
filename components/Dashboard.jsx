@@ -320,6 +320,26 @@ export default function InVitroDashboard({ data, user }) {
 
   // View mode & date range state
   const [viewMode, setViewMode] = useState('monthly'); // 'monthly' | 'yearly'
+
+  // IRR & Valuation has different time semantics than the other tabs (point-
+  // in-time per year, not a range), so it keeps its own state. Initial year
+  // defaults to the most recent year with any vehicle ownership data.
+  const irrYearsAvailable = data?.irrValuation?.years ?? [];
+  const [irrYear, setIrrYear] = useState(() => {
+    const irr = data?.irrValuation;
+    if (!irr || !irr.years?.length) return null;
+    for (let i = irr.years.length - 1; i >= 0; i--) {
+      const hasData = irr.vehicles.some(v => v.ownershipValue?.[i] != null && v.ownershipValue[i] > 0);
+      if (hasData) return irr.years[i];
+    }
+    return irr.years[irr.years.length - 1];
+  });
+  const [irrCompareEnabled, setIrrCompareEnabled] = useState(false);
+  const [irrCompYear, setIrrCompYear] = useState(() => {
+    // Default comparison: the year right before the default current year.
+    const years = data?.irrValuation?.years ?? [];
+    return years.length >= 2 ? years[years.length - 2] : null;
+  });
   const [compareEnabled, setCompareEnabled] = useState(false);
   const [compareFromKey, setCompareFromKey] = useState(null); // null = auto-compute
   const [compareToKey, setCompareToKey] = useState(null);
@@ -978,6 +998,54 @@ export default function InVitroDashboard({ data, user }) {
         <div className="flex flex-wrap items-center justify-between gap-4">
 
           <div className="flex items-center gap-2.5 flex-wrap">
+            {activeSection === 'irr' ? (
+              // IRR & Valuation: yearly-only view with a single year selector
+              // + optional compare-to-year. Different semantics from the other
+              // tabs (point-in-time per year, not a range).
+              <>
+                <div className="flex items-center gap-1.5 bg-muted/60 rounded-lg px-2 py-1">
+                  <span className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">Year</span>
+                  <select
+                    value={irrYear ?? ''}
+                    onChange={e => setIrrYear(Number(e.target.value))}
+                    className="h-7 rounded-md bg-white border border-border/60 px-2 text-xs font-medium text-foreground shadow-sm focus:outline-none focus:ring-2 focus:ring-ring/30"
+                  >
+                    {irrYearsAvailable.map(y => (<option key={y} value={y}>{y}</option>))}
+                  </select>
+                </div>
+                <div className="flex items-center gap-1.5 bg-muted/60 rounded-lg px-2 py-1">
+                  <label className="flex items-center gap-1.5 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={irrCompareEnabled}
+                      onChange={e => {
+                        setIrrCompareEnabled(e.target.checked);
+                        // Default comparison year on enable: the year right
+                        // before the currently-selected one.
+                        if (e.target.checked && irrYear != null) {
+                          const idx = irrYearsAvailable.indexOf(irrYear);
+                          if (idx > 0) setIrrCompYear(irrYearsAvailable[idx - 1]);
+                        }
+                      }}
+                      className="h-3.5 w-3.5 rounded border-border accent-primary"
+                    />
+                    <span className="text-[10px] font-medium text-muted-foreground whitespace-nowrap">Compare</span>
+                  </label>
+                  {irrCompareEnabled && (
+                    <select
+                      value={irrCompYear ?? ''}
+                      onChange={e => setIrrCompYear(Number(e.target.value))}
+                      className="h-7 rounded-md bg-white border border-border/60 px-2 text-xs font-medium text-foreground shadow-sm focus:outline-none focus:ring-2 focus:ring-ring/30"
+                    >
+                      {irrYearsAvailable
+                        .filter(y => y !== irrYear /* can't compare a year to itself */)
+                        .map(y => (<option key={y} value={y}>{y}</option>))}
+                    </select>
+                  )}
+                </div>
+              </>
+            ) : (
+              <>
             {/* Monthly / Yearly toggle */}
             <div className="flex bg-muted rounded-lg p-0.5">
               <button
@@ -1073,12 +1141,14 @@ export default function InVitroDashboard({ data, user }) {
                 )
               )}
             </div>
+              </>
+            )}
+          </div>
 
-            {/* Last Updated */}
-            <div className="text-right pl-2 border-l border-border/60">
-              <p className="text-[10px] uppercase tracking-wider text-muted-foreground">Updated</p>
-              <p className="text-xs font-semibold text-foreground">{lastUpdated}</p>
-            </div>
+          {/* Last Updated — kept in all header variants */}
+          <div className="text-right pl-2 border-l border-border/60">
+            <p className="text-[10px] uppercase tracking-wider text-muted-foreground">Updated</p>
+            <p className="text-xs font-semibold text-foreground">{lastUpdated}</p>
           </div>
         </div>
       </header>
@@ -2489,7 +2559,12 @@ export default function InVitroDashboard({ data, user }) {
           </>)}
 
           {activeSection === 'irr' && (
-            <IRRValuation data={data} user={user} />
+            <IRRValuation
+              data={data}
+              user={user}
+              selectedYear={irrYear}
+              compareYear={irrCompareEnabled ? irrCompYear : null}
+            />
           )}
 
           {activeSection === 'insights' && (<>
