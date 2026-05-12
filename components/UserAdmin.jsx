@@ -1,9 +1,10 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Table, TableHeader, TableBody, TableHead, TableRow, TableCell } from "@/components/ui/table";
 import { cn } from "@/lib/utils";
+
+// ─── Constants ─────────────────────────────────────────────────────────────
 
 const ALL_COMPANIES = ['AllRx', 'AllCare', 'Osta', 'Needles', 'InVitro Studio'];
 const ALL_TABS = [
@@ -19,43 +20,90 @@ const DRILL_BREAKDOWNS = [
   { key: 'revenueDrilldown', label: 'Revenue drill-down' },
   { key: 'expenseDrilldown', label: 'Expense drill-down' },
 ];
-const SIMPLE_BREAKDOWNS = [
-  { key: 'auditConsole', label: 'Audit Console' },
-  { key: 'hcDetails', label: 'HC Salary Details' },
+
+// Avatar palette — deterministic color per username based on a string hash.
+// Keeps the visual identity stable across sessions (same user → same color).
+const AVATAR_PALETTE = [
+  ['bg-blue-100',    'text-blue-700'],
+  ['bg-emerald-100', 'text-emerald-700'],
+  ['bg-amber-100',   'text-amber-700'],
+  ['bg-violet-100',  'text-violet-700'],
+  ['bg-rose-100',    'text-rose-700'],
+  ['bg-cyan-100',    'text-cyan-700'],
+  ['bg-indigo-100',  'text-indigo-700'],
+  ['bg-pink-100',    'text-pink-700'],
 ];
+function avatarColor(s) {
+  let h = 0;
+  for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0;
+  return AVATAR_PALETTE[Math.abs(h) % AVATAR_PALETTE.length];
+}
+function initials(name = '') {
+  return name
+    .split(/\s+/).filter(Boolean).slice(0, 2)
+    .map(w => w[0]?.toUpperCase() ?? '').join('') || '?';
+}
+
+// Role presets — selecting one populates form fields. Admin can still
+// customize after. These are "starting points," not locked rules.
+const ROLE_PRESETS = {
+  'Admin (full access)': {
+    role: 'admin',
+    companies_mode: 'all', companies_list: [],
+    tabs_mode: 'all', tabs_list: [],
+    bd_revenue_mode: 'all', bd_revenue_list: [],
+    bd_expense_mode: 'all', bd_expense_list: [],
+    bd_audit: true, bd_hc: true,
+    lpName: '',
+  },
+  'Board Member (read-only consolidated)': {
+    role: 'viewer',
+    companies_mode: 'all', companies_list: [],
+    tabs_mode: 'subset', tabs_list: ['overview', 'irr', 'insights'],
+    bd_revenue_mode: 'none', bd_revenue_list: [],
+    bd_expense_mode: 'none', bd_expense_list: [],
+    bd_audit: false, bd_hc: false,
+    lpName: '',
+  },
+  'LP (IRR only — set lpName after)': {
+    role: 'viewer',
+    companies_mode: 'all', companies_list: [],
+    tabs_mode: 'subset', tabs_list: ['irr'],
+    bd_revenue_mode: 'none', bd_revenue_list: [],
+    bd_expense_mode: 'none', bd_expense_list: [],
+    bd_audit: false, bd_hc: false,
+    lpName: '',
+  },
+  'Operator (single company — set companies after)': {
+    role: 'viewer',
+    companies_mode: 'subset', companies_list: [],
+    tabs_mode: 'all', tabs_list: [],
+    bd_revenue_mode: 'all', bd_revenue_list: [],
+    bd_expense_mode: 'all', bd_expense_list: [],
+    bd_audit: false, bd_hc: true,
+    lpName: '',
+  },
+};
 
 const EMPTY_FORM = {
-  username: '',
-  name: '',
-  email: '',
-  password: '',
-  role: 'viewer',
-  companies_mode: 'all',         // 'all' | 'subset'
-  companies_list: [],
-  tabs_mode: 'all',              // 'all' | 'subset'
-  tabs_list: [],
-  bd_revenue_mode: 'all',        // 'all' | 'none' | 'subset'
-  bd_revenue_list: [],
-  bd_expense_mode: 'all',
-  bd_expense_list: [],
-  bd_audit: false,
-  bd_hc: false,
+  username: '', name: '', email: '', password: '', role: 'viewer',
+  companies_mode: 'all', companies_list: [],
+  tabs_mode: 'all', tabs_list: [],
+  bd_revenue_mode: 'all', bd_revenue_list: [],
+  bd_expense_mode: 'all', bd_expense_list: [],
+  bd_audit: false, bd_hc: false,
   lpName: '',
 };
+
+// ─── Form ↔ Payload mapping (unchanged from previous version) ──────────────
 
 function userToFormState(u) {
   const p = u.permissions || {};
   const form = { ...EMPTY_FORM, username: u.username, name: u.name, email: u.email || '', password: '', role: u.role || 'viewer' };
-
-  // companies
   if (p.companies === '*') form.companies_mode = 'all';
   else if (Array.isArray(p.companies)) { form.companies_mode = 'subset'; form.companies_list = p.companies; }
-
-  // tabs
   if (p.tabs === '*') form.tabs_mode = 'all';
   else if (Array.isArray(p.tabs)) { form.tabs_mode = 'subset'; form.tabs_list = p.tabs; }
-
-  // breakdowns
   if (p.breakdowns === '*') {
     form.bd_revenue_mode = 'all'; form.bd_expense_mode = 'all';
     form.bd_audit = true; form.bd_hc = true;
@@ -64,17 +112,13 @@ function userToFormState(u) {
     if (rv === true) form.bd_revenue_mode = 'all';
     else if (rv === false || rv == null) form.bd_revenue_mode = 'none';
     else if (Array.isArray(rv)) { form.bd_revenue_mode = 'subset'; form.bd_revenue_list = rv; }
-
     const ex = p.breakdowns.expenseDrilldown;
     if (ex === true) form.bd_expense_mode = 'all';
     else if (ex === false || ex == null) form.bd_expense_mode = 'none';
     else if (Array.isArray(ex)) { form.bd_expense_mode = 'subset'; form.bd_expense_list = ex; }
-
     form.bd_audit = p.breakdowns.auditConsole === true;
     form.bd_hc = p.breakdowns.hcDetails === true;
   }
-
-  // LP identity (optional, for IRR & Valuation scoping)
   form.lpName = p.lpName || '';
   return form;
 }
@@ -84,72 +128,120 @@ function formStateToPayload(form, isEdit) {
     companies: form.companies_mode === 'all' ? '*' : form.companies_list,
     tabs: form.tabs_mode === 'all' ? '*' : form.tabs_list,
     breakdowns: {
-      revenueDrilldown:
-        form.bd_revenue_mode === 'all' ? true :
-        form.bd_revenue_mode === 'none' ? false :
-        form.bd_revenue_list,
-      expenseDrilldown:
-        form.bd_expense_mode === 'all' ? true :
-        form.bd_expense_mode === 'none' ? false :
-        form.bd_expense_list,
+      revenueDrilldown: form.bd_revenue_mode === 'all' ? true : form.bd_revenue_mode === 'none' ? false : form.bd_revenue_list,
+      expenseDrilldown: form.bd_expense_mode === 'all' ? true : form.bd_expense_mode === 'none' ? false : form.bd_expense_list,
       auditConsole: form.bd_audit,
       hcDetails: form.bd_hc,
     },
     lpName: form.lpName || null,
   };
-
   const payload = { name: form.name, email: form.email || null, role: form.role, permissions };
   if (!isEdit) payload.username = form.username;
   if (form.password) payload.password = form.password;
   return payload;
 }
 
+// ─── Permission summary badges (compact representation) ────────────────────
+
+function permissionBadges(u) {
+  const p = u.permissions || {};
+  const badges = [];
+
+  // Companies
+  if (p.companies === '*') badges.push({ key: 'co', text: 'All companies', tone: 'neutral' });
+  else if (Array.isArray(p.companies)) badges.push({
+    key: 'co',
+    text: `${p.companies.length}/${ALL_COMPANIES.length} companies`,
+    tone: p.companies.length === 0 ? 'warn' : 'neutral',
+  });
+
+  // Tabs
+  if (p.tabs === '*') badges.push({ key: 't', text: 'All tabs', tone: 'neutral' });
+  else if (Array.isArray(p.tabs)) badges.push({
+    key: 't',
+    text: `${p.tabs.length}/${ALL_TABS.length} tabs`,
+    tone: p.tabs.length === 0 ? 'warn' : 'neutral',
+  });
+
+  // Breakdowns count
+  if (p.breakdowns === '*') {
+    badges.push({ key: 'bd', text: 'All breakdowns', tone: 'neutral' });
+  } else if (p.breakdowns) {
+    const bd = p.breakdowns;
+    const granted = ['revenueDrilldown', 'expenseDrilldown', 'auditConsole', 'hcDetails'].filter(k => {
+      const v = bd[k];
+      return v === true || (Array.isArray(v) && v.length > 0);
+    });
+    if (granted.length > 0) badges.push({ key: 'bd', text: `${granted.length}/4 breakdowns`, tone: 'neutral' });
+  }
+
+  // LP
+  if (p.lpName) badges.push({ key: 'lp', text: `LP: ${p.lpName}`, tone: 'accent' });
+
+  return badges;
+}
+
+const BADGE_TONE = {
+  neutral: 'bg-muted text-muted-foreground',
+  accent: 'bg-violet-100 text-violet-700',
+  warn: 'bg-amber-100 text-amber-700',
+  danger: 'bg-red-100 text-red-700',
+  success: 'bg-emerald-100 text-emerald-700',
+};
+
+// ─── Confirm modal ─────────────────────────────────────────────────────────
+
+function ConfirmModal({ open, title, message, confirmLabel = 'Confirm', danger = false, onConfirm, onCancel }) {
+  if (!open) return null;
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={onCancel}>
+      <div className="bg-card text-card-foreground rounded-xl border shadow-xl max-w-md w-full p-6" onClick={e => e.stopPropagation()}>
+        <h3 className="text-base font-semibold mb-2">{title}</h3>
+        <p className="text-sm text-muted-foreground mb-5">{message}</p>
+        <div className="flex justify-end gap-2">
+          <Button type="button" variant="outline" size="sm" onClick={onCancel}>Cancel</Button>
+          <Button type="button" size="sm"
+            className={danger ? 'bg-red-600 hover:bg-red-700 text-white' : ''}
+            onClick={onConfirm}>{confirmLabel}</Button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Strong random password (client-side, crypto.getRandomValues) ──────────
+
+function generateStrongPassword(length = 16) {
+  // Avoid ambiguous chars (0/O, 1/l/I). Mix of letter classes + digits + symbols.
+  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789!@#$%^&*';
+  const buf = new Uint32Array(length);
+  crypto.getRandomValues(buf);
+  let out = '';
+  for (let i = 0; i < length; i++) out += chars[buf[i] % chars.length];
+  return out;
+}
+
+// ─── Main component ───────────────────────────────────────────────────────
+
 export default function UserAdmin({ currentUser, lpNames = [] }) {
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [form, setForm] = useState(EMPTY_FORM);
-  const [editingUsername, setEditingUsername] = useState(null); // null = creating
+  const [editingUsername, setEditingUsername] = useState(null);
   const [status, setStatus] = useState('');
   const [error, setError] = useState('');
-  // Last saved credentials in plain text — used for Send Invitation.
-  // Cleared after successful invite send or when starting a new user.
   const [pendingInvite, setPendingInvite] = useState(null);
   const [inviteStatus, setInviteStatus] = useState('');
-  // Display URL state — { username, url } shown in a banner after generation.
   const [displayUrl, setDisplayUrl] = useState(null);
   const [displayStatus, setDisplayStatus] = useState('');
+  const [confirmModal, setConfirmModal] = useState(null); // { title, message, onConfirm, danger }
 
-  async function generateDisplayUrl(username) {
-    setDisplayStatus(`Generating display URL for ${username}…`);
-    setDisplayUrl(null);
-    try {
-      const res = await fetch('/api/admin/display-token', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username }),
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        setDisplayStatus(`❌ ${data.error || 'Failed to generate display URL'}`);
-        return;
-      }
-      setDisplayUrl({ username, url: data.url });
-      setDisplayStatus('');
-    } catch (e) {
-      setDisplayStatus('❌ Network error');
-    }
-  }
+  // Filters
+  const [search, setSearch] = useState('');
+  const [roleFilter, setRoleFilter] = useState('all'); // 'all' | 'admin' | 'viewer'
+  const [statusFilter, setStatusFilter] = useState('all'); // 'all' | 'active' | 'disabled'
 
-  async function copyDisplayUrl() {
-    if (!displayUrl) return;
-    try {
-      await navigator.clipboard.writeText(displayUrl.url);
-      setDisplayStatus(`✅ Copied to clipboard`);
-      setTimeout(() => setDisplayStatus(''), 2000);
-    } catch {
-      setDisplayStatus('❌ Could not copy — select and copy manually');
-    }
-  }
+  // ── API helpers ─────────────────────────────────────────────────────────
 
   async function loadUsers() {
     setLoading(true);
@@ -164,139 +256,79 @@ export default function UserAdmin({ currentUser, lpNames = [] }) {
       setLoading(false);
     }
   }
-
   useEffect(() => { loadUsers(); }, []);
 
+  // ── Form lifecycle ──────────────────────────────────────────────────────
+
   function startNew() {
-    setForm(EMPTY_FORM);
-    setEditingUsername(null);
-    setError('');
-    setStatus('');
-    setPendingInvite(null);
-    setInviteStatus('');
+    setForm(EMPTY_FORM); setEditingUsername(null);
+    setError(''); setStatus(''); setPendingInvite(null); setInviteStatus('');
   }
-
   function startEdit(u) {
-    setForm(userToFormState(u));
-    setEditingUsername(u.username);
-    setError('');
-    setStatus('');
-    setPendingInvite(null);
-    setInviteStatus('');
+    setForm(userToFormState(u)); setEditingUsername(u.username);
+    setError(''); setStatus(''); setPendingInvite(null); setInviteStatus('');
+  }
+  function applyPreset(presetName) {
+    if (!presetName || !ROLE_PRESETS[presetName]) return;
+    setForm(f => ({ ...f, ...ROLE_PRESETS[presetName] }));
+  }
+  function copyFromUser(username) {
+    const u = users.find(x => x.username === username);
+    if (!u) return;
+    // Preserve username/name/email/password from current form; copy everything else.
+    const copied = userToFormState(u);
+    setForm(f => ({
+      ...copied,
+      username: f.username,
+      name: f.name,
+      email: f.email,
+      password: f.password,
+    }));
+  }
+  function regeneratePassword() {
+    const pw = generateStrongPassword(16);
+    setForm(f => ({ ...f, password: pw }));
+    setStatus(`Generated. Copy now — won't show after save.`);
   }
 
-  function buildMailtoHref(invite) {
-    const dashboardUrl = typeof window !== 'undefined'
-      ? `${window.location.origin}/login`
-      : 'https://invitro-dashboard-1.vercel.app/login';
-    const subject = `Welcome to InVitro Capital Dashboard, ${invite.name || invite.username}`;
-    const body = [
-      `Hi ${invite.name || invite.username},`,
-      '',
-      "You've been invited to the InVitro Capital shareholder dashboard.",
-      '',
-      'Your credentials:',
-      `  Username: ${invite.username}`,
-      `  Password: ${invite.password}`,
-      '',
-      `Login here: ${dashboardUrl}`,
-      '',
-      'For security, please change your password after your first login.',
-      '',
-      'Best,',
-    ].join('\n');
-    return `mailto:${encodeURIComponent(invite.email)}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
-  }
-
-  async function sendInvite() {
-    if (!pendingInvite) return;
-    setInviteStatus('Sending invitation email...');
-    try {
-      const res = await fetch('/api/admin/send-invite', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(pendingInvite),
-      });
-      const data = await res.json();
-      if (res.ok) {
-        setInviteStatus(`✅ Invitation sent to ${pendingInvite.email}`);
-        setPendingInvite(null); // clear plain credentials from memory after success
-        return;
-      }
-      // Resend failed or unconfigured — fall back to mailto
-      if (res.status === 503 || String(data.error || '').includes('RESEND')) {
-        const href = buildMailtoHref(pendingInvite);
-        window.location.href = href;
-        setInviteStatus(`📧 Opening your email client... review and send to complete.`);
-        // Keep pendingInvite so admin can retry if mailto didn't open
-        return;
-      }
-      setInviteStatus(`❌ ${data.error || 'Send failed'}`);
-    } catch (e) {
-      // Network error — also fall back to mailto
-      const href = buildMailtoHref(pendingInvite);
-      window.location.href = href;
-      setInviteStatus(`📧 Opening your email client... review and send to complete.`);
-    }
-  }
+  // ── Save / Delete / Lock-Unlock ────────────────────────────────────────
 
   async function onSave(e) {
     e.preventDefault();
-    setError('');
-    setStatus('Saving...');
+    setError(''); setStatus('Saving...');
     const isEdit = editingUsername !== null;
     const payload = formStateToPayload(form, isEdit);
-
-    // client-side validation
-    if (!isEdit && (!form.username || !form.password)) {
-      setStatus(''); setError('Username and password are required');
-      return;
-    }
+    if (!isEdit && (!form.username || !form.password)) { setStatus(''); setError('Username and password required'); return; }
     if (!form.name) { setStatus(''); setError('Name is required'); return; }
-
-    const url = isEdit
-      ? `/api/admin/users?username=${encodeURIComponent(editingUsername)}`
-      : '/api/admin/users';
-    const method = isEdit ? 'PUT' : 'POST';
-
+    const url = isEdit ? `/api/admin/users?username=${encodeURIComponent(editingUsername)}` : '/api/admin/users';
     try {
-      const res = await fetch(url, {
-        method,
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      });
+      const res = await fetch(url, { method: isEdit ? 'PUT' : 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
       const data = await res.json();
       if (!res.ok) { setStatus(''); setError(data.error || 'Save failed'); return; }
       setStatus('Saved. Redeploying... (~30s until live)');
-
-      // Capture plain credentials for Send Invitation — only when email + password are set
       const savedUsername = isEdit ? editingUsername : form.username;
       if (form.email && form.password) {
-        setPendingInvite({
-          username: savedUsername,
-          name: form.name,
-          email: form.email,
-          password: form.password,
-        });
+        setPendingInvite({ username: savedUsername, name: form.name, email: form.email, password: form.password });
         setInviteStatus('');
       }
-
       await loadUsers();
-      if (!isEdit) {
-        // Clear form but keep pendingInvite so admin can send invite
-        setForm(EMPTY_FORM);
-        setEditingUsername(null);
-        setError('');
-      }
+      if (!isEdit) { setForm(EMPTY_FORM); setEditingUsername(null); setError(''); }
     } catch (e) {
       setStatus(''); setError('Network error');
     }
   }
 
-  async function onDelete(username) {
-    if (!confirm(`Delete user ${username}?`)) return;
-    setError('');
-    setStatus('Deleting...');
+  function confirmDelete(username) {
+    setConfirmModal({
+      title: `Delete user "${username}"?`,
+      message: 'This permanently removes the account and revokes any active sessions. This cannot be undone.',
+      confirmLabel: 'Delete user',
+      danger: true,
+      onConfirm: () => { setConfirmModal(null); doDelete(username); },
+    });
+  }
+  async function doDelete(username) {
+    setError(''); setStatus('Deleting...');
     try {
       const res = await fetch(`/api/admin/users?username=${encodeURIComponent(username)}`, { method: 'DELETE' });
       const data = await res.json();
@@ -309,32 +341,191 @@ export default function UserAdmin({ currentUser, lpNames = [] }) {
     }
   }
 
+  function confirmToggleDisabled(u) {
+    const willDisable = !u.disabled;
+    setConfirmModal({
+      title: willDisable ? `Lock account "${u.username}"?` : `Unlock account "${u.username}"?`,
+      message: willDisable
+        ? "Locked accounts can't log in. Any active session is killed on next request. You can unlock later."
+        : 'Account will be able to log in again with its existing password.',
+      confirmLabel: willDisable ? 'Lock account' : 'Unlock account',
+      danger: willDisable,
+      onConfirm: () => { setConfirmModal(null); toggleDisabled(u); },
+    });
+  }
+  async function toggleDisabled(u) {
+    setError(''); setStatus(u.disabled ? 'Unlocking...' : 'Locking...');
+    try {
+      const res = await fetch(`/api/admin/users?username=${encodeURIComponent(u.username)}`, {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ disabled: !u.disabled }),
+      });
+      const data = await res.json();
+      if (!res.ok) { setStatus(''); setError(data.error || 'Update failed'); return; }
+      setStatus(`${u.disabled ? 'Unlocked' : 'Locked'}. Redeploying... (~30s)`);
+      await loadUsers();
+    } catch (e) {
+      setStatus(''); setError('Network error');
+    }
+  }
+
+  async function resetPasswordFor(u) {
+    const pw = generateStrongPassword(16);
+    setError(''); setStatus(`Setting new password for ${u.username}...`);
+    try {
+      const res = await fetch(`/api/admin/users?username=${encodeURIComponent(u.username)}`, {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ password: pw }),
+      });
+      const data = await res.json();
+      if (!res.ok) { setStatus(''); setError(data.error || 'Reset failed'); return; }
+      setStatus(`✅ New password set. Share with user: ${pw}`);
+      setPendingInvite({ username: u.username, name: u.name, email: u.email || '', password: pw });
+      await loadUsers();
+    } catch (e) {
+      setStatus(''); setError('Network error');
+    }
+  }
+
+  // ── Display token + invite (unchanged behavior) ─────────────────────────
+
+  async function generateDisplayUrl(username) {
+    setDisplayStatus(`Generating display URL for ${username}…`);
+    setDisplayUrl(null);
+    try {
+      const res = await fetch('/api/admin/display-token', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username }) });
+      const data = await res.json();
+      if (!res.ok) { setDisplayStatus(`❌ ${data.error || 'Failed to generate display URL'}`); return; }
+      setDisplayUrl({ username, url: data.url });
+      setDisplayStatus('');
+    } catch (e) { setDisplayStatus('❌ Network error'); }
+  }
+  async function copyDisplayUrl() {
+    if (!displayUrl) return;
+    try {
+      await navigator.clipboard.writeText(displayUrl.url);
+      setDisplayStatus('✅ Copied to clipboard');
+      setTimeout(() => setDisplayStatus(''), 2000);
+    } catch { setDisplayStatus('❌ Could not copy — select and copy manually'); }
+  }
+  function buildMailtoHref(invite) {
+    const dashboardUrl = typeof window !== 'undefined' ? `${window.location.origin}/login` : 'https://invitro-dashboard-1.vercel.app/login';
+    const subject = `Welcome to InVitro Capital Dashboard, ${invite.name || invite.username}`;
+    const body = [
+      `Hi ${invite.name || invite.username},`, '',
+      "You've been invited to the InVitro Capital shareholder dashboard.", '',
+      'Your credentials:', `  Username: ${invite.username}`, `  Password: ${invite.password}`, '',
+      `Login here: ${dashboardUrl}`, '',
+      'For security, please change your password after your first login.', '',
+      'Best,',
+    ].join('\n');
+    return `mailto:${encodeURIComponent(invite.email)}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+  }
+  async function sendInvite() {
+    if (!pendingInvite) return;
+    setInviteStatus('Sending invitation email...');
+    try {
+      const res = await fetch('/api/admin/send-invite', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(pendingInvite) });
+      const data = await res.json();
+      if (res.ok) { setInviteStatus(`✅ Invitation sent to ${pendingInvite.email}`); setPendingInvite(null); return; }
+      if (res.status === 503 || String(data.error || '').includes('RESEND')) {
+        window.location.href = buildMailtoHref(pendingInvite);
+        setInviteStatus('📧 Opening your email client... review and send to complete.'); return;
+      }
+      setInviteStatus(`❌ ${data.error || 'Send failed'}`);
+    } catch (e) {
+      window.location.href = buildMailtoHref(pendingInvite);
+      setInviteStatus('📧 Opening your email client... review and send to complete.');
+    }
+  }
+
+  // ── Filtering + CSV export ──────────────────────────────────────────────
+
+  const filteredUsers = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    return users.filter(u => {
+      if (roleFilter !== 'all' && u.role !== roleFilter) return false;
+      const disabled = u.disabled === true;
+      if (statusFilter === 'active' && disabled) return false;
+      if (statusFilter === 'disabled' && !disabled) return false;
+      if (q) {
+        const hay = [u.username, u.name, u.email || '', u.permissions?.lpName || ''].join(' ').toLowerCase();
+        if (!hay.includes(q)) return false;
+      }
+      return true;
+    });
+  }, [users, search, roleFilter, statusFilter]);
+
+  function exportCsv() {
+    const rows = [
+      ['Username', 'Name', 'Email', 'Role', 'Status', 'LP', 'Companies', 'Tabs', 'Breakdowns'],
+      ...users.map(u => {
+        const p = u.permissions || {};
+        const co = p.companies === '*' ? 'All' : (Array.isArray(p.companies) ? p.companies.join('|') : '');
+        const tb = p.tabs === '*' ? 'All' : (Array.isArray(p.tabs) ? p.tabs.join('|') : '');
+        let bd = '';
+        if (p.breakdowns === '*') bd = 'All';
+        else if (p.breakdowns) {
+          bd = ['revenueDrilldown', 'expenseDrilldown', 'auditConsole', 'hcDetails']
+            .filter(k => {
+              const v = p.breakdowns[k];
+              return v === true || (Array.isArray(v) && v.length > 0);
+            }).join('|');
+        }
+        return [
+          u.username, u.name, u.email || '', u.role,
+          u.disabled ? 'Disabled' : 'Active',
+          p.lpName || '', co, tb, bd,
+        ];
+      }),
+    ];
+    const csv = rows.map(r => r.map(c => {
+      const s = String(c ?? '');
+      return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+    }).join(',')).join('\n');
+    const blob = new Blob([csv], { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `users-${new Date().toISOString().slice(0, 10)}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
   function toggleListItem(list, item) {
     return list.includes(item) ? list.filter(x => x !== item) : [...list, item];
   }
 
+  // ── Render ──────────────────────────────────────────────────────────────
+
+  const adminCount = users.filter(u => u.role === 'admin' && !u.disabled).length;
+
   return (
     <div className="min-h-screen bg-background p-6">
       <div className="max-w-7xl mx-auto">
+        {/* Page header */}
         <div className="flex items-center justify-between mb-6">
           <div>
             <h1 className="text-2xl font-bold text-foreground">User Management</h1>
-            <p className="text-sm text-muted-foreground">Create and edit users with granular permissions. Changes auto-commit to git and trigger a Vercel redeploy.</p>
+            <p className="text-sm text-muted-foreground">
+              {users.length} {users.length === 1 ? 'user' : 'users'} · {adminCount} active {adminCount === 1 ? 'admin' : 'admins'} · changes auto-commit and trigger a Vercel redeploy
+            </p>
           </div>
-          <a href="/" className="text-sm text-primary hover:underline">← Back to dashboard</a>
+          <div className="flex items-center gap-3">
+            <Button type="button" variant="outline" size="sm" onClick={exportCsv}>↓ Export CSV</Button>
+            <a href="/" className="text-sm text-primary hover:underline">← Back to dashboard</a>
+          </div>
         </div>
 
-        {/* Display URL banner — shown after clicking "TV URL" on a user row */}
+        {/* Display URL banner */}
         {displayUrl && (
           <div className="mb-4 rounded-lg border border-blue-300 bg-blue-50 p-4">
             <div className="flex items-start justify-between gap-4 mb-3">
               <div className="flex-1 min-w-0">
-                <p className="text-sm font-semibold text-blue-900">
-                  Display URL for <strong>{displayUrl.username}</strong>
-                </p>
+                <p className="text-sm font-semibold text-blue-900">Display URL for <strong>{displayUrl.username}</strong></p>
                 <p className="text-xs text-blue-700 mt-1">
-                  Paste this URL into Juuno&apos;s Website App. It contains a 365-day token that auto-authenticates as <code className="bg-blue-100 px-1 rounded">{displayUrl.username}</code>.
-                  Anyone with this URL has the same view as that user — keep it private. Sensitive routes (/admin, /audit) are blocked from this token.
+                  Paste into Juuno&apos;s Website App. 365-day token, auto-authenticates as <code className="bg-blue-100 px-1 rounded">{displayUrl.username}</code>.
+                  Sensitive routes (/admin, /audit) are blocked from this token.
                 </p>
               </div>
               <div className="flex gap-2 shrink-0">
@@ -342,119 +533,195 @@ export default function UserAdmin({ currentUser, lpNames = [] }) {
                 <Button type="button" size="sm" variant="outline" onClick={() => { setDisplayUrl(null); setDisplayStatus(''); }}>Close</Button>
               </div>
             </div>
-            <input
-              type="text"
-              value={displayUrl.url}
-              readOnly
-              onFocus={e => e.target.select()}
-              className="w-full font-mono text-[11px] bg-white border border-blue-200 rounded px-2 py-1.5 text-foreground"
-            />
+            <input type="text" value={displayUrl.url} readOnly onFocus={e => e.target.select()}
+              className="w-full font-mono text-[11px] bg-white border border-blue-200 rounded px-2 py-1.5 text-foreground" />
             {displayStatus && <p className="text-xs mt-2 font-medium">{displayStatus}</p>}
           </div>
         )}
-        {!displayUrl && displayStatus && (
-          <div className="mb-4 text-sm font-medium">{displayStatus}</div>
-        )}
+        {!displayUrl && displayStatus && <div className="mb-4 text-sm font-medium">{displayStatus}</div>}
 
         <div className="grid grid-cols-1 lg:grid-cols-5 gap-4">
-          {/* Users list */}
+          {/* ── User list (lg:col-span-2) ── */}
           <Card className="lg:col-span-2">
-            <CardHeader className="flex flex-row items-center justify-between gap-4">
-              <CardTitle className="text-sm">Users ({users.length})</CardTitle>
-              <Button size="sm" onClick={startNew}>+ New User</Button>
+            <CardHeader className="space-y-3">
+              <div className="flex items-center justify-between gap-3">
+                <CardTitle className="text-sm">Users {filteredUsers.length !== users.length && <span className="text-muted-foreground font-normal">({filteredUsers.length} of {users.length})</span>}</CardTitle>
+                <Button size="sm" onClick={startNew}>+ New User</Button>
+              </div>
+              {/* Search + filters */}
+              <div className="space-y-2">
+                <input
+                  type="search" value={search} onChange={e => setSearch(e.target.value)}
+                  placeholder="Search by name, username, email, or LP..."
+                  className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                />
+                <div className="flex gap-2">
+                  <select value={roleFilter} onChange={e => setRoleFilter(e.target.value)}
+                    className="flex-1 h-8 rounded-md border border-input bg-background px-2 text-xs focus:outline-none focus:ring-2 focus:ring-ring">
+                    <option value="all">All roles</option>
+                    <option value="admin">Admins</option>
+                    <option value="viewer">Viewers</option>
+                  </select>
+                  <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)}
+                    className="flex-1 h-8 rounded-md border border-input bg-background px-2 text-xs focus:outline-none focus:ring-2 focus:ring-ring">
+                    <option value="all">All statuses</option>
+                    <option value="active">Active only</option>
+                    <option value="disabled">Disabled only</option>
+                  </select>
+                </div>
+              </div>
             </CardHeader>
-            <CardContent>
+            <CardContent className="pt-0">
               {loading ? (
                 <p className="text-sm text-muted-foreground">Loading...</p>
-              ) : users.length === 0 ? (
-                <p className="text-sm text-muted-foreground">No users yet.</p>
+              ) : filteredUsers.length === 0 ? (
+                <p className="text-sm text-muted-foreground py-8 text-center">
+                  {users.length === 0 ? 'No users yet.' : 'No users match your filters.'}
+                </p>
               ) : (
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Username</TableHead>
-                      <TableHead>Name</TableHead>
-                      <TableHead>Role</TableHead>
-                      <TableHead></TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {users.map(u => (
-                      <TableRow
-                        key={u.username}
-                        className={cn("cursor-pointer hover:bg-accent/50", editingUsername === u.username && "bg-primary/5")}
+                <ul className="divide-y divide-border -mx-2">
+                  {filteredUsers.map(u => {
+                    const [bg, fg] = avatarColor(u.username);
+                    const isMe = u.username === currentUser.username;
+                    const isActive = editingUsername === u.username;
+                    const isDisabled = u.disabled === true;
+                    const badges = permissionBadges(u);
+                    return (
+                      <li key={u.username}
+                        className={cn(
+                          "px-2 py-3 cursor-pointer hover:bg-accent/30 rounded-md transition-colors",
+                          isActive && "bg-primary/5",
+                          isDisabled && "opacity-60"
+                        )}
                         onClick={() => startEdit(u)}
                       >
-                        <TableCell className="font-medium">{u.username}</TableCell>
-                        <TableCell>{u.name}</TableCell>
-                        <TableCell>
-                          <span className={cn(
-                            "px-2 py-0.5 text-[10px] font-bold rounded-full uppercase",
-                            u.role === 'admin' ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground'
-                          )}>{u.role}</span>
-                        </TableCell>
-                        <TableCell className="text-right">
-                          <div className="flex justify-end gap-3">
-                            <button
-                              onClick={(e) => { e.stopPropagation(); generateDisplayUrl(u.username); }}
-                              className="text-xs text-blue-600 hover:text-blue-800"
-                              title="Generate a long-lived URL for kiosk/Juuno TV display"
-                            >
-                              TV URL
-                            </button>
-                            <button
-                              onClick={(e) => { e.stopPropagation(); onDelete(u.username); }}
-                              className="text-xs text-red-500 hover:text-red-700"
-                              disabled={u.username === currentUser.username}
-                              title={u.username === currentUser.username ? "Can't delete yourself" : "Delete user"}
-                            >
-                              Delete
-                            </button>
+                        <div className="flex items-start gap-3">
+                          {/* Avatar */}
+                          <div className={cn("h-9 w-9 rounded-full flex items-center justify-center shrink-0 text-xs font-bold", bg, fg)}>
+                            {initials(u.name)}
                           </div>
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
+                          {/* Identity + badges */}
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <p className="text-sm font-semibold text-foreground truncate">{u.name}</p>
+                              <span className={cn(
+                                "px-1.5 py-0.5 text-[9px] font-bold rounded uppercase tracking-wide",
+                                u.role === 'admin' ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground'
+                              )}>{u.role}</span>
+                              {isDisabled && (
+                                <span className="px-1.5 py-0.5 text-[9px] font-bold rounded uppercase tracking-wide bg-red-100 text-red-700">Disabled</span>
+                              )}
+                              {isMe && (
+                                <span className="px-1.5 py-0.5 text-[9px] font-bold rounded uppercase tracking-wide bg-emerald-100 text-emerald-700">You</span>
+                              )}
+                            </div>
+                            <p className="text-[11px] text-muted-foreground truncate">
+                              @{u.username}{u.email ? ` · ${u.email}` : ''}
+                            </p>
+                            {badges.length > 0 && (
+                              <div className="flex items-center gap-1 flex-wrap mt-1.5">
+                                {badges.map(b => (
+                                  <span key={b.key} className={cn("px-1.5 py-0.5 text-[10px] rounded", BADGE_TONE[b.tone])}>{b.text}</span>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                        {/* Inline actions */}
+                        <div className="flex justify-end gap-3 mt-2 pr-1">
+                          <button
+                            onClick={(e) => { e.stopPropagation(); generateDisplayUrl(u.username); }}
+                            className="text-[11px] text-blue-600 hover:text-blue-800"
+                            title="Generate a long-lived URL for kiosk/Juuno TV display"
+                          >TV URL</button>
+                          <button
+                            onClick={(e) => { e.stopPropagation(); resetPasswordFor(u); }}
+                            className="text-[11px] text-foreground/70 hover:text-foreground"
+                            title="Generate a new password and show it once"
+                          >Reset PW</button>
+                          <button
+                            onClick={(e) => { e.stopPropagation(); confirmToggleDisabled(u); }}
+                            disabled={isMe}
+                            className={cn(
+                              "text-[11px]",
+                              isMe ? "text-muted-foreground cursor-not-allowed" :
+                              isDisabled ? "text-emerald-600 hover:text-emerald-800" : "text-amber-600 hover:text-amber-800"
+                            )}
+                            title={isMe ? "Can't lock yourself" : isDisabled ? 'Re-enable login' : 'Block login + kill sessions'}
+                          >{isDisabled ? 'Unlock' : 'Lock'}</button>
+                          <button
+                            onClick={(e) => { e.stopPropagation(); confirmDelete(u.username); }}
+                            disabled={isMe}
+                            className={cn(
+                              "text-[11px]",
+                              isMe ? "text-muted-foreground cursor-not-allowed" : "text-red-500 hover:text-red-700"
+                            )}
+                            title={isMe ? "Can't delete yourself" : 'Delete user'}
+                          >Delete</button>
+                        </div>
+                      </li>
+                    );
+                  })}
+                </ul>
               )}
             </CardContent>
           </Card>
 
-          {/* Form */}
+          {/* ── Form (lg:col-span-3) ── */}
           <Card className="lg:col-span-3">
             <CardHeader>
-              <CardTitle className="text-sm">
-                {editingUsername ? `Edit: ${editingUsername}` : 'Create new user'}
-              </CardTitle>
+              <CardTitle className="text-sm">{editingUsername ? `Edit: ${editingUsername}` : 'Create new user'}</CardTitle>
             </CardHeader>
             <CardContent>
-              {/* Pending invitation banner — appears after save with plain credentials */}
+              {/* Pending invitation banner */}
               {pendingInvite && (
                 <div className="mb-5 rounded-lg border border-blue-300 bg-blue-50 p-4">
                   <div className="flex items-start justify-between gap-3">
                     <div className="flex-1">
                       <p className="text-sm font-semibold text-blue-900">
-                        Send invitation email to <strong>{pendingInvite.name || pendingInvite.username}</strong>?
+                        Send credentials to <strong>{pendingInvite.name || pendingInvite.username}</strong>?
                       </p>
                       <p className="text-xs text-blue-700 mt-1">
-                        Sends to <code className="bg-blue-100 px-1 rounded">{pendingInvite.email}</code> via Resend if configured,
-                        otherwise opens your email client to send from your Gmail.
+                        Sends to <code className="bg-blue-100 px-1 rounded">{pendingInvite.email || '(no email on file)'}</code> via Resend if configured,
+                        otherwise opens your email client.
                       </p>
+                      <p className="text-[11px] mt-2 font-mono text-blue-900">Password: <strong>{pendingInvite.password}</strong></p>
                       {inviteStatus && <p className="text-xs mt-2 font-medium">{inviteStatus}</p>}
                     </div>
                     <div className="flex gap-2 shrink-0">
                       <Button type="button" size="sm" onClick={sendInvite}
-                        disabled={inviteStatus === 'Sending invitation email...'}
-                      >
+                        disabled={!pendingInvite.email || inviteStatus === 'Sending invitation email...'}>
                         {inviteStatus === 'Sending invitation email...' ? 'Sending...' : 'Send Invitation'}
                       </Button>
-                      <Button type="button" size="sm" variant="outline" onClick={() => { setPendingInvite(null); setInviteStatus(''); }}>
-                        Skip
-                      </Button>
+                      <Button type="button" size="sm" variant="outline" onClick={() => { setPendingInvite(null); setInviteStatus(''); }}>Skip</Button>
                     </div>
                   </div>
                 </div>
               )}
+
+              {/* Quick-start strip — presets + copy-from-user */}
+              <div className="mb-5 grid grid-cols-1 sm:grid-cols-2 gap-3 p-3 bg-muted/40 rounded-lg">
+                <div>
+                  <label className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">Apply preset</label>
+                  <select onChange={e => { applyPreset(e.target.value); e.target.value = ''; }}
+                    defaultValue=""
+                    className="mt-1 h-8 w-full rounded-md border border-input bg-background px-2 text-xs focus:outline-none focus:ring-2 focus:ring-ring">
+                    <option value="" disabled>Select a preset…</option>
+                    {Object.keys(ROLE_PRESETS).map(p => <option key={p} value={p}>{p}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">Copy permissions from</label>
+                  <select onChange={e => { copyFromUser(e.target.value); e.target.value = ''; }}
+                    defaultValue=""
+                    className="mt-1 h-8 w-full rounded-md border border-input bg-background px-2 text-xs focus:outline-none focus:ring-2 focus:ring-ring">
+                    <option value="" disabled>Select an existing user…</option>
+                    {users.filter(u => u.username !== editingUsername).map(u => (
+                      <option key={u.username} value={u.username}>{u.name} (@{u.username})</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
 
               <form onSubmit={onSave} className="space-y-5">
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -464,60 +731,53 @@ export default function UserAdmin({ currentUser, lpNames = [] }) {
                       onChange={e => setForm({ ...form, username: e.target.value })}
                       disabled={editingUsername !== null}
                       className="mt-1 flex h-9 w-full rounded-md border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring disabled:opacity-60"
-                      placeholder="e.g. boardmember1"
-                    />
+                      placeholder="e.g. boardmember1" />
                   </div>
                   <div>
                     <label className="text-xs font-medium text-foreground uppercase tracking-wide">Display Name</label>
                     <input type="text" value={form.name}
                       onChange={e => setForm({ ...form, name: e.target.value })}
                       className="mt-1 flex h-9 w-full rounded-md border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
-                      placeholder="e.g. Jane Smith"
-                    />
+                      placeholder="e.g. Jane Smith" />
                   </div>
                   <div>
                     <label className="text-xs font-medium text-foreground uppercase tracking-wide">Email (for invitations)</label>
                     <input type="email" value={form.email}
                       onChange={e => setForm({ ...form, email: e.target.value })}
                       className="mt-1 flex h-9 w-full rounded-md border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
-                      placeholder="jane@invitrocapital.com"
-                      autoComplete="email"
-                    />
+                      placeholder="jane@invitrocapital.com" autoComplete="email" />
                   </div>
                   <div>
-                    <label className="text-xs font-medium text-foreground uppercase tracking-wide">
-                      Password {editingUsername ? '(leave blank to keep)' : ''}
+                    <label className="text-xs font-medium text-foreground uppercase tracking-wide flex items-center justify-between">
+                      <span>Password {editingUsername ? '(leave blank to keep)' : ''}</span>
+                      <button type="button" onClick={regeneratePassword}
+                        className="text-[10px] text-primary hover:underline normal-case tracking-normal">
+                        Generate strong password
+                      </button>
                     </label>
-                    <input type="password" value={form.password}
+                    <input type="text" value={form.password}
                       onChange={e => setForm({ ...form, password: e.target.value })}
-                      className="mt-1 flex h-9 w-full rounded-md border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                      className="mt-1 flex h-9 w-full rounded-md border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring font-mono"
                       placeholder={editingUsername ? '(unchanged)' : 'Min 8 characters'}
-                      autoComplete="new-password"
-                    />
+                      autoComplete="new-password" />
                   </div>
                   <div>
                     <label className="text-xs font-medium text-foreground uppercase tracking-wide">Role</label>
-                    <select value={form.role}
-                      onChange={e => setForm({ ...form, role: e.target.value })}
-                      className="mt-1 flex h-9 w-full rounded-md border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
-                    >
+                    <select value={form.role} onChange={e => setForm({ ...form, role: e.target.value })}
+                      className="mt-1 flex h-9 w-full rounded-md border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring">
                       <option value="viewer">Viewer</option>
                       <option value="admin">Admin</option>
                     </select>
                   </div>
-                  <div className="md:col-span-2">
-                    <label className="text-xs font-medium text-foreground uppercase tracking-wide">
-                      LP Identity (for IRR &amp; Valuation scoping — optional)
-                    </label>
-                    <select value={form.lpName}
-                      onChange={e => setForm({ ...form, lpName: e.target.value })}
-                      className="mt-1 flex h-9 w-full rounded-md border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
-                    >
-                      <option value="">(none — sees all vehicles, no LP scoping)</option>
+                  <div>
+                    <label className="text-xs font-medium text-foreground uppercase tracking-wide">LP Identity (optional)</label>
+                    <select value={form.lpName} onChange={e => setForm({ ...form, lpName: e.target.value })}
+                      className="mt-1 flex h-9 w-full rounded-md border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring">
+                      <option value="">(none — sees all vehicles)</option>
                       {lpNames.map(name => <option key={name} value={name}>{name}</option>)}
                     </select>
                     <p className="text-[10px] text-muted-foreground mt-1">
-                      When set, the IRR &amp; Valuation tab filters to vehicles where this LP appears, with their stake highlighted.
+                      When set, the IRR &amp; Valuation tab filters to vehicles where this LP appears.
                     </p>
                   </div>
                 </div>
@@ -527,13 +787,11 @@ export default function UserAdmin({ currentUser, lpNames = [] }) {
                   <legend className="text-xs font-medium text-foreground uppercase tracking-wide px-1">Companies</legend>
                   <div className="space-y-2">
                     <label className="flex items-center gap-2 text-sm cursor-pointer">
-                      <input type="radio" name="companies_mode" checked={form.companies_mode === 'all'}
-                        onChange={() => setForm({ ...form, companies_mode: 'all' })} />
+                      <input type="radio" name="companies_mode" checked={form.companies_mode === 'all'} onChange={() => setForm({ ...form, companies_mode: 'all' })} />
                       All companies
                     </label>
                     <label className="flex items-center gap-2 text-sm cursor-pointer">
-                      <input type="radio" name="companies_mode" checked={form.companies_mode === 'subset'}
-                        onChange={() => setForm({ ...form, companies_mode: 'subset' })} />
+                      <input type="radio" name="companies_mode" checked={form.companies_mode === 'subset'} onChange={() => setForm({ ...form, companies_mode: 'subset' })} />
                       Select specific companies
                     </label>
                     {form.companies_mode === 'subset' && (
@@ -555,13 +813,11 @@ export default function UserAdmin({ currentUser, lpNames = [] }) {
                   <legend className="text-xs font-medium text-foreground uppercase tracking-wide px-1">Tabs</legend>
                   <div className="space-y-2">
                     <label className="flex items-center gap-2 text-sm cursor-pointer">
-                      <input type="radio" name="tabs_mode" checked={form.tabs_mode === 'all'}
-                        onChange={() => setForm({ ...form, tabs_mode: 'all' })} />
+                      <input type="radio" name="tabs_mode" checked={form.tabs_mode === 'all'} onChange={() => setForm({ ...form, tabs_mode: 'all' })} />
                       All tabs
                     </label>
                     <label className="flex items-center gap-2 text-sm cursor-pointer">
-                      <input type="radio" name="tabs_mode" checked={form.tabs_mode === 'subset'}
-                        onChange={() => setForm({ ...form, tabs_mode: 'subset' })} />
+                      <input type="radio" name="tabs_mode" checked={form.tabs_mode === 'subset'} onChange={() => setForm({ ...form, tabs_mode: 'subset' })} />
                       Select specific tabs
                     </label>
                     {form.tabs_mode === 'subset' && (
@@ -588,8 +844,7 @@ export default function UserAdmin({ currentUser, lpNames = [] }) {
                       <div className="space-y-2">
                         {['all', 'none', 'subset'].map(mode => (
                           <label key={mode} className="flex items-center gap-2 text-sm cursor-pointer">
-                            <input type="radio" name={modeField} checked={form[modeField] === mode}
-                              onChange={() => setForm({ ...form, [modeField]: mode })} />
+                            <input type="radio" name={modeField} checked={form[modeField] === mode} onChange={() => setForm({ ...form, [modeField]: mode })} />
                             {mode === 'all' ? 'All companies' : mode === 'none' ? 'Disabled' : 'Select specific companies'}
                           </label>
                         ))}
@@ -614,13 +869,11 @@ export default function UserAdmin({ currentUser, lpNames = [] }) {
                   <legend className="text-xs font-medium text-foreground uppercase tracking-wide px-1">Other Access</legend>
                   <div className="space-y-2">
                     <label className="flex items-center gap-2 text-sm cursor-pointer">
-                      <input type="checkbox" checked={form.bd_audit}
-                        onChange={e => setForm({ ...form, bd_audit: e.target.checked })} />
+                      <input type="checkbox" checked={form.bd_audit} onChange={e => setForm({ ...form, bd_audit: e.target.checked })} />
                       Audit Console
                     </label>
                     <label className="flex items-center gap-2 text-sm cursor-pointer">
-                      <input type="checkbox" checked={form.bd_hc}
-                        onChange={e => setForm({ ...form, bd_hc: e.target.checked })} />
+                      <input type="checkbox" checked={form.bd_hc} onChange={e => setForm({ ...form, bd_hc: e.target.checked })} />
                       HC Salary Details
                     </label>
                   </div>
@@ -631,15 +884,24 @@ export default function UserAdmin({ currentUser, lpNames = [] }) {
 
                 <div className="flex gap-3">
                   <Button type="submit">{editingUsername ? 'Update User' : 'Create User'}</Button>
-                  {editingUsername && (
-                    <Button type="button" variant="outline" onClick={startNew}>Cancel</Button>
-                  )}
+                  {editingUsername && <Button type="button" variant="outline" onClick={startNew}>Cancel</Button>}
                 </div>
               </form>
             </CardContent>
           </Card>
         </div>
       </div>
+
+      {/* Confirm modal */}
+      <ConfirmModal
+        open={!!confirmModal}
+        title={confirmModal?.title}
+        message={confirmModal?.message}
+        confirmLabel={confirmModal?.confirmLabel}
+        danger={confirmModal?.danger}
+        onConfirm={confirmModal?.onConfirm}
+        onCancel={() => setConfirmModal(null)}
+      />
     </div>
   );
 }
