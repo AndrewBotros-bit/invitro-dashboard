@@ -2,6 +2,7 @@
 import { useState } from "react";
 import { cn } from "@/lib/utils";
 import { Logo } from "@/components/ui/logo";
+import { getCompanyProfile } from "@/lib/companyProfiles";
 
 // Sentinel used to track which picker row is expanded. We can't reuse
 // `selectedCompany` because we need to allow "selected but collapsed" — the
@@ -238,6 +239,11 @@ export default function DashboardSidebar({
                         )}
                         style={isSelected ? { color: colorMap[name] } : undefined}
                         aria-expanded={isExpanded}
+                        // Native title tooltip: shows on hover (desktop)
+                        // and on long-press (mobile via OS). Tagline from
+                        // lib/companyProfiles.js → drill in for the full
+                        // "About" panel.
+                        title={getCompanyProfile(name)?.tagline || undefined}
                       >
                         <span
                           className="inline-block w-2 h-2 rounded-full shrink-0"

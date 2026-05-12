@@ -15,6 +15,7 @@ import { Button } from "@/components/ui/button";
 import { generateInsights } from "@/lib/insights";
 import { Drawer, DrawerContent, DrawerHeader, DrawerTitle, DrawerDescription, DrawerClose } from "@/components/ui/drawer";
 import DashboardSidebar from "@/components/DashboardSidebar";
+import { CompanyAboutPanel } from "@/components/CompanyAboutPanel";
 import IRRValuation from "@/components/IRRValuation";
 
 /* ── Chart styling constants ── */
@@ -1158,6 +1159,13 @@ export default function InVitroDashboard({ data, user }) {
 
           {/* ────── OVERVIEW ────── */}
           {activeSection === 'overview' && (<>
+            {/* About panel — appears only when drilled into a specific
+                company. Collapsed by default; click to expand the full
+                business-model description. Edit content in
+                lib/companyProfiles.js. */}
+            {selectedCompany && (
+              <CompanyAboutPanel companyName={selectedCompany} accentColor={colorMap[selectedCompany]} />
+            )}
             {/* KPI strip — ordered left-to-right to narrate the P&L:
                 Revenue → Gross Profit → Expenses → EBITDA → Operational Cash Flow.
                 Each card pairs $ value (primary) with a context line below
