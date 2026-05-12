@@ -137,53 +137,35 @@ function ComparisonBadge({ current, compValue, compLabel, invertColor = false })
 }
 
 /**
- * ComparisonBarChart — two side-by-side bar charts for "this period vs that
- * period." Used when the user toggles Compare on, regardless of whether the
- * range is a single month or multiple months. Each chart aggregates each
- * company's $ for its period, so visual scale is directly comparable across
- * the two panels (shared maxVal sets the same Y-axis ceiling).
+ * ComparisonBarChart — one grouped bar chart with two bars per company
+ * (current period + comparison period), touching, color-coded by company
+ * brand. Lets the eye compare current-vs-prior *per company* directly —
+ * which is more useful than two-panel layouts for "where did the change
+ * actually come from?" questions.
  *
- * Why side-by-side instead of grouped bars: at 5 companies and two periods,
- * a grouped bar chart gets visually noisy (10 bars + spacing competition).
- * Two panels keep each chart simple — 5 bars apiece — and the eye does the
- * comparison by glancing left-to-right.
+ * Visual encoding:
+ *   - Color per company (AllRx blue, AllCare green, etc.) for both bars
+ *   - Current period: full opacity
+ *   - Comparison period: 0.4 opacity (same color, "ghosted" look)
+ *   - barGap={0}: the two bars touch — visually emphasizes that they belong
+ *     to one company, not separate categories
+ *
+ * Header keeps the consolidated total + delta so the top-line story is
+ * still legible at a glance.
  */
 function ComparisonBarChart({ title, companies, currentData, currentLabel, compData, compLabel, colorMap, formatter = fmt }) {
-  // Find the shared max across both periods so the two charts use the
-  // same Y-axis ceiling — otherwise bars of equal $ values would render
-  // at different heights in each panel, defeating visual comparison.
-  const maxVal = Math.max(
-    ...currentData.map(d => Math.abs(d.value ?? 0)),
-    ...compData.map(d => Math.abs(d.value ?? 0)),
-    1
-  );
+  // Merge per-company data into wide rows for Recharts: each row holds both
+  // periods, which Recharts uses to render side-by-side bars within a group.
+  const data = companies.map(name => ({
+    name,
+    current: currentData.find(d => d.name === name)?.value ?? 0,
+    comp: compData.find(d => d.name === name)?.value ?? 0,
+  }));
+
   const curTotal = currentData.reduce((s, d) => s + (d.value ?? 0), 0);
   const compTotal = compData.reduce((s, d) => s + (d.value ?? 0), 0);
   const totalPct = compTotal !== 0 ? ((curTotal - compTotal) / Math.abs(compTotal) * 100).toFixed(1) : null;
   const totalUp = totalPct !== null && Number(totalPct) >= 0;
-
-  const renderPanel = (data, label, total) => (
-    <div>
-      <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground mb-1">{label}</p>
-      <p className="text-base font-bold tabular-nums mb-2">{formatter(total)}</p>
-      <ResponsiveContainer width="100%" height={200}>
-        <BarChart data={data} margin={{ top: 4, right: 4, left: -16, bottom: 0 }}>
-          <CartesianGrid strokeDasharray="3 3" stroke={CHART_STYLE.border} vertical={false} />
-          <XAxis dataKey="name" tick={{ fill: CHART_STYLE.muted, fontSize: 10 }} interval={0} angle={0} />
-          <YAxis tick={{ fill: CHART_STYLE.muted, fontSize: 10 }} tickFormatter={fmtShort} domain={[0, maxVal]} />
-          <Tooltip
-            cursor={{ fill: 'rgba(0,0,0,0.04)' }}
-            formatter={(v) => formatter(v)}
-            labelStyle={{ fontSize: 11, color: '#475569' }}
-            contentStyle={{ fontSize: 11, borderRadius: 6, border: '1px solid #e2e8f0', padding: '6px 8px' }}
-          />
-          <Bar dataKey="value" radius={[4, 4, 0, 0]} maxBarSize={48}>
-            {data.map(d => <Cell key={d.name} fill={colorMap[d.name] || '#94a3b8'} />)}
-          </Bar>
-        </BarChart>
-      </ResponsiveContainer>
-    </div>
-  );
 
   return (
     <Card>
@@ -196,10 +178,40 @@ function ComparisonBarChart({ title, companies, currentData, currentLabel, compD
         )}
       </CardHeader>
       <CardContent>
-        <div className="grid grid-cols-2 gap-4">
-          {renderPanel(currentData, currentLabel, curTotal)}
-          {renderPanel(compData, compLabel, compTotal)}
+        {/* Period totals row — kept above the chart so the consolidated
+            story is still readable without parsing every bar. */}
+        <div className="flex items-center gap-6 mb-3 text-[11px]">
+          <div className="flex flex-col">
+            <span className="font-semibold uppercase tracking-wide text-muted-foreground">{currentLabel}</span>
+            <span className="text-base font-bold tabular-nums text-foreground">{formatter(curTotal)}</span>
+          </div>
+          <div className="flex flex-col">
+            <span className="font-semibold uppercase tracking-wide text-muted-foreground">{compLabel}</span>
+            <span className="text-base font-bold tabular-nums text-muted-foreground">{formatter(compTotal)}</span>
+          </div>
         </div>
+        <ResponsiveContainer width="100%" height={300}>
+          <BarChart data={data} margin={{ top: 8, right: 8, left: -8, bottom: 0 }} barGap={0} barCategoryGap="20%">
+            <CartesianGrid strokeDasharray="3 3" stroke={CHART_STYLE.border} vertical={false} />
+            <XAxis dataKey="name" tick={{ fill: CHART_STYLE.muted, fontSize: 11 }} interval={0} />
+            <YAxis tick={{ fill: CHART_STYLE.muted, fontSize: 11 }} tickFormatter={fmtShort} />
+            <Tooltip
+              cursor={{ fill: 'rgba(0,0,0,0.04)' }}
+              formatter={(v) => formatter(v)}
+              labelStyle={{ fontSize: 11, color: '#475569', fontWeight: 600 }}
+              contentStyle={{ fontSize: 11, borderRadius: 6, border: '1px solid #e2e8f0', padding: '6px 8px' }}
+            />
+            <Legend wrapperStyle={{ fontSize: 11, paddingTop: 8 }} iconType="square" />
+            {/* Current period bar — full opacity */}
+            <Bar dataKey="current" name={currentLabel} radius={[3, 3, 0, 0]} maxBarSize={36}>
+              {data.map(d => <Cell key={`cur-${d.name}`} fill={colorMap[d.name] || '#94a3b8'} />)}
+            </Bar>
+            {/* Comparison period bar — same color at 40% opacity */}
+            <Bar dataKey="comp" name={compLabel} radius={[3, 3, 0, 0]} maxBarSize={36}>
+              {data.map(d => <Cell key={`comp-${d.name}`} fill={colorMap[d.name] || '#94a3b8'} fillOpacity={0.4} />)}
+            </Bar>
+          </BarChart>
+        </ResponsiveContainer>
       </CardContent>
     </Card>
   );
