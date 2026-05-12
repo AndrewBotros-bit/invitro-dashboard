@@ -674,6 +674,36 @@ export default function InVitroDashboard({ data, user }) {
     .filter(c => c.value > 0)
     .sort((a, b) => b.value - a.value);
 
+  // Window-filter helper for arbitrary [from, to] ranges. Used to build
+  // comparison-period pie data using the SAME shape/filter logic as the
+  // current-period pies above — keeps the mix calculations symmetric.
+  const inWindowFn = (from, to) => (v) => {
+    const vi = v.year * 100 + v.month;
+    return vi >= from.year * 100 + from.month && vi <= to.year * 100 + to.month;
+  };
+
+  // Comparison-period pies (only built when Compare is enabled). Same shape
+  // as revenuePieData/expensePieData so the JSX can render them identically.
+  const compRevenuePieData = compareEnabled ? data.pnl
+    .filter(c => !dynExcludeRevenue.includes(c.name))
+    .map(c => {
+      const vals = (c.metrics['Revenues'] ?? []).filter(inWindowFn(compRange.from, compRange.to));
+      const total = vals.reduce((s, v) => s + (v.value ?? 0), 0);
+      return { name: c.name, value: total, color: colorMap[c.name] };
+    })
+    .filter(c => c.value > 0)
+    .sort((a, b) => b.value - a.value) : [];
+
+  const compExpensePieData = compareEnabled ? data.pnl
+    .filter(c => !dynExcludeEbitda.includes(c.name))
+    .map(c => {
+      const vals = getCompanyExpenseValues(c).filter(inWindowFn(compRange.from, compRange.to));
+      const total = vals.reduce((s, v) => s + Math.abs(v.value ?? 0), 0);
+      return { name: c.name, value: total, color: colorMap[c.name] };
+    })
+    .filter(c => c.value > 0)
+    .sort((a, b) => b.value - a.value) : [];
+
   // Expense total for an arbitrary [from, to] window. Same source as the
   // current-period rangeExpenses below, so current and comparison values
   // are computed by the SAME logic — avoiding the asymmetric-sourcing bug
@@ -1349,16 +1379,54 @@ export default function InVitroDashboard({ data, user }) {
             )}
 
             <Card>
-              <CardHeader><CardTitle className="text-sm">Revenue Mix ({rangeLabel}) &mdash; excl. Holdings</CardTitle></CardHeader>
+              <CardHeader>
+                <CardTitle className="text-sm">
+                  Revenue Mix {compareEnabled ? `— ${rangeLabel} vs ${compLabel}` : `(${rangeLabel})`} &mdash; excl. Holdings
+                </CardTitle>
+              </CardHeader>
               <CardContent>
-                <ResponsiveContainer width="100%" height={240}>
-                  <PieChart>
-                    <Pie data={revenuePieData} cx="50%" cy="50%" outerRadius={90} innerRadius={50} dataKey="value" label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}>
-                      {revenuePieData.map((e, i) => <Cell key={i} fill={e.color} />)}
-                    </Pie>
-                    <Tooltip content={<CustomTooltip />} />
-                  </PieChart>
-                </ResponsiveContainer>
+                {compareEnabled ? (
+                  // Two pies side-by-side: current vs comparison. Each pie
+                  // labels by company % share of its own period total, so
+                  // the comparison answers "did the mix shift?"
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground text-center mb-1">{rangeLabel}</p>
+                      <ResponsiveContainer width="100%" height={220}>
+                        <PieChart>
+                          <Pie data={revenuePieData} cx="50%" cy="50%" outerRadius={70} innerRadius={38} dataKey="value"
+                            label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
+                            labelLine={{ stroke: '#cbd5e1', strokeWidth: 0.8 }}>
+                            {revenuePieData.map((e, i) => <Cell key={i} fill={e.color} />)}
+                          </Pie>
+                          <Tooltip content={<CustomTooltip />} />
+                        </PieChart>
+                      </ResponsiveContainer>
+                    </div>
+                    <div>
+                      <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground text-center mb-1">{compLabel}</p>
+                      <ResponsiveContainer width="100%" height={220}>
+                        <PieChart>
+                          <Pie data={compRevenuePieData} cx="50%" cy="50%" outerRadius={70} innerRadius={38} dataKey="value"
+                            label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
+                            labelLine={{ stroke: '#cbd5e1', strokeWidth: 0.8 }}>
+                            {compRevenuePieData.map((e, i) => <Cell key={i} fill={e.color} />)}
+                          </Pie>
+                          <Tooltip content={<CustomTooltip />} />
+                        </PieChart>
+                      </ResponsiveContainer>
+                    </div>
+                  </div>
+                ) : (
+                  <ResponsiveContainer width="100%" height={240}>
+                    <PieChart>
+                      <Pie data={revenuePieData} cx="50%" cy="50%" outerRadius={90} innerRadius={50} dataKey="value" label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}>
+                        {revenuePieData.map((e, i) => <Cell key={i} fill={e.color} />)}
+                      </Pie>
+                      <Tooltip content={<CustomTooltip />} />
+                    </PieChart>
+                  </ResponsiveContainer>
+                )}
               </CardContent>
             </Card>
 
@@ -2287,17 +2355,52 @@ export default function InVitroDashboard({ data, user }) {
 
             {!selectedCompany && expensePieData.length > 0 && (
               <Card>
-                <CardHeader><CardTitle className="text-sm">Expense Distribution by Company ({rangeLabel})</CardTitle></CardHeader>
+                <CardHeader>
+                  <CardTitle className="text-sm">
+                    Expense Distribution by Company {compareEnabled ? `— ${rangeLabel} vs ${compLabel}` : `(${rangeLabel})`}
+                  </CardTitle>
+                </CardHeader>
                 <CardContent>
-                  <ResponsiveContainer width="100%" height={240}>
-                    <PieChart>
-                      <Pie data={expensePieData} cx="50%" cy="50%" outerRadius={90} innerRadius={50} dataKey="value"
-                        label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}>
-                        {expensePieData.map((e, i) => <Cell key={i} fill={e.color} />)}
-                      </Pie>
-                      <Tooltip content={<CustomTooltip />} />
-                    </PieChart>
-                  </ResponsiveContainer>
+                  {compareEnabled ? (
+                    <div className="grid grid-cols-2 gap-2">
+                      <div>
+                        <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground text-center mb-1">{rangeLabel}</p>
+                        <ResponsiveContainer width="100%" height={220}>
+                          <PieChart>
+                            <Pie data={expensePieData} cx="50%" cy="50%" outerRadius={70} innerRadius={38} dataKey="value"
+                              label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
+                              labelLine={{ stroke: '#cbd5e1', strokeWidth: 0.8 }}>
+                              {expensePieData.map((e, i) => <Cell key={i} fill={e.color} />)}
+                            </Pie>
+                            <Tooltip content={<CustomTooltip />} />
+                          </PieChart>
+                        </ResponsiveContainer>
+                      </div>
+                      <div>
+                        <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground text-center mb-1">{compLabel}</p>
+                        <ResponsiveContainer width="100%" height={220}>
+                          <PieChart>
+                            <Pie data={compExpensePieData} cx="50%" cy="50%" outerRadius={70} innerRadius={38} dataKey="value"
+                              label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
+                              labelLine={{ stroke: '#cbd5e1', strokeWidth: 0.8 }}>
+                              {compExpensePieData.map((e, i) => <Cell key={i} fill={e.color} />)}
+                            </Pie>
+                            <Tooltip content={<CustomTooltip />} />
+                          </PieChart>
+                        </ResponsiveContainer>
+                      </div>
+                    </div>
+                  ) : (
+                    <ResponsiveContainer width="100%" height={240}>
+                      <PieChart>
+                        <Pie data={expensePieData} cx="50%" cy="50%" outerRadius={90} innerRadius={50} dataKey="value"
+                          label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}>
+                          {expensePieData.map((e, i) => <Cell key={i} fill={e.color} />)}
+                        </Pie>
+                        <Tooltip content={<CustomTooltip />} />
+                      </PieChart>
+                    </ResponsiveContainer>
+                  )}
                 </CardContent>
               </Card>
             )}
