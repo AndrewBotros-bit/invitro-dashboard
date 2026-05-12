@@ -94,6 +94,7 @@ export async function POST(request) {
   const passwordHash = await hashPassword(password);
   const newUser = { username, name, passwordHash, role, permissions };
   if (email) newUser.email = email;
+  if (body.disabled === true) newUser.disabled = true;
   users.push(newUser);
 
   await commitUsersToGitHub(users, guard.user.username, `create user ${username}`);
@@ -140,6 +141,10 @@ export async function PUT(request) {
   if (role) updated.role = role;
   if (permissions) updated.permissions = permissions;
   if (password) updated.passwordHash = await hashPassword(password);
+  // disabled is a tri-state input: undefined (don't change), true (lock),
+  // false (unlock — clears the field so users.json stays clean).
+  if (body.disabled === true) updated.disabled = true;
+  else if (body.disabled === false) delete updated.disabled;
   users[idx] = updated;
 
   await commitUsersToGitHub(users, guard.user.username, `update user ${username}`);

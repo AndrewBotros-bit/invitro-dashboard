@@ -13,6 +13,13 @@ export async function POST(request) {
     return NextResponse.json({ error: 'Invalid credentials' }, { status: 401 });
   }
 
+  // Disabled accounts are blocked at the login boundary AND mid-session
+  // (verifySessionAndRefresh denies any existing session). Generic message
+  // intentionally avoids leaking that the account exists-but-is-disabled.
+  if (user.disabled === true) {
+    return NextResponse.json({ error: 'Account is disabled. Contact an admin.' }, { status: 403 });
+  }
+
   const valid = await verifyPassword(password, user.passwordHash);
   if (!valid) {
     return NextResponse.json({ error: 'Invalid credentials' }, { status: 401 });
