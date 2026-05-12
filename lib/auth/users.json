@@ -119,7 +119,7 @@
       "tabs": "*",
       "breakdowns": {
         "revenueDrilldown": true,
-        "expenseDrilldown": true,
+        "expenseDrilldown": false,
         "auditConsole": false,
         "hcDetails": false
       },
