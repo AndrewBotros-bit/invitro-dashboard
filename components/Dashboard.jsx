@@ -1493,13 +1493,16 @@ export default function InVitroDashboard({ data, user }) {
               </div>
             ) : (
             <Card className="mb-5">
-              <CardHeader><CardTitle className="text-sm">{viewMode === 'yearly' ? 'Yearly' : 'Monthly'} Revenue by Company ({rangeLabel}){data.revenueDetails && selectedCompany ? ' — click a bar for breakdown' : ''}</CardTitle></CardHeader>
+              <CardHeader><CardTitle className="text-sm">{viewMode === 'yearly' ? 'Yearly' : 'Monthly'} Revenue by Company ({rangeLabel}){data.revenueDetails && selectedCompany && canBreakdown('revenueDrilldown', selectedCompany) ? ' — click a bar for breakdown' : ''}</CardTitle></CardHeader>
               <CardContent>
                 <ResponsiveContainer width="100%" height={340}>
                   <ComposedChart data={revenueByMonthWithTotal} onClick={(e) => {
-                    // Drill-down is only available when viewing a single company (not consolidated)
+                    // Drill-down requires: single-company view + revenue-details data + permission.
+                    // All three must hold or the click is a no-op (and the title strips the
+                    // "click for breakdown" affordance to match).
                     if (!selectedCompany) return;
                     if (!data.revenueDetails || !e?.activePayload?.[0]) return;
+                    if (!canBreakdown('revenueDrilldown', selectedCompany)) return;
                     const label = e.activePayload[0].payload.month;
                     if (viewMode === 'yearly') {
                       setRevenueDrilldown({ year: Number(label), month: 0 });
@@ -2069,12 +2072,17 @@ export default function InVitroDashboard({ data, user }) {
                   compIsOlder={compIsOlder}
                 />
               </div>
-            ) : (
+            ) : (() => {
+              // Compute once: the user's drilldown permission for this chart.
+              // Drives the title affordance text, the bar cursor style, and
+              // the onClick guard — all should agree, otherwise the UI lies.
+              const canDrill = canBreakdown('expenseDrilldown', selectedCompany);
+              return (
             <Card className="mb-5">
-              <CardHeader><CardTitle className="text-sm">{viewMode === 'yearly' ? 'Yearly' : 'Monthly'} Expenses ({rangeLabel}) &mdash; click a bar for breakdown</CardTitle></CardHeader>
+              <CardHeader><CardTitle className="text-sm">{viewMode === 'yearly' ? 'Yearly' : 'Monthly'} Expenses ({rangeLabel}){canDrill ? ' — click a bar for breakdown' : ''}</CardTitle></CardHeader>
               <CardContent>
                 <ResponsiveContainer width="100%" height={340}>
-                  <ComposedChart data={expenseByMonthWithTotal} onClick={(e) => {
+                  <ComposedChart data={expenseByMonthWithTotal} onClick={canDrill ? (e) => {
                     if (e && e.activePayload && e.activePayload[0]) {
                       const label = e.activePayload[0].payload.month;
                       if (viewMode === 'yearly') {
@@ -2087,13 +2095,13 @@ export default function InVitroDashboard({ data, user }) {
                         if (m > 0) { setExpenseDrilldown({ year: y, month: m }); setExpandedDept(null); }
                       }
                     }
-                  }}>
+                  } : undefined}>
                     <CartesianGrid strokeDasharray="3 3" stroke={CHART_STYLE.border} />
                     <XAxis dataKey="month" tick={{ fill: CHART_STYLE.muted, fontSize: 11 }} />
                     <YAxis tick={{ fill: CHART_STYLE.muted, fontSize: 11 }} tickFormatter={fmtShort} />
                     <Tooltip content={<CustomTooltip />} />
                     {expenseChartCompanies.map((name, i) => (
-                      <Bar key={name} dataKey={name} stackId="1" fill={colorMap[name]} cursor="pointer"
+                      <Bar key={name} dataKey={name} stackId="1" fill={colorMap[name]} cursor={canDrill ? "pointer" : "default"}
                         radius={i === expenseChartCompanies.length - 1 ? [4, 4, 0, 0] : [0, 0, 0, 0]} />
                     ))}
                     <Line type="monotone" dataKey="Total" stroke={CHART_STYLE.totalLine} strokeWidth={2} dot={false} />
@@ -2102,7 +2110,8 @@ export default function InVitroDashboard({ data, user }) {
                 </ResponsiveContainer>
               </CardContent>
             </Card>
-            )}
+              );
+            })()}
 
             {/* Expense breakdown drawer */}
             {canBreakdown('expenseDrilldown', selectedCompany) && <Drawer open={!!expenseDrilldown} onOpenChange={(open) => { if (!open) setExpenseDrilldown(null); }}>
