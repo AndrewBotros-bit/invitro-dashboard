@@ -153,7 +153,7 @@ function ComparisonBadge({ current, compValue, compLabel, invertColor = false })
  * Header keeps the consolidated total + delta so the top-line story is
  * still legible at a glance.
  */
-function ComparisonBarChart({ title, companies, currentData, currentLabel, compData, compLabel, colorMap, formatter = fmt }) {
+function ComparisonBarChart({ title, companies, currentData, currentLabel, compData, compLabel, colorMap, formatter = fmt, compIsOlder = true }) {
   // Merge per-company data into wide rows for Recharts: each row holds both
   // periods, which Recharts uses to render side-by-side bars within a group.
   const data = companies.map(name => ({
@@ -167,6 +167,25 @@ function ComparisonBarChart({ title, companies, currentData, currentLabel, compD
   const totalPct = compTotal !== 0 ? ((curTotal - compTotal) / Math.abs(compTotal) * 100).toFixed(1) : null;
   const totalUp = totalPct !== null && Number(totalPct) >= 0;
 
+  // Bar definitions, then ordered chronologically. The OLDER period is
+  // always rendered first (left), the NEWER period second (right). Newer
+  // gets full opacity (it's the focus); older is muted (baseline).
+  const currentBar = {
+    key: 'current',
+    label: currentLabel,
+    total: curTotal,
+    fillOpacity: compIsOlder ? 1 : 0.4,
+    cellKey: 'cur',
+  };
+  const compBar = {
+    key: 'comp',
+    label: compLabel,
+    total: compTotal,
+    fillOpacity: compIsOlder ? 0.4 : 1,
+    cellKey: 'comp',
+  };
+  const bars = compIsOlder ? [compBar, currentBar] : [currentBar, compBar];
+
   return (
     <Card>
       <CardHeader className="flex flex-row items-center justify-between">
@@ -178,17 +197,18 @@ function ComparisonBarChart({ title, companies, currentData, currentLabel, compD
         )}
       </CardHeader>
       <CardContent>
-        {/* Period totals row — kept above the chart so the consolidated
-            story is still readable without parsing every bar. */}
+        {/* Period totals — chronological order matches the bar order
+            below. Older period uses muted text, newer uses full foreground
+            so the eye reads left-to-right as "where we were → where we are". */}
         <div className="flex items-center gap-6 mb-3 text-[11px]">
-          <div className="flex flex-col">
-            <span className="font-semibold uppercase tracking-wide text-muted-foreground">{currentLabel}</span>
-            <span className="text-base font-bold tabular-nums text-foreground">{formatter(curTotal)}</span>
-          </div>
-          <div className="flex flex-col">
-            <span className="font-semibold uppercase tracking-wide text-muted-foreground">{compLabel}</span>
-            <span className="text-base font-bold tabular-nums text-muted-foreground">{formatter(compTotal)}</span>
-          </div>
+          {bars.map((b, i) => (
+            <div className="flex flex-col" key={b.key}>
+              <span className="font-semibold uppercase tracking-wide text-muted-foreground">{b.label}</span>
+              <span className={`text-base font-bold tabular-nums ${i === bars.length - 1 ? 'text-foreground' : 'text-muted-foreground'}`}>
+                {formatter(b.total)}
+              </span>
+            </div>
+          ))}
         </div>
         <ResponsiveContainer width="100%" height={300}>
           <BarChart data={data} margin={{ top: 8, right: 8, left: -8, bottom: 0 }} barGap={0} barCategoryGap="20%">
@@ -202,14 +222,13 @@ function ComparisonBarChart({ title, companies, currentData, currentLabel, compD
               contentStyle={{ fontSize: 11, borderRadius: 6, border: '1px solid #e2e8f0', padding: '6px 8px' }}
             />
             <Legend wrapperStyle={{ fontSize: 11, paddingTop: 8 }} iconType="square" />
-            {/* Current period bar — full opacity */}
-            <Bar dataKey="current" name={currentLabel} radius={[3, 3, 0, 0]} maxBarSize={36}>
-              {data.map(d => <Cell key={`cur-${d.name}`} fill={colorMap[d.name] || '#94a3b8'} />)}
-            </Bar>
-            {/* Comparison period bar — same color at 40% opacity */}
-            <Bar dataKey="comp" name={compLabel} radius={[3, 3, 0, 0]} maxBarSize={36}>
-              {data.map(d => <Cell key={`comp-${d.name}`} fill={colorMap[d.name] || '#94a3b8'} fillOpacity={0.4} />)}
-            </Bar>
+            {bars.map(b => (
+              <Bar key={b.key} dataKey={b.key} name={b.label} radius={[3, 3, 0, 0]} maxBarSize={36}>
+                {data.map(d => (
+                  <Cell key={`${b.cellKey}-${d.name}`} fill={colorMap[d.name] || '#94a3b8'} fillOpacity={b.fillOpacity} />
+                ))}
+              </Bar>
+            ))}
           </BarChart>
         </ResponsiveContainer>
       </CardContent>
@@ -345,6 +364,13 @@ export default function InVitroDashboard({ data, user }) {
   })() : { year: rangeTo.year - 1, month: rangeTo.month };
   const compRange = { from: compFromResolved, to: compToResolved };
   const compLabel = compareEnabled ? fmtCompLabel(compRange) : '';
+  // Chronological ordering for comparison views. Default convention is
+  // "comp = older baseline, current = newer focus" — but the user can
+  // pick any compRange, so detect explicitly. Used by ComparisonBarChart
+  // to render bars in left=older, right=newer order.
+  const compIsOlder = compareEnabled
+    ? (compRange.from.year * 100 + compRange.from.month) < (rangeFrom.year * 100 + rangeFrom.month)
+    : true;
 
   // Color map from dynamic company list
   const colorMap = buildColorMap(data.companies);
@@ -1131,6 +1157,7 @@ export default function InVitroDashboard({ data, user }) {
                   }))}
                   compLabel={compLabel}
                   colorMap={colorMap}
+                  compIsOlder={compIsOlder}
                 />
                 <ComparisonBarChart
                   title={`EBITDA Comparison — ${rangeLabel} vs ${compLabel}`}
@@ -1146,6 +1173,7 @@ export default function InVitroDashboard({ data, user }) {
                   }))}
                   compLabel={compLabel}
                   colorMap={colorMap}
+                  compIsOlder={compIsOlder}
                 />
               </div>
             ) : (
@@ -1390,6 +1418,7 @@ export default function InVitroDashboard({ data, user }) {
                   }))}
                   compLabel={compLabel}
                   colorMap={colorMap}
+                  compIsOlder={compIsOlder}
                 />
               </div>
             ) : (
@@ -1967,6 +1996,7 @@ export default function InVitroDashboard({ data, user }) {
                   }))}
                   compLabel={compLabel}
                   colorMap={colorMap}
+                  compIsOlder={compIsOlder}
                 />
               </div>
             ) : (
