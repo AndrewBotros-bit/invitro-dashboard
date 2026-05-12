@@ -108,5 +108,23 @@
       "lpName": "Mario Karras"
     },
     "email": "mario.karras@invitrocapital.com"
+  },
+  {
+    "username": "Ramy.Barsoum",
+    "name": "Ramy Barsoum",
+    "passwordHash": "$2b$10$b9fRDupeGpGBMJBRtg/8d.SiXBEMfdN02gY6zwkCjpGFl5QTOEyoS",
+    "role": "viewer",
+    "permissions": {
+      "companies": "*",
+      "tabs": "*",
+      "breakdowns": {
+        "revenueDrilldown": true,
+        "expenseDrilldown": true,
+        "auditConsole": false,
+        "hcDetails": false
+      },
+      "lpName": "Ramy Barsoum"
+    },
+    "email": "ramy.barsoum@allcare.ai"
   }
 ]
