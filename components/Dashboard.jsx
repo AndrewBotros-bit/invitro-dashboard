@@ -537,26 +537,55 @@ export default function InVitroDashboard({ data, user }) {
 
   // Expenses data — InVitro Studio uses "Fixed Expenses" + "Direct Expenses"; others use "SG&A + R&D Expenses"
   // Helper: get expense values for a company (handles InVitro Studio's different metric names)
-  const getCompanyExpenseValues = (co) => {
-    if (!co) return [];
-    if (co.name === 'InVitro Studio') {
-      // Merge Fixed + Direct expenses by month
-      const fixed = co.metrics['Fixed Expenses'] ?? [];
-      const direct = co.metrics['Direct Expenses'] ?? [];
-      const byKey = {};
-      for (const v of [...fixed, ...direct]) {
+  // Merge an arbitrary list of monthly-value arrays into a single
+  // by-month series. Used to combine multiple metrics for a company.
+  const mergeMonthlyValues = (...lists) => {
+    const byKey = {};
+    for (const list of lists) {
+      for (const v of (list || [])) {
         const k = `${v.year}-${v.month}`;
         byKey[k] = byKey[k] || { year: v.year, month: v.month, value: 0 };
         byKey[k].value += v.value ?? 0;
       }
-      return Object.values(byKey);
+    }
+    return Object.values(byKey);
+  };
+
+  // Per-company expense values on the company's *own books*: SG&A + R&D
+  // for portfolio companies, Fixed + Direct for the studio. Does NOT
+  // include the 'Studio Expense' allocation line — that's an
+  // intercompany allocation and including it here would double-count
+  // when consolidating (sum-of-portcos + studio's own = 2× studio cost).
+  // For "attributable cost of running a portfolio company" (incl.
+  // allocated overhead), use getCompanyAttributableExpenses below.
+  const getCompanyExpenseValues = (co) => {
+    if (!co) return [];
+    if (co.name === 'InVitro Studio') {
+      return mergeMonthlyValues(co.metrics['Fixed Expenses'], co.metrics['Direct Expenses']);
     }
     return co.metrics['SG&A + R&D Expenses'] ?? [];
   };
+
+  // Per-company expense values INCLUDING the allocated 'Studio Expense'
+  // overhead share. Used by the Overview KPI badge and the per-company
+  // row in the Company Performance table — places where the user wants
+  // to see "what does it really cost to run this business?"
+  //
+  // Don't use this for distribution pies or consolidated totals — those
+  // need to avoid double-counting against the studio's own Fixed/Direct.
+  const getCompanyAttributableExpenses = (co) => {
+    if (!co) return [];
+    if (co.name === 'InVitro Studio') {
+      // Studio has no allocation TO itself; just its own costs.
+      return mergeMonthlyValues(co.metrics['Fixed Expenses'], co.metrics['Direct Expenses']);
+    }
+    return mergeMonthlyValues(co.metrics['SG&A + R&D Expenses'], co.metrics['Studio Expense']);
+  };
+
   const getExpenseLabel = () => {
     if (!selectedCompany) return 'Total Expenses';
     if (selectedCompany === 'InVitro Studio') return 'Fixed + Direct Expenses';
-    return 'SG&A + R&D';
+    return 'SG&A + R&D + Studio Allocation';
   };
   // For the chart: consolidated shows per-company breakdown, individual shows single company
   const expenseChartCompanies = selectedCompany
@@ -717,8 +746,11 @@ export default function InVitroDashboard({ data, user }) {
       return vi >= from.year * 100 + from.month && vi <= to.year * 100 + to.month;
     };
     if (selectedCompany) {
+      // Per-company view: include the 'Studio Expense' allocation so the
+      // KPI reflects the *attributable* cost of running this business,
+      // not just its direct opex line.
       const co = data.pnl.find(c => c.name === selectedCompany);
-      return getCompanyExpenseValues(co).filter(inWindow).reduce((s, v) => s + (v.value ?? 0), 0);
+      return getCompanyAttributableExpenses(co).filter(inWindow).reduce((s, v) => s + (v.value ?? 0), 0);
     }
     const allH = data.pnl.find(c => c.name === 'ALL Holdings');
     return (allH?.metrics['Total Expenses'] ?? []).filter(inWindow).reduce((s, v) => s + (v.value ?? 0), 0);
@@ -766,11 +798,13 @@ export default function InVitroDashboard({ data, user }) {
       : (c.metrics['Revenues'] ?? []).filter(v => v.year === priorYear).reduce((s, v) => s + (v.value ?? 0), 0);
     const ebitda = (c.metrics['EBITDA'] ?? []).filter(inRange).reduce((s, v) => s + (v.value ?? 0), 0);
     const gp = (c.metrics[getGPMetric(c.name)] ?? []).filter(inRange).reduce((s, v) => s + (v.value ?? 0), 0);
-    // Per-company expenses for the range. getCompanyExpenseValues handles
-    // the metric-name lookup per company (e.g. 'SG&A + R&D Expenses' for
-    // most; different for those with non-standard layouts). Stored negative
-    // on the P&L → Math.abs to surface as a positive magnitude.
-    const expenses = Math.abs(getCompanyExpenseValues(c).filter(inRange).reduce((s, v) => s + (v.value ?? 0), 0));
+    // Per-company expenses for the range, INCLUDING the allocated
+    // 'Studio Expense' overhead share (getCompanyAttributableExpenses).
+    // This is the "true cost of running this business" view Andrew wants
+    // in the per-row table. The totals row separately uses ALL Holdings'
+    // Total Expenses (pre-aggregated, avoids the intercompany
+    // double-count), so sum-of-rows may not equal totals.
+    const expenses = Math.abs(getCompanyAttributableExpenses(c).filter(inRange).reduce((s, v) => s + (v.value ?? 0), 0));
     const grossMargin = revCurrent > 0 ? gp / revCurrent : null;
     const companyRevGrowth = revPrior > 0 ? (revCurrent - revPrior) / revPrior : null;
     return { name: c.name, rev: revCurrent, ebitda, grossProfit: gp, expenses, grossMargin, revGrowth: companyRevGrowth, color: colorMap[c.name] };
