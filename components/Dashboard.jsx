@@ -2278,8 +2278,11 @@ export default function InVitroDashboard({ data, user }) {
                                       <TableRow className="hover:bg-transparent">
                                         <TableCell colSpan={4} className="p-0 pt-1 pb-3">
                                           <div className="mx-2 grid gap-3" style={{ gridTemplateColumns: '1fr 1fr' }}>
-                                            {/* ── BLUE: HC Section (col 2, under HC column) ── */}
-                                            {(() => {
+                                            {/* ── BLUE: HC Section (col 2, under HC column) ──
+                                                Gated by canBreakdown('hcDetails', ...): admin can
+                                                grant expense-drilldown access without revealing
+                                                individual salary detail. */}
+                                            {canBreakdown('hcDetails', selectedCompany) && (() => {
                                               const hcPeople = (data.headcount || []).filter(h => {
                                                 const matchDept = h.department === r.department;
                                                 // Consolidated: include ALL indirect employees (to match P&L totals)
