@@ -766,9 +766,14 @@ export default function InVitroDashboard({ data, user }) {
       : (c.metrics['Revenues'] ?? []).filter(v => v.year === priorYear).reduce((s, v) => s + (v.value ?? 0), 0);
     const ebitda = (c.metrics['EBITDA'] ?? []).filter(inRange).reduce((s, v) => s + (v.value ?? 0), 0);
     const gp = (c.metrics[getGPMetric(c.name)] ?? []).filter(inRange).reduce((s, v) => s + (v.value ?? 0), 0);
+    // Per-company expenses for the range. getCompanyExpenseValues handles
+    // the metric-name lookup per company (e.g. 'SG&A + R&D Expenses' for
+    // most; different for those with non-standard layouts). Stored negative
+    // on the P&L → Math.abs to surface as a positive magnitude.
+    const expenses = Math.abs(getCompanyExpenseValues(c).filter(inRange).reduce((s, v) => s + (v.value ?? 0), 0));
     const grossMargin = revCurrent > 0 ? gp / revCurrent : null;
     const companyRevGrowth = revPrior > 0 ? (revCurrent - revPrior) / revPrior : null;
-    return { name: c.name, rev: revCurrent, ebitda, grossProfit: gp, grossMargin, revGrowth: companyRevGrowth, color: colorMap[c.name] };
+    return { name: c.name, rev: revCurrent, ebitda, grossProfit: gp, expenses, grossMargin, revGrowth: companyRevGrowth, color: colorMap[c.name] };
   });
 
   // Totals row (excl holdings) — uses range-filtered data to match individual rows
@@ -1203,6 +1208,7 @@ export default function InVitroDashboard({ data, user }) {
                     <TableHead className="w-[180px]">Company</TableHead>
                     <TableHead className="text-right">Revenue</TableHead>
                     <TableHead className="text-right">Gross Profit</TableHead>
+                    <TableHead className="text-right">Expenses</TableHead>
                     <TableHead className="text-right">EBITDA</TableHead>
                   </TableRow>
                 </TableHeader>
@@ -1230,6 +1236,12 @@ export default function InVitroDashboard({ data, user }) {
                         </div>
                       </TableCell>
                       <TableCell className="text-right">
+                        <div className="font-semibold text-foreground">{fmt(co.expenses)}</div>
+                        <div className="text-[11px] text-muted-foreground">
+                          {co.rev > 0 ? `${(co.expenses / co.rev * 100).toFixed(1)}% of revenue` : 'N/A'}
+                        </div>
+                      </TableCell>
+                      <TableCell className="text-right">
                         <div className={`font-semibold ${co.ebitda >= 0 ? "text-emerald-600" : "text-red-500"}`}>{fmt(co.ebitda)}</div>
                         <div className="text-[11px] text-muted-foreground">{co.rev > 0 ? (co.ebitda / co.rev * 100).toFixed(1) + '% margin' : 'N/A'}</div>
                       </TableCell>
@@ -1244,6 +1256,12 @@ export default function InVitroDashboard({ data, user }) {
                       <div className={`font-bold ${totalRowGP >= 0 ? "text-emerald-600" : "text-red-500"}`}>{fmt(totalRowGP)}</div>
                       <div className="text-[11px] text-muted-foreground font-normal">
                         {totalRowGrossMargin !== null ? `${(totalRowGrossMargin * 100).toFixed(1)}% margin` : 'N/A'}
+                      </div>
+                    </TableCell>
+                    <TableCell className="text-right">
+                      <div className="font-bold text-foreground">{fmt(Math.abs(rangeExpenses))}</div>
+                      <div className="text-[11px] text-muted-foreground font-normal">
+                        {totalRowRev > 0 ? `${(Math.abs(rangeExpenses) / totalRowRev * 100).toFixed(1)}% of revenue` : 'N/A'}
                       </div>
                     </TableCell>
                     <TableCell className="text-right">
