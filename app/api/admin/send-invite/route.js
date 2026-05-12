@@ -18,7 +18,12 @@ function requireAdmin() {
 function buildEmailHTML({ name, username, password, senderName }) {
   return `
 <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; max-width: 540px; margin: 0 auto; padding: 32px 24px; color: #0f172a;">
-  <div style="background: #2563eb; color: white; width: 48px; height: 48px; border-radius: 10px; display: flex; align-items: center; justify-content: center; font-weight: 800; font-size: 18px; margin-bottom: 24px;">IV</div>
+  <!-- Inline SVG logo: two chevrons (light blue back-left, dark navy front-right).
+       Most modern email clients render inline SVG; Gmail web does, Outlook may fall back to alt text. -->
+  <svg width="48" height="48" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg" style="margin-bottom: 24px; display: block;">
+    <path d="M 18 32 L 38 50 L 18 68" stroke="#8AB8E8" stroke-width="13" stroke-linecap="round" stroke-linejoin="round" fill="none" />
+    <path d="M 50 22 L 78 50 L 50 78" stroke="#0A2540" stroke-width="18" stroke-linecap="round" stroke-linejoin="round" fill="none" />
+  </svg>
   <h1 style="font-size: 22px; font-weight: 700; margin: 0 0 8px;">You've been invited to the InVitro Capital Dashboard</h1>
   <p style="color: #475569; margin: 0 0 24px;">${senderName || 'An admin'} has given you access to the InVitro Capital shareholder dashboard.</p>
 

@@ -2,6 +2,7 @@
 import { useState } from "react";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { Logo } from "@/components/ui/logo";
 
 export default function LoginPage() {
   const [username, setUsername] = useState('');
@@ -36,8 +37,10 @@ export default function LoginPage() {
     <div className="min-h-screen bg-background flex items-center justify-center px-4">
       <Card className="w-full max-w-sm shadow-lg">
         <CardHeader className="text-center pb-2">
-          <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-xl bg-blue-600 text-lg font-extrabold text-white shadow-sm">
-            IV
+          {/* Login uses the larger icon (60px) — there's room here for a
+              more prominent brand moment than the sidebar allows. */}
+          <div className="mx-auto mb-3 flex items-center justify-center">
+            <Logo size={60} />
           </div>
           <CardTitle className="text-xl">InVitro Capital</CardTitle>
           <p className="text-sm text-muted-foreground mt-1">Shareholder Dashboard</p>

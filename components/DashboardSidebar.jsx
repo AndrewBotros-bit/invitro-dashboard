@@ -1,6 +1,7 @@
 "use client";
 import { useState } from "react";
 import { cn } from "@/lib/utils";
+import { Logo } from "@/components/ui/logo";
 
 // Sentinel used to track which picker row is expanded. We can't reuse
 // `selectedCompany` because we need to allow "selected but collapsed" — the
@@ -136,10 +137,13 @@ export default function DashboardSidebar({
         "md:translate-x-0",
         sidebarOpen ? "translate-x-0" : "-translate-x-full"
       )}>
-        {/* Header / Logo */}
+        {/* Header / Logo — uses the brand icon (two chevrons) + wordmark.
+            Icon comes from <Logo>; the wordmark text below carries the
+            dynamic "Actuals till ..." subtitle so this section serves
+            both as branding AND as a data-freshness indicator. */}
         <div className="px-5 py-5 border-b border-border">
           <div className="flex items-center gap-3">
-            <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary text-xs font-extrabold text-white shadow-sm">IV</div>
+            <Logo size={36} />
             <div>
               <p className="text-sm font-semibold tracking-tight text-foreground leading-tight">InVitro Capital</p>
               <p className="text-[10px] text-muted-foreground">{lastActualLabel}</p>
