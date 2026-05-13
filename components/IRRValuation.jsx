@@ -538,6 +538,9 @@ export default function IRRValuation({ data, user, selectedYear: selectedYearPro
                         <TableHead className="text-right">Cum. Investment</TableHead>
                         <TableHead className="text-right">Ownership %</TableHead>
                         <TableHead className="text-right">Stake Value</TableHead>
+                        {/* Multiple sits adjacent to Valuation since
+                            Valuation = ARR × Multiple in the source sheet. */}
+                        <TableHead className="text-right">Multiple</TableHead>
                         <TableHead className="text-right">Company Valuation</TableHead>
                       </TableRow>
                     </TableHeader>
@@ -548,9 +551,10 @@ export default function IRRValuation({ data, user, selectedYear: selectedYearPro
                         // each vehicle already holds stakes in. Showing a stake
                         // value here would double-count against the vehicle's
                         // actual ownership total. Investment columns stay live
-                        // (real cash flowed); valuation/stake suppressed.
+                        // (real cash flowed); multiple/valuation/stake suppressed.
                         const isParentStudio = co.name === 'InVitro Studio';
                         const stakeValue = (own / 100) * valuation;
+                        const multiple = co.financials?.multiple?.[yearIdx];
                         return (
                           <TableRow key={co.name}>
                             <TableCell className="font-medium">{co.name}</TableCell>
@@ -562,6 +566,12 @@ export default function IRRValuation({ data, user, selectedYear: selectedYearPro
                               isParentStudio && "text-muted-foreground"
                             )}>
                               {isParentStudio ? '—' : fmt(stakeValue)}
+                            </TableCell>
+                            <TableCell className={cn(
+                              "text-right tabular-nums",
+                              isParentStudio && "text-muted-foreground"
+                            )}>
+                              {isParentStudio || multiple == null ? '—' : `${multiple.toFixed(1)}x`}
                             </TableCell>
                             <TableCell className={cn(
                               "text-right tabular-nums",
