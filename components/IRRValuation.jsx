@@ -32,6 +32,56 @@ const VEHICLE_RECYCLING_START_YEAR = {
 };
 
 /**
+ * Fund commitments — distinguishes "investment vehicles" (direct holdings,
+ * no commitment concept) from "funds" (committed-capital structure with
+ * multi-year capital calls).
+ *
+ * For each fund-structured vehicle, declare:
+ *   - totalCommitment: total LP pledge across all LPs
+ *   - commitmentPeriodYears: [firstYear, lastYear] — when calls happen
+ *   - perLP: each LP's individual commitment amount
+ *
+ * Vehicles NOT in this map are treated as direct-investment vehicles
+ * (Barsoum Brothers, Curenta Enterprise, InVitro Ventures). No
+ * Committed/Called/Unfunded display for them.
+ *
+ * Edit this when:
+ *   - LP commitment amounts change (rebalancing, new LPs joining)
+ *   - A new fund structure launches
+ *   - An LP defaults or buys more
+ */
+const FUND_COMMITMENTS = {
+  'InVitro Fund': {
+    totalCommitment: 2_100_000,
+    commitmentPeriodYears: [2024, 2027],
+    perLP: {
+      'Fr. Botros Samy': 400_000,
+      'Atef Rafla':      400_000,
+      'Medhat Mikhail':  300_000,
+      'Laila Pence':     250_000,
+      'Mario Karras':    250_000,
+      'Daniella Karras': 250_000,
+      'Hala Karras':     100_000,
+      'Marie Youssef':    50_000,
+      'George Ayad':     100_000,
+    },
+  },
+};
+
+function isFundStructured(vehicleName) {
+  return !!FUND_COMMITMENTS[vehicleName];
+}
+function getLpCommitment(vehicleName, lpName) {
+  return FUND_COMMITMENTS[vehicleName]?.perLP?.[lpName] ?? null;
+}
+function sumLpInvestmentsThroughYear(vehicle, yearIdx) {
+  return vehicle.lps.reduce((s, lp) => {
+    const series = lp.investment ?? [];
+    return s + series.slice(0, yearIdx + 1).reduce((a, v) => a + (v ?? 0), 0);
+  }, 0);
+}
+
+/**
  * Split an LP's per-year investment series into initial contributions
  * (cash the LP put in) vs recycled allocations (GP redeployed profits
  * on their behalf into new positions).
@@ -215,17 +265,62 @@ export default function IRRValuation({ data, user, selectedYear: selectedYearPro
         const myIrr = myReturns?.irr;
         const myMoic = myReturns?.moic;
 
+        // Fund-structured vehicle? Compute commitment/called/unfunded.
+        const fundInfo = FUND_COMMITMENTS[v.name];
+        const isFund = !!fundInfo;
+        const fundTotalCommit = fundInfo?.totalCommitment ?? null;
+        const fundCalledToDate = isFund ? sumLpInvestmentsThroughYear(v, yearIdx) : null;
+        const fundUnfunded = isFund ? fundTotalCommit - fundCalledToDate : null;
+        const fundPctCalled = isFund && fundTotalCommit > 0 ? (fundCalledToDate / fundTotalCommit) * 100 : null;
+
         return (
           <Card key={v.name}>
             <CardHeader>
               <CardTitle className="flex items-center justify-between">
-                <span className="text-base">{v.name}</span>
+                <span className="text-base">
+                  {v.name}
+                  {isFund && <span className="ml-2 text-[10px] font-medium uppercase tracking-wide text-primary bg-primary/10 px-1.5 py-0.5 rounded">Fund</span>}
+                </span>
                 <span className="text-xs font-normal text-muted-foreground">
                   {v.holdPeriod?.[yearIdx] != null ? `Hold period: ${v.holdPeriod[yearIdx]} yr` : ''}
                 </span>
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-6">
+              {/* Fund Commitments panel — only for fund-structured vehicles.
+                  Shows the LP-facing commitment vocabulary: Committed
+                  (total pledge), Called (cash wired so far), Unfunded
+                  (remaining obligation), and % Called. */}
+              {isFund && (
+                <div className="rounded-lg border border-primary/30 bg-muted/30 p-3">
+                  <div className="flex items-center justify-between mb-2">
+                    <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
+                      Fund Commitments
+                    </p>
+                    {fundPctCalled != null && (
+                      <p className="text-[11px] text-muted-foreground">
+                        Capital call period: {fundInfo.commitmentPeriodYears[0]}–{fundInfo.commitmentPeriodYears[1]}
+                      </p>
+                    )}
+                  </div>
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                    <KpiTile label="Total Committed" value={fmt(fundTotalCommit)} compact />
+                    <KpiTile label="Called to Date" value={fmt(fundCalledToDate)} compact />
+                    <KpiTile label="Unfunded" value={fmt(fundUnfunded)} tone={fundUnfunded > 0 ? 'neutral' : 'positive'} compact />
+                    <KpiTile label="% Called" value={fundPctCalled != null ? `${fundPctCalled.toFixed(0)}%` : '—'} compact />
+                  </div>
+                  {/* Mini progress bar — visual reinforcement of % called */}
+                  {fundPctCalled != null && (
+                    <div className="mt-3 h-1.5 w-full bg-muted rounded-full overflow-hidden">
+                      <div
+                        className="h-full bg-primary transition-all"
+                        style={{ width: `${Math.min(100, fundPctCalled)}%` }}
+                      />
+                    </div>
+                  )}
+                </div>
+              )}
+
               {/* Vehicle KPI strip — when compEnabled, each tile gets a
                   delta badge showing change vs the comparison year. */}
               <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
@@ -253,6 +348,11 @@ export default function IRRValuation({ data, user, selectedYear: selectedYearPro
                 const myMoicTotal = myReturns?.moicOnTotal;
                 const myIrrTotal = myReturns?.irrOnTotal;
                 const hasRecycling = myRecycled > 0;
+                // Fund-LP commitment info — only when both: (1) vehicle is
+                // fund-structured AND (2) we know this LP's commitment.
+                const myCommitment = isFund ? getLpCommitment(v.name, myLp.name) : null;
+                const myCalledPct = myCommitment ? (myInvestment / myCommitment) * 100 : null;
+                const myUnfunded = myCommitment ? myCommitment - myInvestment : null;
                 return (
                 <div className="rounded-lg border border-primary/40 bg-primary/5 p-4">
                   <div className="flex items-center justify-between mb-3">
@@ -263,9 +363,31 @@ export default function IRRValuation({ data, user, selectedYear: selectedYearPro
                       </p>
                     </div>
                   </div>
+
+                  {/* Fund-specific "My Commitment" mini-strip — visible only
+                      when this LP has a declared commitment in FUND_COMMITMENTS. */}
+                  {myCommitment && (
+                    <div className="mb-4 grid grid-cols-3 gap-3 p-3 bg-background rounded-md border border-primary/20">
+                      <div>
+                        <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">My Commitment</p>
+                        <p className="text-sm font-bold tabular-nums text-foreground mt-0.5">{fmt(myCommitment)}</p>
+                      </div>
+                      <div>
+                        <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">Called</p>
+                        <p className="text-sm font-bold tabular-nums text-foreground mt-0.5">
+                          {fmt(myInvestment)} <span className="text-[10px] font-normal text-muted-foreground">({myCalledPct?.toFixed(0)}%)</span>
+                        </p>
+                      </div>
+                      <div>
+                        <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">Unfunded</p>
+                        <p className="text-sm font-bold tabular-nums text-foreground mt-0.5">{fmt(myUnfunded)}</p>
+                      </div>
+                    </div>
+                  )}
+
                   <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                     <KpiTile label="My Ownership Value" value={fmt(myValue)} compact />
-                    <KpiTile label="My Investment" value={fmt(myInvestment)} compact />
+                    <KpiTile label={isFund ? 'Called to Date' : 'My Investment'} value={fmt(myInvestment)} compact />
                     <KpiTile label="My IRR" value={myIrr != null ? `${myIrr.toFixed(1)}%` : '—'}
                       tone={myIrr == null ? 'neutral' : myIrr >= 0 ? 'positive' : 'negative'} compact />
                     <KpiTile label="My MOIC" value={myMoic != null ? `${myMoic.toFixed(1)}x` : '—'}
@@ -386,7 +508,9 @@ export default function IRRValuation({ data, user, selectedYear: selectedYearPro
                         <TableHead>LP / Shareholder</TableHead>
                         <TableHead className="text-right">Ownership %</TableHead>
                         <TableHead className="text-right">Ownership Value</TableHead>
-                        <TableHead className="text-right">Cum. Investment</TableHead>
+                        {/* Committed column only for fund-structured vehicles */}
+                        {isFund && <TableHead className="text-right">Committed</TableHead>}
+                        <TableHead className="text-right">{isFund ? 'Called' : 'Cum. Investment'}</TableHead>
                         <TableHead className="text-right">IRR</TableHead>
                         <TableHead className="text-right">MOIC</TableHead>
                       </TableRow>
@@ -398,11 +522,15 @@ export default function IRRValuation({ data, user, selectedYear: selectedYearPro
                           moic: lpMoic, irr: lpIrr, moicOnTotal, irrOnTotal } = r;
                         const isMe = lpName && lp.name === lpName;
                         const hasRecycling = recycledAlloc > 0;
+                        const lpCommitment = isFund ? getLpCommitment(v.name, lp.name) : null;
+                        const lpCalledPct = lpCommitment ? (cumInvest / lpCommitment) * 100 : null;
                         // Cell tooltip: shows the contribution breakdown +
                         // alternate MOIC/IRR (on-total basis) for context.
                         const investTitle = hasRecycling
                           ? `Initial contribution: ${fmt(initialContrib)}\nRecycled by GP: ${fmt(recycledAlloc)}\nTotal at work: ${fmt(cumInvest)}`
-                          : `Initial contribution: ${fmt(initialContrib)}`;
+                          : isFund && lpCommitment
+                            ? `Called: ${fmt(cumInvest)} of ${fmt(lpCommitment)} committed (${lpCalledPct?.toFixed(0)}%)`
+                            : `Initial contribution: ${fmt(initialContrib)}`;
                         const moicTitle = hasRecycling
                           ? `MOIC on initial cash: ${lpMoic?.toFixed(2)}x\nMOIC on total deployed: ${moicOnTotal?.toFixed(2)}x`
                           : '';
@@ -421,11 +549,21 @@ export default function IRRValuation({ data, user, selectedYear: selectedYearPro
                             </TableCell>
                             <TableCell className="text-right tabular-nums">{ownPct.toFixed(2)}%</TableCell>
                             <TableCell className="text-right tabular-nums">{fmt(lpValue)}</TableCell>
+                            {isFund && (
+                              <TableCell className="text-right tabular-nums">
+                                {lpCommitment != null ? fmt(lpCommitment) : '—'}
+                              </TableCell>
+                            )}
                             <TableCell className="text-right tabular-nums" title={investTitle}>
                               {fmt(cumInvest)}
                               {hasRecycling && (
                                 <div className="text-[10px] text-muted-foreground font-normal">
                                   {fmt(initialContrib)} + {fmt(recycledAlloc)} recycled
+                                </div>
+                              )}
+                              {isFund && lpCalledPct != null && !hasRecycling && (
+                                <div className="text-[10px] text-muted-foreground font-normal">
+                                  {lpCalledPct.toFixed(0)}% of commitment
                                 </div>
                               )}
                             </TableCell>
