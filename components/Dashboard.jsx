@@ -483,14 +483,21 @@ export default function InVitroDashboard({ data, user }) {
   // Returns a <Fragment> with a shaded forecast area + a dashed boundary
   // line at the actuals/forecast cutoff. Two encodings (color shift +
   // line) make the boundary visible even when the chart has lots of bars
-  // or competing visual elements. Drop into any time-series ComposedChart
-  // with monthly/yearly categorical X-axis: {forecastOverlay(dataArr)}.
-  const forecastOverlay = (dataArr) => {
+  // or competing visual elements.
+  //
+  // Drop into any time-series ComposedChart with monthly/yearly categorical
+  // X-axis. For SINGLE-axis charts: {forecastOverlay(dataArr)}. For MULTI-
+  // yAxis charts: pass the primary axis id as the second arg, e.g.
+  // {forecastOverlay(dataArr, 'gp')} — without it, Recharts defaults to
+  // yAxisId=0 and silently drops the element if no such axis exists.
+  const forecastOverlay = (dataArr, yAxisId) => {
     const b = getForecastBoundary(dataArr);
     if (!b) return null;
+    const axisProps = yAxisId !== undefined ? { yAxisId } : {};
     return (
       <Fragment>
         <ReferenceArea
+          {...axisProps}
           x1={b.x1}
           x2={b.x2}
           fill="#94a3b8"
@@ -500,6 +507,7 @@ export default function InVitroDashboard({ data, user }) {
           label={{ value: 'Forecast', position: 'insideTopRight', fontSize: 10, fill: '#475569', fontWeight: 600, dy: 6, dx: -6 }}
         />
         <ReferenceLine
+          {...axisProps}
           x={b.x1}
           stroke="#64748b"
           strokeWidth={1.5}
@@ -1839,7 +1847,7 @@ export default function InVitroDashboard({ data, user }) {
                             </div>
                           );
                         }} />
-                        {forecastOverlay(combinedGM)}
+                        {forecastOverlay(combinedGM, 'gp')}
                         {gmCompanies.map((name, i) => (
                           <Bar key={`${name}_gp`} yAxisId="gp" dataKey={`${name}_gp`} stackId="gp"
                             fill={colorMap[name]} radius={i === gmCompanies.length - 1 ? [4, 4, 0, 0] : [0, 0, 0, 0]}
@@ -1942,7 +1950,7 @@ export default function InVitroDashboard({ data, user }) {
                     <YAxis yAxisId="left" tick={{ fill: CHART_STYLE.muted, fontSize: 11 }} tickFormatter={fmtShort} />
                     <YAxis yAxisId="right" orientation="right" tick={{ fill: CHART_STYLE.muted, fontSize: 11 }} tickFormatter={fmtShort} />
                     <Tooltip content={<CustomTooltip />} />
-                    {forecastOverlay(cashBalanceByMonth)}
+                    {forecastOverlay(cashBalanceByMonth, 'left')}
                     <Bar yAxisId="left" dataKey="inflow" name="Cash Inflow" fill="#22c55e" fillOpacity={0.4} />
                     <Bar yAxisId="left" dataKey="outflow" name="Cash Outflow" fill="#ef4444" fillOpacity={0.4} />
                     <Line yAxisId="right" type="monotone" dataKey="opsCashFlow" name="Ops Cash Flow" stroke="#f59e0b" strokeWidth={3} dot={{ fill: "#f59e0b", r: 4 }} />
@@ -2057,7 +2065,7 @@ export default function InVitroDashboard({ data, user }) {
                             </div>
                           );
                         }} />
-                        {forecastOverlay(combined)}
+                        {forecastOverlay(combined, hasBurn ? 'burn' : 'runway')}
                         {hasBurn && <Bar yAxisId="burn" dataKey="burn" radius={[4, 4, 0, 0]} name="Cash Burn">
                           {combined.map((d, i) => (
                             <Cell key={i} fill={d.burn >= 0 ? '#16a34a' : '#ef4444'} />
