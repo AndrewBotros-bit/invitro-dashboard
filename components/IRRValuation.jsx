@@ -108,6 +108,56 @@ function splitContributions(series, throughYearIdx, years, recyclingStartYear) {
 }
 
 /**
+ * XIRR — money-weighted internal rate of return for irregular cash flows.
+ *
+ * Solves for the annualized rate r where Σ CF_i / (1+r)^t_i = 0, given
+ * cash flows with their times (in years from the first flow). This is
+ * the standard formula behind Excel's XIRR() and what Carta-style LP
+ * statements use for fund IRR.
+ *
+ * Implementation: Newton-Raphson iteration starting from `guess`.
+ * Converges quickly for "normal" fund-style cash flows (one or more
+ * negative outflows followed by a positive terminal value).
+ *
+ * Returns the rate as a fraction (0.25 = 25%) or null if:
+ *   - Fewer than 2 flows
+ *   - No mix of positive and negative flows (can't solve)
+ *   - Solver fails to converge in MAX_ITER iterations
+ *
+ * @param {Array<{amount: number, yearsFromStart: number}>} flows
+ * @param {number} [guess=0.1]  initial rate guess (10%)
+ */
+function xirr(flows, guess = 0.1) {
+  if (!flows || flows.length < 2) return null;
+  const hasNeg = flows.some(f => f.amount < 0);
+  const hasPos = flows.some(f => f.amount > 0);
+  if (!hasNeg || !hasPos) return null;
+
+  const MAX_ITER = 100;
+  const TOL = 1e-9;
+  let r = guess;
+
+  for (let iter = 0; iter < MAX_ITER; iter++) {
+    let f = 0, df = 0;
+    for (const cf of flows) {
+      const onePlusR = 1 + r;
+      if (onePlusR <= 0) return null; // rate below -100% is nonsensical
+      const denom = Math.pow(onePlusR, cf.yearsFromStart);
+      f += cf.amount / denom;
+      df -= (cf.amount * cf.yearsFromStart) / (denom * onePlusR);
+    }
+    if (Math.abs(f) < TOL) return r;
+    if (Math.abs(df) < 1e-12) return null; // flat slope; can't step
+    let newR = r - f / df;
+    // Clamp to keep numerically stable.
+    if (newR <= -0.999) newR = (r - 0.999) / 2; // bounce away from -100%
+    if (newR > 10) newR = 10;                   // 1000% is the practical cap
+    r = newR;
+  }
+  return null; // didn't converge
+}
+
+/**
  * Compute LP-specific returns for the selected year using two framings:
  *
  *   onInitial (Carta-style — primary display)
@@ -134,15 +184,43 @@ function computeLpReturns(lp, vehicle, yearIdx, years) {
   const split = splitContributions(series, yearIdx, years, recyclingStartYear);
   const cumInvest = split.initial + split.recycled;
 
+  const isFund = isFundStructured(vehicle.name);
   const holdYears = vehicle.holdPeriod?.[yearIdx];
-  const calcReturn = (basis) => {
+
+  // Returns calculator. MOIC = NAV / basis is unchanged across methods
+  // (no time dependence). IRR branches:
+  //   - Fund-structured vehicle: money-weighted XIRR computed from the
+  //     actual call timing. Matches Excel's =XIRR() formula and what
+  //     LP fund statements expect.
+  //   - Direct investment vehicle: CAGR on the vehicle's hold period
+  //     (matches the sheet's vehicle-rollup convention).
+  // If XIRR fails to converge for any reason, fall back to CAGR rather
+  // than show a missing value.
+  const calcReturn = (basis, events) => {
     if (basis <= 0 || lpValue <= 0) return { moic: null, irr: null };
     const moic = lpValue / basis;
-    const irr = holdYears && holdYears > 0 ? (Math.pow(moic, 1 / holdYears) - 1) * 100 : null;
+
+    if (isFund && events && events.length > 0) {
+      const firstYearIdx = events[0].yearIdx;
+      const flows = events.map(e => ({
+        amount: -e.amount, // outflow from LP perspective
+        yearsFromStart: e.yearIdx - firstYearIdx,
+      }));
+      // Terminal NAV = positive inflow at the current year.
+      flows.push({ amount: lpValue, yearsFromStart: yearIdx - firstYearIdx });
+      const rate = xirr(flows);
+      if (rate != null) return { moic, irr: rate * 100 };
+      // XIRR didn't converge — fall through to CAGR
+    }
+
+    const irr = holdYears && holdYears > 0
+      ? (Math.pow(moic, 1 / holdYears) - 1) * 100
+      : null;
     return { moic, irr };
   };
-  const onInitial = calcReturn(split.initial);
-  const onTotal   = calcReturn(cumInvest);
+
+  const onInitial = calcReturn(split.initial, split.initialEvents);
+  const onTotal   = calcReturn(cumInvest, [...split.initialEvents, ...split.recycledEvents]);
 
   return {
     ownPct,
@@ -150,15 +228,16 @@ function computeLpReturns(lp, vehicle, yearIdx, years) {
     initialContrib: split.initial,
     recycledAlloc: split.recycled,
     cumInvest,
-    // Default `moic` and `irr` use the LP-friendly Carta-style framing
-    // (return on actual cash contributed). The roster table and KPI tiles
-    // pick these up automatically.
+    // Default `moic` and `irr` use the LP-friendly Carta-style framing.
     moic: onInitial.moic,
     irr: onInitial.irr,
     moicOnInitial: onInitial.moic,
     moicOnTotal: onTotal.moic,
     irrOnInitial: onInitial.irr,
     irrOnTotal: onTotal.irr,
+    // Tells the UI which IRR method was used so it can label/footnote
+    // appropriately (cagr for vehicles, xirr for funds).
+    irrMethod: isFund ? 'xirr' : 'cagr',
   };
 }
 
@@ -360,6 +439,11 @@ export default function IRRValuation({ data, user, selectedYear: selectedYearPro
                       <p className="text-xs font-semibold uppercase tracking-wide text-primary">My Performance</p>
                       <p className="text-xs text-muted-foreground">
                         Your <strong>{myOwnPct.toFixed(2)}%</strong> stake in {v.name}
+                        {isFund && (
+                          <span className="ml-2 text-[10px] italic">
+                            · IRR via money-weighted XIRR (accounts for call timing)
+                          </span>
+                        )}
                       </p>
                     </div>
                   </div>
@@ -519,13 +603,14 @@ export default function IRRValuation({ data, user, selectedYear: selectedYearPro
                       {rosterLps.map(lp => {
                         const r = computeLpReturns(lp, v, yearIdx, years);
                         const { ownPct, lpValue, cumInvest, initialContrib, recycledAlloc,
-                          moic: lpMoic, irr: lpIrr, moicOnTotal, irrOnTotal } = r;
+                          moic: lpMoic, irr: lpIrr, moicOnTotal, irrOnTotal, irrMethod } = r;
                         const isMe = lpName && lp.name === lpName;
                         const hasRecycling = recycledAlloc > 0;
                         const lpCommitment = isFund ? getLpCommitment(v.name, lp.name) : null;
                         const lpCalledPct = lpCommitment ? (cumInvest / lpCommitment) * 100 : null;
-                        // Cell tooltip: shows the contribution breakdown +
-                        // alternate MOIC/IRR (on-total basis) for context.
+                        // Cell tooltips: show the contribution breakdown and
+                        // (for XIRR cells) the methodology so anyone cross-
+                        // checking against the sheet knows why numbers differ.
                         const investTitle = hasRecycling
                           ? `Initial contribution: ${fmt(initialContrib)}\nRecycled by GP: ${fmt(recycledAlloc)}\nTotal at work: ${fmt(cumInvest)}`
                           : isFund && lpCommitment
@@ -534,9 +619,17 @@ export default function IRRValuation({ data, user, selectedYear: selectedYearPro
                         const moicTitle = hasRecycling
                           ? `MOIC on initial cash: ${lpMoic?.toFixed(2)}x\nMOIC on total deployed: ${moicOnTotal?.toFixed(2)}x`
                           : '';
-                        const irrTitle = hasRecycling
-                          ? `IRR on initial cash: ${lpIrr?.toFixed(1)}%\nIRR on total deployed: ${irrOnTotal?.toFixed(1)}%`
-                          : '';
+                        const irrTitle = (() => {
+                          const lines = [];
+                          if (irrMethod === 'xirr') {
+                            lines.push('Money-weighted IRR (XIRR) — accounts for capital call timing');
+                          }
+                          if (hasRecycling) {
+                            lines.push(`IRR on initial cash: ${lpIrr?.toFixed(1)}%`);
+                            lines.push(`IRR on total deployed: ${irrOnTotal?.toFixed(1)}%`);
+                          }
+                          return lines.join('\n');
+                        })();
                         return (
                           <TableRow
                             key={lp.name}
