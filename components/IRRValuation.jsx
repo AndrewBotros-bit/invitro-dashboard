@@ -6,19 +6,60 @@ import { fmt, pct } from "@/lib/formatters";
 import { cn } from "@/lib/utils";
 
 /**
- * Compute LP-specific returns for the selected year using the same CAGR
- * formula as the vehicle rollup (Andrew's house formula):
+ * Split an LP's per-year investment series into initial contributions
+ * (cash they actually put in) vs recycled allocations (GP redeployed
+ * profits on their behalf into new positions).
  *
- *   LP_Value      = vehicle.ownershipValue × LP.ownership%
- *   LP_CumInvest  = Σ LP.investment[0..yearIdx]   (year-only, summed forward)
- *   LP_MOIC       = LP_Value / LP_CumInvest
- *   LP_IRR        = LP_MOIC^(1/years) - 1         (years = vehicle hold period)
+ * Heuristic: the first contiguous run of non-zero years is "initial"
+ * (LP ramping up their commitment, possibly staged across 1-2 years).
+ * Any non-zero entries after a gap (a zero/empty year) are "recycled" —
+ * the LP didn't write a new check; the GP redeployed profits into a
+ * new portfolio company on their behalf.
  *
- * Returns IRR in percent units (43 means 43%) so the existing toFixed(1) +
- * "%" rendering stays correct without further normalization.
+ * This is a heuristic — the sheet doesn't distinguish these explicitly.
+ * Works correctly for the current portfolio:
+ *   - Older vehicles (Curenta, Barsoum): LP entries all in 2021-2022,
+ *     later entries indicate recycling
+ *   - Newer vehicles (InVitro Fund 2025+, Ventures 2023+): LP entries
+ *     consecutive from their respective start years, no recycling yet
  *
- * Edge cases: when cumInvest is 0 (LP not yet invested) or value <= 0 we
- * return null for moic/irr so the UI shows "—" instead of NaN/Infinity.
+ * @returns { initial: number, recycled: number, initialEvents: array,
+ *            recycledEvents: array } all summed through yearIdx
+ */
+function splitContributions(series, throughYearIdx) {
+  let inInitialRun = true;
+  let sawAnything = false;
+  let initial = 0, recycled = 0;
+  const initialEvents = [], recycledEvents = [];
+  for (let i = 0; i <= throughYearIdx && i < series.length; i++) {
+    const v = series[i] ?? 0;
+    if (v === 0) {
+      if (sawAnything) inInitialRun = false; // gap closes initial run
+      continue;
+    }
+    sawAnything = true;
+    if (inInitialRun) { initial += v; initialEvents.push({ yearIdx: i, amount: v }); }
+    else              { recycled += v; recycledEvents.push({ yearIdx: i, amount: v }); }
+  }
+  return { initial, recycled, initialEvents, recycledEvents };
+}
+
+/**
+ * Compute LP-specific returns for the selected year using two framings:
+ *
+ *   onInitial (Carta-style — primary display)
+ *     LP_Value  = vehicle.ownershipValue × LP.ownership%
+ *     MOIC      = LP_Value / initial contributions only
+ *     IRR       = MOIC^(1/years) - 1
+ *
+ *   onTotal (conservative — secondary, shown in tooltip)
+ *     MOIC      = LP_Value / (initial + recycled allocations)
+ *     IRR       = MOIC^(1/years) - 1
+ *
+ * Initial vs recycled split via splitContributions() above. Years uses
+ * the vehicle's hold period (consistent with the vehicle-level rollup).
+ *
+ * Returns IRRs in percent units (43 means 43%).
  */
 function computeLpReturns(lp, vehicle, yearIdx) {
   const ownPct = lp.ownership?.[yearIdx] ?? 0;
@@ -26,21 +67,35 @@ function computeLpReturns(lp, vehicle, yearIdx) {
   const lpValue = vehicleValue * (ownPct / 100);
 
   const series = lp.investment ?? [];
-  const cumInvest = series
-    .slice(0, yearIdx + 1)
-    .reduce((s, v) => s + (v ?? 0), 0);
+  const split = splitContributions(series, yearIdx);
+  const cumInvest = split.initial + split.recycled;
 
   const years = vehicle.holdPeriod?.[yearIdx];
-  let moic = null;
-  let irr = null;
-  if (cumInvest > 0 && lpValue > 0) {
-    moic = lpValue / cumInvest;
-    if (years && years > 0) {
-      irr = (Math.pow(moic, 1 / years) - 1) * 100;
-    }
-  }
+  const calcReturn = (basis) => {
+    if (basis <= 0 || lpValue <= 0) return { moic: null, irr: null };
+    const moic = lpValue / basis;
+    const irr = years && years > 0 ? (Math.pow(moic, 1 / years) - 1) * 100 : null;
+    return { moic, irr };
+  };
+  const onInitial = calcReturn(split.initial);
+  const onTotal   = calcReturn(cumInvest);
 
-  return { ownPct, lpValue, cumInvest, moic, irr };
+  return {
+    ownPct,
+    lpValue,
+    initialContrib: split.initial,
+    recycledAlloc: split.recycled,
+    cumInvest,
+    // Default `moic` and `irr` use the LP-friendly Carta-style framing
+    // (return on actual cash contributed). The roster table and KPI tiles
+    // pick these up automatically.
+    moic: onInitial.moic,
+    irr: onInitial.irr,
+    moicOnInitial: onInitial.moic,
+    moicOnTotal: onTotal.moic,
+    irrOnInitial: onInitial.irr,
+    irrOnTotal: onTotal.irr,
+  };
 }
 
 /**
@@ -172,8 +227,19 @@ export default function IRRValuation({ data, user, selectedYear: selectedYearPro
                   delta={compEnabled && <DeltaBadge current={moic} prior={moicPrior} compareYear={compareYear} />} />
               </div>
 
-              {/* My Performance card — only for LP users */}
-              {myLp && (
+              {/* My Performance card — only for LP users. When the GP has
+                  recycled profits on this LP's behalf (i.e. their investment
+                  series has a temporal gap), we surface a "Capital Activity"
+                  breakdown so the LP sees: what they put in, what was
+                  recycled, current value, and MOIC on initial cash (Carta-
+                  style — the LP-friendly framing). */}
+              {myLp && (() => {
+                const myInitial = myReturns?.initialContrib ?? 0;
+                const myRecycled = myReturns?.recycledAlloc ?? 0;
+                const myMoicTotal = myReturns?.moicOnTotal;
+                const myIrrTotal = myReturns?.irrOnTotal;
+                const hasRecycling = myRecycled > 0;
+                return (
                 <div className="rounded-lg border border-primary/40 bg-primary/5 p-4">
                   <div className="flex items-center justify-between mb-3">
                     <div>
@@ -191,8 +257,52 @@ export default function IRRValuation({ data, user, selectedYear: selectedYearPro
                     <KpiTile label="My MOIC" value={myMoic != null ? `${myMoic.toFixed(1)}x` : '—'}
                       tone={myMoic == null ? 'neutral' : myMoic >= 1 ? 'positive' : 'negative'} compact />
                   </div>
+
+                  {/* Capital Activity breakdown — only shown when recycling
+                      has happened. Mirrors Carta's "Capital Activity" panel
+                      with the distinction between cash contributed and
+                      capital deployed on the LP's behalf. */}
+                  {hasRecycling && (
+                    <div className="mt-4 pt-4 border-t border-primary/20">
+                      <p className="text-[11px] font-semibold uppercase tracking-wide text-primary mb-2">
+                        Capital Activity
+                      </p>
+                      <div className="space-y-2 text-xs">
+                        <div className="flex items-baseline justify-between gap-3">
+                          <span className="text-muted-foreground">Initial contribution (cash you put in)</span>
+                          <span className="font-semibold tabular-nums text-foreground">{fmt(myInitial)}</span>
+                        </div>
+                        <div className="flex items-baseline justify-between gap-3">
+                          <span className="text-muted-foreground">+ Recycled by GP (profits redeployed on your behalf)</span>
+                          <span className="font-semibold tabular-nums text-foreground">{fmt(myRecycled)}</span>
+                        </div>
+                        <div className="flex items-baseline justify-between gap-3 pt-2 border-t border-primary/10">
+                          <span className="text-foreground font-medium">= Total deployed on your behalf</span>
+                          <span className="font-semibold tabular-nums text-foreground">{fmt(myInvestment)}</span>
+                        </div>
+                        <div className="flex items-baseline justify-between gap-3">
+                          <span className="text-foreground font-medium">Current value</span>
+                          <span className="font-bold tabular-nums text-foreground">{fmt(myValue)}</span>
+                        </div>
+                        {myMoicTotal != null && (
+                          <div className="flex items-baseline justify-between gap-3 text-muted-foreground">
+                            <span>MOIC on total deployed (alt. framing)</span>
+                            <span className="tabular-nums">
+                              {myMoicTotal.toFixed(2)}x &nbsp;·&nbsp; IRR {myIrrTotal?.toFixed(1)}%
+                            </span>
+                          </div>
+                        )}
+                      </div>
+                      <p className="text-[10px] text-muted-foreground mt-3 italic">
+                        Your <strong className="text-foreground">My MOIC</strong> above is computed on your initial
+                        cash ({fmt(myInitial)}) — the GP redeploying profits doesn&apos;t change how much you put in,
+                        so this is the truest measure of what your money turned into.
+                      </p>
+                    </div>
+                  )}
                 </div>
-              )}
+                );
+              })()}
 
               {/* Per-company table */}
               {cos.length > 0 && (
@@ -269,9 +379,22 @@ export default function IRRValuation({ data, user, selectedYear: selectedYearPro
                     </TableHeader>
                     <TableBody>
                       {rosterLps.map(lp => {
-                        const { ownPct, lpValue, cumInvest, moic: lpMoic, irr: lpIrr } =
-                          computeLpReturns(lp, v, yearIdx);
+                        const r = computeLpReturns(lp, v, yearIdx);
+                        const { ownPct, lpValue, cumInvest, initialContrib, recycledAlloc,
+                          moic: lpMoic, irr: lpIrr, moicOnTotal, irrOnTotal } = r;
                         const isMe = lpName && lp.name === lpName;
+                        const hasRecycling = recycledAlloc > 0;
+                        // Cell tooltip: shows the contribution breakdown +
+                        // alternate MOIC/IRR (on-total basis) for context.
+                        const investTitle = hasRecycling
+                          ? `Initial contribution: ${fmt(initialContrib)}\nRecycled by GP: ${fmt(recycledAlloc)}\nTotal at work: ${fmt(cumInvest)}`
+                          : `Initial contribution: ${fmt(initialContrib)}`;
+                        const moicTitle = hasRecycling
+                          ? `MOIC on initial cash: ${lpMoic?.toFixed(2)}x\nMOIC on total deployed: ${moicOnTotal?.toFixed(2)}x`
+                          : '';
+                        const irrTitle = hasRecycling
+                          ? `IRR on initial cash: ${lpIrr?.toFixed(1)}%\nIRR on total deployed: ${irrOnTotal?.toFixed(1)}%`
+                          : '';
                         return (
                           <TableRow
                             key={lp.name}
@@ -284,17 +407,28 @@ export default function IRRValuation({ data, user, selectedYear: selectedYearPro
                             </TableCell>
                             <TableCell className="text-right tabular-nums">{ownPct.toFixed(2)}%</TableCell>
                             <TableCell className="text-right tabular-nums">{fmt(lpValue)}</TableCell>
-                            <TableCell className="text-right tabular-nums">{fmt(cumInvest)}</TableCell>
-                            <TableCell className={cn(
-                              "text-right tabular-nums",
-                              lpIrr != null && (lpIrr >= 0 ? "text-emerald-600" : "text-red-500")
-                            )}>
+                            <TableCell className="text-right tabular-nums" title={investTitle}>
+                              {fmt(cumInvest)}
+                              {hasRecycling && (
+                                <div className="text-[10px] text-muted-foreground font-normal">
+                                  {fmt(initialContrib)} + {fmt(recycledAlloc)} recycled
+                                </div>
+                              )}
+                            </TableCell>
+                            <TableCell
+                              title={irrTitle}
+                              className={cn(
+                                "text-right tabular-nums",
+                                lpIrr != null && (lpIrr >= 0 ? "text-emerald-600" : "text-red-500")
+                              )}>
                               {lpIrr != null ? `${lpIrr.toFixed(1)}%` : '—'}
                             </TableCell>
-                            <TableCell className={cn(
-                              "text-right tabular-nums",
-                              lpMoic != null && (lpMoic >= 1 ? "text-emerald-600" : "text-red-500")
-                            )}>
+                            <TableCell
+                              title={moicTitle}
+                              className={cn(
+                                "text-right tabular-nums",
+                                lpMoic != null && (lpMoic >= 1 ? "text-emerald-600" : "text-red-500")
+                              )}>
                               {lpMoic != null ? `${lpMoic.toFixed(2)}x` : '—'}
                             </TableCell>
                           </TableRow>
