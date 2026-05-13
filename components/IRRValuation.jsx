@@ -6,40 +6,53 @@ import { fmt, pct } from "@/lib/formatters";
 import { cn } from "@/lib/utils";
 
 /**
- * Split an LP's per-year investment series into initial contributions
- * (cash they actually put in) vs recycled allocations (GP redeployed
- * profits on their behalf into new positions).
+ * Per-vehicle recycling configuration.
  *
- * Heuristic: the first contiguous run of non-zero years is "initial"
- * (LP ramping up their commitment, possibly staged across 1-2 years).
- * Any non-zero entries after a gap (a zero/empty year) are "recycled" —
- * the LP didn't write a new check; the GP redeployed profits into a
- * new portfolio company on their behalf.
+ * For each vehicle that has started recycling profits back into new
+ * positions, the year in which recycling began. LP investment entries
+ * in or after that year are classified as "recycled" (GP redeployed
+ * profits on the LP's behalf, not new cash from the LP's pocket).
+ * LP entries before that year are "initial contributions."
  *
- * This is a heuristic — the sheet doesn't distinguish these explicitly.
- * Works correctly for the current portfolio:
- *   - Older vehicles (Curenta, Barsoum): LP entries all in 2021-2022,
- *     later entries indicate recycling
- *   - Newer vehicles (InVitro Fund 2025+, Ventures 2023+): LP entries
- *     consecutive from their respective start years, no recycling yet
+ * If a vehicle isn't listed here, NO LP entries are classified as
+ * recycled — all are treated as initial. This is the right default for:
+ *   - Fund-structured vehicles with multi-year capital calls
+ *     (e.g. InVitro Fund: LPs pay commitment over 2024-2027)
+ *   - New vehicles where recycling hasn't started yet
  *
- * @returns { initial: number, recycled: number, initialEvents: array,
- *            recycledEvents: array } all summed through yearIdx
+ * To declare recycling has started for a vehicle, add a line:
+ *   'Vehicle Name': YEAR
+ *
+ * Edit this when a vehicle starts recycling profits — typically when
+ * an early portfolio company generates returns that get redeployed
+ * into a new investment.
  */
-function splitContributions(series, throughYearIdx) {
-  let inInitialRun = true;
-  let sawAnything = false;
+const VEHICLE_RECYCLING_START_YEAR = {
+  'Curenta Enterprise': 2024,
+};
+
+/**
+ * Split an LP's per-year investment series into initial contributions
+ * (cash the LP put in) vs recycled allocations (GP redeployed profits
+ * on their behalf into new positions).
+ *
+ * Driven by VEHICLE_RECYCLING_START_YEAR above. Entries before the
+ * vehicle's recycling start year = initial. Entries on/after = recycled.
+ * Vehicles without a recycling-start config → all entries treated as
+ * initial.
+ */
+function splitContributions(series, throughYearIdx, years, recyclingStartYear) {
   let initial = 0, recycled = 0;
   const initialEvents = [], recycledEvents = [];
   for (let i = 0; i <= throughYearIdx && i < series.length; i++) {
     const v = series[i] ?? 0;
-    if (v === 0) {
-      if (sawAnything) inInitialRun = false; // gap closes initial run
-      continue;
+    if (v === 0) continue;
+    const year = years[i];
+    if (recyclingStartYear != null && year >= recyclingStartYear) {
+      recycled += v; recycledEvents.push({ yearIdx: i, amount: v });
+    } else {
+      initial += v; initialEvents.push({ yearIdx: i, amount: v });
     }
-    sawAnything = true;
-    if (inInitialRun) { initial += v; initialEvents.push({ yearIdx: i, amount: v }); }
-    else              { recycled += v; recycledEvents.push({ yearIdx: i, amount: v }); }
   }
   return { initial, recycled, initialEvents, recycledEvents };
 }
@@ -61,13 +74,14 @@ function splitContributions(series, throughYearIdx) {
  *
  * Returns IRRs in percent units (43 means 43%).
  */
-function computeLpReturns(lp, vehicle, yearIdx) {
+function computeLpReturns(lp, vehicle, yearIdx, years) {
   const ownPct = lp.ownership?.[yearIdx] ?? 0;
   const vehicleValue = vehicle.ownershipValue?.[yearIdx] ?? 0;
   const lpValue = vehicleValue * (ownPct / 100);
 
   const series = lp.investment ?? [];
-  const split = splitContributions(series, yearIdx);
+  const recyclingStartYear = VEHICLE_RECYCLING_START_YEAR[vehicle.name];
+  const split = splitContributions(series, yearIdx, years, recyclingStartYear);
   const cumInvest = split.initial + split.recycled;
 
   const years = vehicle.holdPeriod?.[yearIdx];
@@ -194,7 +208,7 @@ export default function IRRValuation({ data, user, selectedYear: selectedYearPro
         // LP-specific returns: ownership %, value, cumulative invested,
         // MOIC, IRR — computed using the actual sheet-provided investment
         // amounts (not vehicle investment × ownership %).
-        const myReturns = myLp ? computeLpReturns(myLp, v, yearIdx) : null;
+        const myReturns = myLp ? computeLpReturns(myLp, v, yearIdx, years) : null;
         const myOwnPct = myReturns?.ownPct ?? 0;
         const myValue = myReturns?.lpValue ?? 0;
         const myInvestment = myReturns?.cumInvest ?? 0;
@@ -379,7 +393,7 @@ export default function IRRValuation({ data, user, selectedYear: selectedYearPro
                     </TableHeader>
                     <TableBody>
                       {rosterLps.map(lp => {
-                        const r = computeLpReturns(lp, v, yearIdx);
+                        const r = computeLpReturns(lp, v, yearIdx, years);
                         const { ownPct, lpValue, cumInvest, initialContrib, recycledAlloc,
                           moic: lpMoic, irr: lpIrr, moicOnTotal, irrOnTotal } = r;
                         const isMe = lpName && lp.name === lpName;
