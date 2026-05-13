@@ -4,7 +4,7 @@ import { cn } from "@/lib/utils";
 import {
   BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip,
   Legend, ResponsiveContainer, PieChart, Pie, Cell, AreaChart, Area, ComposedChart,
-  ReferenceArea,
+  ReferenceArea, ReferenceLine,
 } from "recharts";
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/components/ui/card";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
@@ -463,9 +463,15 @@ export default function InVitroDashboard({ data, user }) {
         const y = Number(label);
         return y > prevMonthYear;
       }
+      // Month labels in this codebase come in two flavors:
+      //   "Jan 26"  (some helpers)
+      //   "Jan '26" (cashflow + runway helpers, with apostrophe)
+      // Strip a leading apostrophe from the year token before parsing
+      // so both formats work uniformly.
       const parts = label.split(' ');
       const m = MONTHS_SHORT_PARSE[parts[0]] || 0;
-      const y = 2000 + Number(parts[1]);
+      const yearStr = (parts[1] || '').replace(/^'/, '');
+      const y = 2000 + Number(yearStr);
       if (!m || isNaN(y)) return false;
       return y > prevMonthYear || (y === prevMonthYear && m > prevMonth);
     };
@@ -474,22 +480,34 @@ export default function InVitroDashboard({ data, user }) {
     return { x1: dataArr[firstIdx].month, x2: dataArr[dataArr.length - 1].month };
   };
 
-  // Returns a <ReferenceArea> for the forecast region, or null if there's
-  // no forecast in the chart's data. Drop into any time-series chart with
-  // a monthly/yearly categorical X-axis: {forecastOverlay(dataArr)}.
+  // Returns a <Fragment> with a shaded forecast area + a dashed boundary
+  // line at the actuals/forecast cutoff. Two encodings (color shift +
+  // line) make the boundary visible even when the chart has lots of bars
+  // or competing visual elements. Drop into any time-series ComposedChart
+  // with monthly/yearly categorical X-axis: {forecastOverlay(dataArr)}.
   const forecastOverlay = (dataArr) => {
     const b = getForecastBoundary(dataArr);
     if (!b) return null;
     return (
-      <ReferenceArea
-        x1={b.x1}
-        x2={b.x2}
-        fill="#94a3b8"
-        fillOpacity={0.12}
-        stroke="none"
-        ifOverflow="visible"
-        label={{ value: 'Forecast', position: 'insideTopRight', fontSize: 9, fill: '#64748b', dy: 4, dx: -4 }}
-      />
+      <Fragment>
+        <ReferenceArea
+          x1={b.x1}
+          x2={b.x2}
+          fill="#94a3b8"
+          fillOpacity={0.25}
+          stroke="none"
+          ifOverflow="visible"
+          label={{ value: 'Forecast', position: 'insideTopRight', fontSize: 10, fill: '#475569', fontWeight: 600, dy: 6, dx: -6 }}
+        />
+        <ReferenceLine
+          x={b.x1}
+          stroke="#64748b"
+          strokeWidth={1.5}
+          strokeDasharray="4 3"
+          strokeOpacity={0.7}
+          ifOverflow="visible"
+        />
+      </Fragment>
     );
   };
 
