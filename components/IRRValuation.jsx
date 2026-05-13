@@ -193,7 +193,19 @@ function computeLpReturns(lp, vehicle, yearIdx, years) {
   const cumInvest = split.initial + split.recycled;
 
   const isFund = isFundStructured(vehicle.name);
-  const holdYears = vehicle.holdPeriod?.[yearIdx];
+
+  // LP-specific hold years: from this LP's FIRST investment year to the
+  // currently-selected year. Per Andrew: "each LP has his own initial year."
+  // Late-joiner LPs (Ayman Ismail entered InVitro Ventures in 2024 while
+  // the vehicle started 2023) get a shorter hold than the vehicle —
+  // their annualization should reflect how long THEIR money was at work,
+  // not the vehicle's age. Falls back to the vehicle's hold period when
+  // the LP hasn't invested anything yet in the selected year window.
+  const firstInvestIdx = series.findIndex(v => v != null && v !== 0);
+  const lpHoldYears = firstInvestIdx >= 0 && firstInvestIdx <= yearIdx && years
+    ? years[yearIdx] - years[firstInvestIdx]
+    : (vehicle.holdPeriod?.[yearIdx] ?? null);
+  const lpFirstYear = firstInvestIdx >= 0 && years ? years[firstInvestIdx] : null;
 
   // Returns calculator. MOIC = NAV / basis is unchanged across methods
   // (no time dependence). IRR branches:
@@ -221,8 +233,11 @@ function computeLpReturns(lp, vehicle, yearIdx, years) {
       // XIRR didn't converge — fall through to CAGR
     }
 
-    const irr = holdYears && holdYears > 0
-      ? (Math.pow(moic, 1 / holdYears) - 1) * 100
+    // CAGR fallback using LP-SPECIFIC hold years (not the vehicle's).
+    // Late-joiner LPs annualize over their own time-at-work, which is
+    // the honest LP framing.
+    const irr = lpHoldYears && lpHoldYears > 0
+      ? (Math.pow(moic, 1 / lpHoldYears) - 1) * 100
       : null;
     return { moic, irr };
   };
@@ -243,6 +258,9 @@ function computeLpReturns(lp, vehicle, yearIdx, years) {
     moicOnTotal: onTotal.moic,
     irrOnInitial: onInitial.irr,
     irrOnTotal: onTotal.irr,
+    // LP-specific hold timeline — used by the UI to show "Hold: N yr (joined YYYY)"
+    lpHoldYears,
+    lpFirstYear,
     // Tells the UI which IRR method was used so it can label/footnote
     // appropriately (cagr for vehicles, xirr for funds).
     irrMethod: isFund ? 'xirr' : 'cagr',
@@ -447,6 +465,11 @@ export default function IRRValuation({ data, user, selectedYear: selectedYearPro
                       <p className="text-xs font-semibold uppercase tracking-wide text-primary">My Performance</p>
                       <p className="text-xs text-muted-foreground">
                         Your <strong>{myOwnPct.toFixed(2)}%</strong> stake in {v.name}
+                        {myReturns?.lpFirstYear != null && myReturns?.lpHoldYears != null && (
+                          <span className="ml-2 text-[10px]">
+                            · Joined {myReturns.lpFirstYear} ({myReturns.lpHoldYears} yr hold)
+                          </span>
+                        )}
                         {isFund && (
                           <span className="ml-2 text-[10px] italic">
                             · IRR via money-weighted XIRR (accounts for call timing)
@@ -621,14 +644,17 @@ export default function IRRValuation({ data, user, selectedYear: selectedYearPro
                       {rosterLps.map(lp => {
                         const r = computeLpReturns(lp, v, yearIdx, years);
                         const { ownPct, lpValue, cumInvest, initialContrib, recycledAlloc,
-                          moic: lpMoic, irr: lpIrr, moicOnTotal, irrOnTotal, irrMethod } = r;
+                          moic: lpMoic, irr: lpIrr, moicOnTotal, irrOnTotal, irrMethod,
+                          lpHoldYears, lpFirstYear } = r;
                         const isMe = lpName && lp.name === lpName;
                         const hasRecycling = recycledAlloc > 0;
                         const lpCommitment = isFund ? getLpCommitment(v.name, lp.name) : null;
                         const lpCalledPct = lpCommitment ? (cumInvest / lpCommitment) * 100 : null;
-                        // Cell tooltips: show the contribution breakdown and
-                        // (for XIRR cells) the methodology so anyone cross-
-                        // checking against the sheet knows why numbers differ.
+                        // Cell tooltips: show the contribution breakdown,
+                        // the LP's individual hold timeline (for CAGR rows),
+                        // and (for XIRR cells) the methodology so anyone
+                        // cross-checking against the sheet knows why
+                        // numbers differ.
                         const investTitle = hasRecycling
                           ? `Initial contribution: ${fmt(initialContrib)}\nRecycled by GP: ${fmt(recycledAlloc)}\nTotal at work: ${fmt(cumInvest)}`
                           : isFund && lpCommitment
@@ -641,6 +667,8 @@ export default function IRRValuation({ data, user, selectedYear: selectedYearPro
                           const lines = [];
                           if (irrMethod === 'xirr') {
                             lines.push('Money-weighted IRR (XIRR) — accounts for capital call timing');
+                          } else if (lpFirstYear != null && lpHoldYears != null) {
+                            lines.push(`Annualized over ${lpHoldYears} yr (joined ${lpFirstYear})`);
                           }
                           if (hasRecycling) {
                             lines.push(`IRR on initial cash: ${lpIrr?.toFixed(1)}%`);
