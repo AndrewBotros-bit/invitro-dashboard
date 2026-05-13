@@ -4,6 +4,7 @@ import { cn } from "@/lib/utils";
 import {
   BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip,
   Legend, ResponsiveContainer, PieChart, Pie, Cell, AreaChart, Area, ComposedChart,
+  ReferenceArea,
 } from "recharts";
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/components/ui/card";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
@@ -447,6 +448,50 @@ export default function InVitroDashboard({ data, user }) {
   const prevMonthLabel = MONTH_NAMES[prevMonth];
   const currentMonth = prevMonth === 12 ? 1 : prevMonth + 1;
   const currMonthLabel = MONTH_NAMES[currentMonth];
+
+  // Forecast-shading boundary: any data point AFTER the last-actuals month
+  // is forecast and should render with a translucent overlay so viewers
+  // can instantly see "this is actuals" vs "this is projection."
+  // Returns null when all data is actuals (no forecast region to shade).
+  const MONTHS_SHORT_PARSE = { Jan:1, Feb:2, Mar:3, Apr:4, May:5, Jun:6, Jul:7, Aug:8, Sep:9, Oct:10, Nov:11, Dec:12 };
+  const getForecastBoundary = (dataArr) => {
+    if (!Array.isArray(dataArr) || dataArr.length === 0) return null;
+    const isYearly = viewMode === 'yearly';
+    const isForecast = (point) => {
+      const label = String(point.month ?? '');
+      if (isYearly) {
+        const y = Number(label);
+        return y > prevMonthYear;
+      }
+      const parts = label.split(' ');
+      const m = MONTHS_SHORT_PARSE[parts[0]] || 0;
+      const y = 2000 + Number(parts[1]);
+      if (!m || isNaN(y)) return false;
+      return y > prevMonthYear || (y === prevMonthYear && m > prevMonth);
+    };
+    const firstIdx = dataArr.findIndex(isForecast);
+    if (firstIdx === -1) return null;
+    return { x1: dataArr[firstIdx].month, x2: dataArr[dataArr.length - 1].month };
+  };
+
+  // Returns a <ReferenceArea> for the forecast region, or null if there's
+  // no forecast in the chart's data. Drop into any time-series chart with
+  // a monthly/yearly categorical X-axis: {forecastOverlay(dataArr)}.
+  const forecastOverlay = (dataArr) => {
+    const b = getForecastBoundary(dataArr);
+    if (!b) return null;
+    return (
+      <ReferenceArea
+        x1={b.x1}
+        x2={b.x2}
+        fill="#94a3b8"
+        fillOpacity={0.12}
+        stroke="none"
+        ifOverflow="visible"
+        label={{ value: 'Forecast', position: 'insideTopRight', fontSize: 9, fill: '#64748b', dy: 4, dx: -4 }}
+      />
+    );
+  };
 
   // Previous month actuals
   const prevRevenue = monthlyTotal(data.pnl, 'Revenues', prevMonthYear, prevMonth, dynExcludeRevenue);
@@ -1268,6 +1313,7 @@ export default function InVitroDashboard({ data, user }) {
                         <XAxis dataKey="month" tick={{ fill: CHART_STYLE.muted, fontSize: 11 }} />
                         <YAxis tick={{ fill: CHART_STYLE.muted, fontSize: 11 }} tickFormatter={fmtShort} />
                         <Tooltip content={<CustomTooltip />} />
+                    {forecastOverlay(revenueByMonthWithTotal)}
                         {revenueCompanies.map((name, i) => (
                           <Bar key={name} dataKey={name} stackId="1" fill={colorMap[name]}
                             radius={i === revenueCompanies.length - 1 ? [4, 4, 0, 0] : [0, 0, 0, 0]} />
@@ -1282,6 +1328,7 @@ export default function InVitroDashboard({ data, user }) {
                         <XAxis dataKey="month" tick={{ fill: CHART_STYLE.muted, fontSize: 11 }} />
                         <YAxis tick={{ fill: CHART_STYLE.muted, fontSize: 11 }} tickFormatter={fmtShort} />
                         <Tooltip content={<CustomTooltip />} />
+                    {forecastOverlay(revenueByMonthWithTotal)}
                         {revenueCompanies.map(name => (
                           <Area key={name} type="monotone" dataKey={name} stackId="1"
                             stroke={colorMap[name]} fill={colorMap[name]} fillOpacity={0.6} />
@@ -1307,6 +1354,7 @@ export default function InVitroDashboard({ data, user }) {
                         <XAxis dataKey="month" tick={{ fill: CHART_STYLE.muted, fontSize: 11 }} />
                         <YAxis tick={{ fill: CHART_STYLE.muted, fontSize: 11 }} tickFormatter={fmtShort} />
                         <Tooltip content={<CustomTooltip />} />
+                    {forecastOverlay(ebitdaByMonthWithTotal)}
                         {(selectedCompany ? [selectedCompany] : allCompanyNames).map((name, i, arr) => (
                           <Bar key={name} dataKey={name} stackId="1" fill={colorMap[name]}
                             radius={i === arr.length - 1 ? [4, 4, 0, 0] : [0, 0, 0, 0]} />
@@ -1321,6 +1369,7 @@ export default function InVitroDashboard({ data, user }) {
                         <XAxis dataKey="month" tick={{ fill: CHART_STYLE.muted, fontSize: 11 }} />
                         <YAxis tick={{ fill: CHART_STYLE.muted, fontSize: 11 }} tickFormatter={fmtShort} />
                         <Tooltip content={<CustomTooltip />} />
+                    {forecastOverlay(ebitdaByMonthWithTotal)}
                         {(selectedCompany ? [selectedCompany] : allCompanyNames).map(name => (
                           <Area key={name} type="monotone" dataKey={name} stackId="1"
                             stroke={colorMap[name]} fill={colorMap[name]} fillOpacity={0.6} />
@@ -1528,6 +1577,7 @@ export default function InVitroDashboard({ data, user }) {
                     <XAxis dataKey="month" tick={{ fill: CHART_STYLE.muted, fontSize: 11 }} />
                     <YAxis tick={{ fill: CHART_STYLE.muted, fontSize: 11 }} tickFormatter={fmtShort} />
                     <Tooltip content={<CustomTooltip />} />
+                    {forecastOverlay(revenueByMonthWithTotal)}
                     {revenueCompanies.map((name, i) => (
                       <Bar key={name} dataKey={name} stackId="1" fill={colorMap[name]}
                         radius={i === revenueCompanies.length - 1 ? [4, 4, 0, 0] : [0, 0, 0, 0]} />
@@ -1721,6 +1771,7 @@ export default function InVitroDashboard({ data, user }) {
                     <XAxis dataKey="month" tick={{ fill: CHART_STYLE.muted, fontSize: 11 }} />
                     <YAxis tick={{ fill: CHART_STYLE.muted, fontSize: 11 }} tickFormatter={fmtShort} />
                     <Tooltip content={<CustomTooltip />} />
+                    {forecastOverlay(ebitdaByMonthWithTotal)}
                     {allCompanyNames.map(name => (
                       <Bar key={name} dataKey={name} fill={colorMap[name]} />
                     ))}
@@ -1770,6 +1821,7 @@ export default function InVitroDashboard({ data, user }) {
                             </div>
                           );
                         }} />
+                        {forecastOverlay(combinedGM)}
                         {gmCompanies.map((name, i) => (
                           <Bar key={`${name}_gp`} yAxisId="gp" dataKey={`${name}_gp`} stackId="gp"
                             fill={colorMap[name]} radius={i === gmCompanies.length - 1 ? [4, 4, 0, 0] : [0, 0, 0, 0]}
@@ -1872,6 +1924,7 @@ export default function InVitroDashboard({ data, user }) {
                     <YAxis yAxisId="left" tick={{ fill: CHART_STYLE.muted, fontSize: 11 }} tickFormatter={fmtShort} />
                     <YAxis yAxisId="right" orientation="right" tick={{ fill: CHART_STYLE.muted, fontSize: 11 }} tickFormatter={fmtShort} />
                     <Tooltip content={<CustomTooltip />} />
+                    {forecastOverlay(combinedGM)}
                     <Bar yAxisId="left" dataKey="inflow" name="Cash Inflow" fill="#22c55e" fillOpacity={0.4} />
                     <Bar yAxisId="left" dataKey="outflow" name="Cash Outflow" fill="#ef4444" fillOpacity={0.4} />
                     <Line yAxisId="right" type="monotone" dataKey="opsCashFlow" name="Ops Cash Flow" stroke="#f59e0b" strokeWidth={3} dot={{ fill: "#f59e0b", r: 4 }} />
@@ -1914,6 +1967,7 @@ export default function InVitroDashboard({ data, user }) {
                         <XAxis dataKey="month" tick={{ fill: CHART_STYLE.muted, fontSize: 11 }} />
                         <YAxis tick={{ fill: CHART_STYLE.muted, fontSize: 11 }} tickFormatter={fmtShort} />
                         <Tooltip content={<CustomTooltip />} />
+                    {forecastOverlay(opsCFData)}
                         {companies.map((name, i) => (
                           <Bar key={name} dataKey={name} stackId="ops" fill={colorMap[name]}
                             radius={i === companies.length - 1 ? [4, 4, 0, 0] : [0, 0, 0, 0]} />
@@ -1985,6 +2039,7 @@ export default function InVitroDashboard({ data, user }) {
                             </div>
                           );
                         }} />
+                        {forecastOverlay(combined)}
                         {hasBurn && <Bar yAxisId="burn" dataKey="burn" radius={[4, 4, 0, 0]} name="Cash Burn">
                           {combined.map((d, i) => (
                             <Cell key={i} fill={d.burn >= 0 ? '#16a34a' : '#ef4444'} />
@@ -2108,6 +2163,7 @@ export default function InVitroDashboard({ data, user }) {
                     <XAxis dataKey="month" tick={{ fill: CHART_STYLE.muted, fontSize: 11 }} />
                     <YAxis tick={{ fill: CHART_STYLE.muted, fontSize: 11 }} tickFormatter={fmtShort} />
                     <Tooltip content={<CustomTooltip />} />
+                    {forecastOverlay(combined)}
                     {expenseChartCompanies.map((name, i) => (
                       <Bar key={name} dataKey={name} stackId="1" fill={colorMap[name]} cursor={canDrill ? "pointer" : "default"}
                         radius={i === expenseChartCompanies.length - 1 ? [4, 4, 0, 0] : [0, 0, 0, 0]} />
