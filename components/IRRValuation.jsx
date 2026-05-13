@@ -84,11 +84,11 @@ function computeLpReturns(lp, vehicle, yearIdx, years) {
   const split = splitContributions(series, yearIdx, years, recyclingStartYear);
   const cumInvest = split.initial + split.recycled;
 
-  const years = vehicle.holdPeriod?.[yearIdx];
+  const holdYears = vehicle.holdPeriod?.[yearIdx];
   const calcReturn = (basis) => {
     if (basis <= 0 || lpValue <= 0) return { moic: null, irr: null };
     const moic = lpValue / basis;
-    const irr = years && years > 0 ? (Math.pow(moic, 1 / years) - 1) * 100 : null;
+    const irr = holdYears && holdYears > 0 ? (Math.pow(moic, 1 / holdYears) - 1) * 100 : null;
     return { moic, irr };
   };
   const onInitial = calcReturn(split.initial);
