@@ -29,6 +29,14 @@ import { cn } from "@/lib/utils";
  */
 const VEHICLE_RECYCLING_START_YEAR = {
   'Curenta Enterprise': 2024,
+  // Barsoum Brothers: GP recycling started 2024 (capital recycled from
+  // early investments into AllCare + Curenta). Currently no LP-ledger
+  // entries in 2024+ — the recycling happens at the vehicle level — but
+  // this config catches future LP-level recycled allocations correctly.
+  'Barsoum Brothers': 2024,
+  // InVitro Ventures: NOT included intentionally. All LP investment
+  // entries are initial capital calls (not recycled profits). Per
+  // Andrew's confirmation: "no recycling for InVitro Ventures."
 };
 
 /**
