@@ -1924,7 +1924,7 @@ export default function InVitroDashboard({ data, user }) {
                     <YAxis yAxisId="left" tick={{ fill: CHART_STYLE.muted, fontSize: 11 }} tickFormatter={fmtShort} />
                     <YAxis yAxisId="right" orientation="right" tick={{ fill: CHART_STYLE.muted, fontSize: 11 }} tickFormatter={fmtShort} />
                     <Tooltip content={<CustomTooltip />} />
-                    {forecastOverlay(combinedGM)}
+                    {forecastOverlay(cashBalanceByMonth)}
                     <Bar yAxisId="left" dataKey="inflow" name="Cash Inflow" fill="#22c55e" fillOpacity={0.4} />
                     <Bar yAxisId="left" dataKey="outflow" name="Cash Outflow" fill="#ef4444" fillOpacity={0.4} />
                     <Line yAxisId="right" type="monotone" dataKey="opsCashFlow" name="Ops Cash Flow" stroke="#f59e0b" strokeWidth={3} dot={{ fill: "#f59e0b", r: 4 }} />
@@ -2163,7 +2163,7 @@ export default function InVitroDashboard({ data, user }) {
                     <XAxis dataKey="month" tick={{ fill: CHART_STYLE.muted, fontSize: 11 }} />
                     <YAxis tick={{ fill: CHART_STYLE.muted, fontSize: 11 }} tickFormatter={fmtShort} />
                     <Tooltip content={<CustomTooltip />} />
-                    {forecastOverlay(combined)}
+                    {forecastOverlay(expenseByMonthWithTotal)}
                     {expenseChartCompanies.map((name, i) => (
                       <Bar key={name} dataKey={name} stackId="1" fill={colorMap[name]} cursor={canDrill ? "pointer" : "default"}
                         radius={i === expenseChartCompanies.length - 1 ? [4, 4, 0, 0] : [0, 0, 0, 0]} />
