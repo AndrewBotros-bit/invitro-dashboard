@@ -289,7 +289,43 @@ function InsightCard({ icon, title, body, type = "info" }) {
 export default function InVitroDashboard({ data, user }) {
   // Permission helpers
   const perms = user?.permissions || { companies: '*', tabs: '*', breakdowns: '*' };
-  const canSeeCompany = (name) => perms.companies === '*' || (Array.isArray(perms.companies) && perms.companies.includes(name));
+
+  // LP auto-derived company set: when the user has an lpName, their visible
+  // portfolio companies are *automatically* the union of companies their
+  // vehicle(s) invested in. The admin-set `companies` list is ignored for
+  // portcos in that case (but is still consulted for the special
+  // 'Consolidated' permission). This is the "LPs only see what they're
+  // actually invested in" rule.
+  const lpName = perms.lpName || null;
+  const lpAutoCompanies = (() => {
+    if (!lpName) return null;
+    const vehicles = (data?.irrValuation?.vehicles || []).filter(v =>
+      v.lps?.some(lp => lp.name === lpName)
+    );
+    const allowed = new Set();
+    for (const v of vehicles) {
+      for (const co of (data?.irrValuation?.companies || [])) {
+        const series = co.investments?.[v.name] || [];
+        if (series.some(x => x != null && x > 0)) allowed.add(co.name);
+      }
+    }
+    return [...allowed];
+  })();
+
+  // canSeeCompany — for LP users, gated by their auto-derived set; for
+  // non-LP users, by the admin-set list as before. 'Consolidated' is a
+  // separate concept (see canSeeConsolidated below).
+  const canSeeCompany = (name) => {
+    if (lpName && lpAutoCompanies) return lpAutoCompanies.includes(name);
+    return perms.companies === '*' || (Array.isArray(perms.companies) && perms.companies.includes(name));
+  };
+  // canSeeConsolidated — granted via '*' OR the literal 'Consolidated'
+  // entry in perms.companies. Same data shape Andrew asked for: treat
+  // Consolidated as a selectable item in the admin's company list.
+  const canSeeConsolidated = () => {
+    return perms.companies === '*' || (Array.isArray(perms.companies) && perms.companies.includes('Consolidated'));
+  };
+
   const canSeeTab = (tab) => perms.tabs === '*' || (Array.isArray(perms.tabs) && perms.tabs.includes(tab));
   const canBreakdown = (key, company = null) => {
     if (perms.breakdowns === '*') return true;
@@ -313,7 +349,14 @@ export default function InVitroDashboard({ data, user }) {
   // Company selector state
   const ALL_COMPANIES = ['AllRx', 'AllCare', 'Osta', 'Needles', 'InVitro Studio'];
   const DISPLAY_COMPANIES = ALL_COMPANIES.filter(canSeeCompany);
-  const [selectedCompany, setSelectedCompany] = useState(null); // null = consolidated
+  // Initial selectedCompany: default to Consolidated (null) ONLY if the
+  // user has consolidated access. Otherwise land them on their first
+  // allowed company — prevents an LP without Consolidated permission
+  // from initially seeing the consolidated view they can't access.
+  const [selectedCompany, setSelectedCompany] = useState(() => {
+    if (canSeeConsolidated()) return null;
+    return DISPLAY_COMPANIES[0] ?? null;
+  });
   const [expenseDrilldown, setExpenseDrilldown] = useState(null); // { year, month } or null
   const [revenueDrilldown, setRevenueDrilldown] = useState(null); // { year, month } or null
   const [expandedDept, setExpandedDept] = useState(null); // 'G&A' | 'GTM' | etc. or null
@@ -1053,6 +1096,7 @@ export default function InVitroDashboard({ data, user }) {
         selectedCompany={selectedCompany}
         setSelectedCompany={(c) => { setSelectedCompany(c); setExpenseDrilldown(null); }}
         companies={DISPLAY_COMPANIES}
+        showConsolidated={canSeeConsolidated()}
         colorMap={colorMap}
         lastActualLabel={`Actuals till ${prevMonthLabel} ${prevMonthYear}`}
         sidebarOpen={sidebarOpen}

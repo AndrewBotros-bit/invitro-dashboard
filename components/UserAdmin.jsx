@@ -6,7 +6,14 @@ import { cn } from "@/lib/utils";
 
 // ─── Constants ─────────────────────────────────────────────────────────────
 
-const ALL_COMPANIES = ['AllRx', 'AllCare', 'Osta', 'Needles', 'InVitro Studio'];
+// 'Consolidated' is treated as a special pseudo-company in the permissions
+// list — admin grants/revokes it like any portfolio company. When granted,
+// the user sees the "Consolidated" view in the sidebar; without it, the
+// view is hidden. For LP users, this is the ONLY entry from this list that
+// has effect — their portfolio companies are auto-derived from their
+// vehicle's investments at runtime (see Dashboard.jsx).
+const CONSOLIDATED_PSEUDO = 'Consolidated';
+const ALL_COMPANIES = ['AllRx', 'AllCare', 'Osta', 'Needles', 'InVitro Studio', CONSOLIDATED_PSEUDO];
 const ALL_TABS = [
   { id: 'overview', label: 'Overview' },
   { id: 'revenue', label: 'Revenue' },
@@ -815,13 +822,22 @@ export default function UserAdmin({ currentUser, lpNames = [] }) {
                   </div>
                 </div>
 
-                {/* Companies */}
+                {/* Companies — 'Consolidated' is included as a checkbox.
+                    For LP users (lpName set), the runtime ignores the
+                    portfolio-company entries and auto-derives them from
+                    the LP's vehicle investments. Only the 'Consolidated'
+                    entry from this list has effect for LP users. */}
                 <fieldset className="border border-border rounded-lg p-3">
                   <legend className="text-xs font-medium text-foreground uppercase tracking-wide px-1">Companies</legend>
+                  {form.lpName && (
+                    <div className="mb-2 -mt-1 px-2 py-1.5 bg-violet-50 border border-violet-200 rounded text-[11px] text-violet-900">
+                      <strong>LP scoping is ON</strong> · Portfolio companies are auto-derived from this LP&apos;s vehicle investments. Only the <strong>Consolidated</strong> checkbox below matters for this user; other selections are ignored.
+                    </div>
+                  )}
                   <div className="space-y-2">
                     <label className="flex items-center gap-2 text-sm cursor-pointer">
                       <input type="radio" name="companies_mode" checked={form.companies_mode === 'all'} onChange={() => setForm({ ...form, companies_mode: 'all' })} />
-                      All companies
+                      All companies (incl. Consolidated)
                     </label>
                     <label className="flex items-center gap-2 text-sm cursor-pointer">
                       <input type="radio" name="companies_mode" checked={form.companies_mode === 'subset'} onChange={() => setForm({ ...form, companies_mode: 'subset' })} />
@@ -830,10 +846,16 @@ export default function UserAdmin({ currentUser, lpNames = [] }) {
                     {form.companies_mode === 'subset' && (
                       <div className="ml-6 grid grid-cols-2 gap-2">
                         {ALL_COMPANIES.map(c => (
-                          <label key={c} className="flex items-center gap-2 text-sm cursor-pointer">
+                          <label key={c} className={cn(
+                            "flex items-center gap-2 text-sm cursor-pointer",
+                            c === CONSOLIDATED_PSEUDO && "col-span-2 mt-1 pt-2 border-t border-border/60 font-medium"
+                          )}>
                             <input type="checkbox" checked={form.companies_list.includes(c)}
                               onChange={() => setForm({ ...form, companies_list: toggleListItem(form.companies_list, c) })} />
                             {c}
+                            {c === CONSOLIDATED_PSEUDO && (
+                              <span className="text-[10px] text-muted-foreground font-normal ml-1">(aggregate view of all companies)</span>
+                            )}
                           </label>
                         ))}
                       </div>

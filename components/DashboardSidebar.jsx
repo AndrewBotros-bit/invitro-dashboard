@@ -50,6 +50,7 @@ export default function DashboardSidebar({
   selectedCompany,
   setSelectedCompany,
   companies,
+  showConsolidated = true,
   colorMap,
   lastActualLabel,
   sidebarOpen,
@@ -195,8 +196,12 @@ export default function DashboardSidebar({
               </p>
 
               <nav className="space-y-0.5">
-                {/* Consolidated row + (when expanded) its nested tabs */}
-                {(() => {
+                {/* Consolidated row + (when expanded) its nested tabs.
+                    Hidden entirely when the user doesn't have permission
+                    (showConsolidated=false). For LP users without explicit
+                    'Consolidated' grant, this hides the aggregate view
+                    they shouldn't see. */}
+                {showConsolidated && (() => {
                   const isSelected = !selectedCompany;
                   const isExpanded = expandedKey === CONSOLIDATED_KEY;
                   return (

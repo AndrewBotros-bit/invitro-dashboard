@@ -11,6 +11,11 @@ import {
 import { commitUsersToGitHub, readUsersFromGitHub } from '@/lib/auth/github';
 
 const ALL_COMPANIES = ['AllRx', 'AllCare', 'Osta', 'Needles', 'InVitro Studio'];
+// 'Consolidated' is allowed in `permissions.companies` as a pseudo-company
+// that grants access to the Consolidated sidebar view. NOT a real portco,
+// so it's kept separate from ALL_COMPANIES (which gates per-company
+// drill-down permission arrays like breakdowns.revenueDrilldown).
+const COMPANIES_INCLUDING_CONSOLIDATED = [...ALL_COMPANIES, 'Consolidated'];
 const ALL_TABS = ['overview', 'revenue', 'expenses', 'profitability', 'cashflow', 'irr', 'insights'];
 const BREAKDOWN_KEYS = ['revenueDrilldown', 'expenseDrilldown', 'auditConsole', 'hcDetails'];
 
@@ -32,8 +37,8 @@ function stripHash(u) {
 function validatePermissions(permissions) {
   if (!permissions || typeof permissions !== 'object') return 'permissions must be an object';
   const { companies, tabs, breakdowns, lpName } = permissions;
-  if (companies !== '*' && !(Array.isArray(companies) && companies.every(c => ALL_COMPANIES.includes(c)))) {
-    return 'companies must be "*" or array of valid company names';
+  if (companies !== '*' && !(Array.isArray(companies) && companies.every(c => COMPANIES_INCLUDING_CONSOLIDATED.includes(c)))) {
+    return 'companies must be "*" or array of valid company names (incl. "Consolidated")';
   }
   if (tabs !== '*' && !(Array.isArray(tabs) && tabs.every(t => ALL_TABS.includes(t)))) {
     return 'tabs must be "*" or array of valid tab ids';
