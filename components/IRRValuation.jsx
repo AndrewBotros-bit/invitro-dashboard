@@ -573,7 +573,7 @@ export default function IRRValuation({ data, user, selectedYear: selectedYearPro
                         </div>
                       </div>
                       <div className="text-right shrink-0">
-                        <p className="text-3xl font-bold tabular-nums leading-none">{myOwnPct.toFixed(2)}%</p>
+                        <p className="text-2xl font-bold tabular-nums leading-none">{myOwnPct.toFixed(2)}%</p>
                         <p className="text-[10px] opacity-80 uppercase tracking-wide mt-1">Your stake</p>
                       </div>
                     </div>
