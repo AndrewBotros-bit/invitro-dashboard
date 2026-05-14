@@ -345,6 +345,26 @@ export default function IRRValuation({ data, user, selectedYear: selectedYearPro
         </p>
       </div>
 
+      {/* LP-scoped wayfinding banner — tells the LP up-front how many
+          investment vehicles they're in, before they scroll through them.
+          Sets the expectation that there are MORE vehicles below. */}
+      {lpName && visibleVehicles.length > 0 && (
+        <div className="rounded-lg border border-primary/30 bg-gradient-to-r from-primary/10 to-primary/5 px-4 py-3">
+          <p className="text-[10px] font-semibold uppercase tracking-widest text-primary mb-1">Your investments</p>
+          <p className="text-sm text-foreground">
+            You're invested through <strong>{visibleVehicles.length}</strong> {visibleVehicles.length === 1 ? 'investment vehicle' : 'investment vehicles'}:
+            {' '}
+            {visibleVehicles.map((v, i) => (
+              <span key={v.name}>
+                {i > 0 && (i === visibleVehicles.length - 1 ? ', and ' : ', ')}
+                <strong className="text-primary">{v.name}</strong>
+              </span>
+            ))}
+            .
+          </p>
+        </div>
+      )}
+
       {/* Vehicles */}
       {visibleVehicles.map(v => {
         const ownership = v.ownershipValue?.[yearIdx] ?? 0;
@@ -379,18 +399,27 @@ export default function IRRValuation({ data, user, selectedYear: selectedYearPro
         const fundPctCalled = isFund && fundTotalCommit > 0 ? (fundCalledToDate / fundTotalCommit) * 100 : null;
 
         return (
-          <Card key={v.name}>
-            <CardHeader>
-              <CardTitle className="flex items-center justify-between">
-                <span className="text-base">
-                  {v.name}
-                  {isFund && <span className="ml-2 text-[10px] font-medium uppercase tracking-wide text-primary bg-primary/10 px-1.5 py-0.5 rounded">Fund</span>}
-                </span>
-                <span className="text-xs font-normal text-muted-foreground">
+          <Card key={v.name} className="overflow-hidden">
+            {/* Vehicle name banner — clear visual anchor so the reader
+                always knows which vehicle's data they're looking at.
+                Colored left stripe + larger title than the default. */}
+            <div className="flex items-stretch border-b border-border/60">
+              <div className="w-1.5 bg-primary" aria-hidden="true" />
+              <div className="flex-1 flex items-center justify-between px-5 py-4 gap-3">
+                <div>
+                  <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground mb-0.5">
+                    {isFund ? 'Investment Fund' : 'Investment Vehicle'}
+                  </p>
+                  <h3 className="text-xl font-bold tracking-tight text-foreground">
+                    {v.name}
+                    {isFund && <span className="ml-2 text-[10px] font-medium uppercase tracking-wide text-primary bg-primary/10 px-1.5 py-0.5 rounded align-middle">Fund</span>}
+                  </h3>
+                </div>
+                <span className="text-xs font-medium text-muted-foreground shrink-0">
                   {v.holdPeriod?.[yearIdx] != null ? `Hold period: ${v.holdPeriod[yearIdx]} yr` : ''}
                 </span>
-              </CardTitle>
-            </CardHeader>
+              </div>
+            </div>
             <CardContent className="space-y-6">
               {/* Fund Commitments panel — only for fund-structured vehicles.
                   Shows the LP-facing commitment vocabulary: Committed
@@ -441,129 +470,7 @@ export default function IRRValuation({ data, user, selectedYear: selectedYearPro
                   delta={compEnabled && <DeltaBadge current={moic} prior={moicPrior} compareYear={compareYear} />} />
               </div>
 
-              {/* My Performance card — only for LP users. When the GP has
-                  recycled profits on this LP's behalf (i.e. their investment
-                  series has a temporal gap), we surface a "Capital Activity"
-                  breakdown so the LP sees: what they put in, what was
-                  recycled, current value, and MOIC on initial cash (Carta-
-                  style — the LP-friendly framing). */}
-              {myLp && (() => {
-                const myInitial = myReturns?.initialContrib ?? 0;
-                const myRecycled = myReturns?.recycledAlloc ?? 0;
-                const myMoicTotal = myReturns?.moicOnTotal;
-                const myIrrTotal = myReturns?.irrOnTotal;
-                const hasRecycling = myRecycled > 0;
-                // Fund-LP commitment info — only when both: (1) vehicle is
-                // fund-structured AND (2) we know this LP's commitment.
-                const myCommitment = isFund ? getLpCommitment(v.name, myLp.name) : null;
-                const myCalledPct = myCommitment ? (myInvestment / myCommitment) * 100 : null;
-                const myUnfunded = myCommitment ? myCommitment - myInvestment : null;
-                return (
-                <div className="rounded-xl border-2 border-primary bg-gradient-to-br from-primary/15 via-primary/8 to-primary/5 shadow-md overflow-hidden">
-                  {/* Prominent ribbon header — strong visual signal that
-                      "this section is about you, not the vehicle aggregate." */}
-                  <div className="bg-primary text-primary-foreground px-4 py-2.5 flex items-center justify-between gap-3">
-                    <div className="flex items-center gap-2.5">
-                      <span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-white/20 text-[11px] font-bold">
-                        {(lpName || 'Me').split(/\s+/).filter(Boolean).slice(0, 2).map(w => w[0]?.toUpperCase() ?? '').join('') || 'ME'}
-                      </span>
-                      <div>
-                        <p className="text-[11px] font-bold uppercase tracking-widest leading-tight">My Performance</p>
-                        <p className="text-[10px] opacity-80 leading-tight">
-                          {myLp.name} · {myOwnPct.toFixed(2)}% stake in {v.name}
-                        </p>
-                      </div>
-                    </div>
-                    {(myReturns?.lpFirstYear != null && myReturns?.lpHoldYears != null) || isFund ? (
-                      <div className="text-right text-[10px] opacity-90">
-                        {myReturns?.lpFirstYear != null && myReturns?.lpHoldYears != null && (
-                          <p>Joined {myReturns.lpFirstYear} · {myReturns.lpHoldYears} yr hold</p>
-                        )}
-                        {isFund && (
-                          <p className="italic">XIRR (call-timing-weighted)</p>
-                        )}
-                      </div>
-                    ) : null}
-                  </div>
-
-                  <div className="p-4">
-
-                  {/* Fund-specific "My Commitment" mini-strip — visible only
-                      when this LP has a declared commitment in FUND_COMMITMENTS. */}
-                  {myCommitment && (
-                    <div className="mb-4 grid grid-cols-3 gap-3 p-3 bg-background rounded-md border border-primary/20">
-                      <div>
-                        <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">My Commitment</p>
-                        <p className="text-sm font-bold tabular-nums text-foreground mt-0.5">{fmt(myCommitment)}</p>
-                      </div>
-                      <div>
-                        <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">Called</p>
-                        <p className="text-sm font-bold tabular-nums text-foreground mt-0.5">
-                          {fmt(myInvestment)} <span className="text-[10px] font-normal text-muted-foreground">({myCalledPct?.toFixed(0)}%)</span>
-                        </p>
-                      </div>
-                      <div>
-                        <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">Unfunded</p>
-                        <p className="text-sm font-bold tabular-nums text-foreground mt-0.5">{fmt(myUnfunded)}</p>
-                      </div>
-                    </div>
-                  )}
-
-                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                    <KpiTile label="My Ownership Value" value={fmt(myValue)} compact />
-                    <KpiTile label={isFund ? 'Called to Date' : 'My Investment'} value={fmt(myInvestment)} compact />
-                    <KpiTile label="My IRR" value={myIrr != null ? `${myIrr.toFixed(1)}%` : '—'}
-                      tone={myIrr == null ? 'neutral' : myIrr >= 0 ? 'positive' : 'negative'} compact />
-                    <KpiTile label="My MOIC" value={myMoic != null ? `${myMoic.toFixed(1)}x` : '—'}
-                      tone={myMoic == null ? 'neutral' : myMoic >= 1 ? 'positive' : 'negative'} compact />
-                  </div>
-
-                  {/* Capital Activity breakdown — only shown when recycling
-                      has happened. Mirrors Carta's "Capital Activity" panel
-                      with the distinction between cash contributed and
-                      capital deployed on the LP's behalf. */}
-                  {hasRecycling && (
-                    <div className="mt-4 pt-4 border-t border-primary/20">
-                      <p className="text-[11px] font-semibold uppercase tracking-wide text-primary mb-2">
-                        Capital Activity
-                      </p>
-                      <div className="space-y-2 text-xs">
-                        <div className="flex items-baseline justify-between gap-3">
-                          <span className="text-muted-foreground">Initial contribution (cash you put in)</span>
-                          <span className="font-semibold tabular-nums text-foreground">{fmt(myInitial)}</span>
-                        </div>
-                        <div className="flex items-baseline justify-between gap-3">
-                          <span className="text-muted-foreground">+ Recycled by GP (profits redeployed on your behalf)</span>
-                          <span className="font-semibold tabular-nums text-foreground">{fmt(myRecycled)}</span>
-                        </div>
-                        <div className="flex items-baseline justify-between gap-3 pt-2 border-t border-primary/10">
-                          <span className="text-foreground font-medium">= Total deployed on your behalf</span>
-                          <span className="font-semibold tabular-nums text-foreground">{fmt(myInvestment)}</span>
-                        </div>
-                        <div className="flex items-baseline justify-between gap-3">
-                          <span className="text-foreground font-medium">Current value</span>
-                          <span className="font-bold tabular-nums text-foreground">{fmt(myValue)}</span>
-                        </div>
-                        {myMoicTotal != null && (
-                          <div className="flex items-baseline justify-between gap-3 text-muted-foreground">
-                            <span>MOIC on total deployed (alt. framing)</span>
-                            <span className="tabular-nums">
-                              {myMoicTotal.toFixed(2)}x &nbsp;·&nbsp; IRR {myIrrTotal?.toFixed(1)}%
-                            </span>
-                          </div>
-                        )}
-                      </div>
-                      <p className="text-[10px] text-muted-foreground mt-3 italic">
-                        Your <strong className="text-foreground">My MOIC</strong> above is computed on your initial
-                        cash ({fmt(myInitial)}) — the GP redeploying profits doesn&apos;t change how much you put in,
-                        so this is the truest measure of what your money turned into.
-                      </p>
-                    </div>
-                  )}
-                  </div>{/* end inner p-4 wrapper */}
-                </div>
-                );
-              })()}
+              {/* My Performance — relocated to after "Companies Invested In" so the narrative reads vehicle-portfolio first, then LP-specific impact. */}
 
               {/* Per-company table */}
               {cos.length > 0 && (
@@ -628,9 +535,128 @@ export default function IRRValuation({ data, user, selectedYear: selectedYearPro
                 </div>
               )}
 
+
+              {/* My Performance card (relocated) — appears AFTER the per-
+                  company table so the LP reads "what the vehicle holds →
+                  what that means for me" rather than the reverse. */}
+              {myLp && (() => {
+                const myInitial = myReturns?.initialContrib ?? 0;
+                const myRecycled = myReturns?.recycledAlloc ?? 0;
+                const myMoicTotal = myReturns?.moicOnTotal;
+                const myIrrTotal = myReturns?.irrOnTotal;
+                const hasRecycling = myRecycled > 0;
+                const myCommitment = isFund ? getLpCommitment(v.name, myLp.name) : null;
+                const myCalledPct = myCommitment ? (myInvestment / myCommitment) * 100 : null;
+                const myUnfunded = myCommitment ? myCommitment - myInvestment : null;
+                return (
+                <div className="rounded-xl border-2 border-primary bg-gradient-to-br from-primary/15 via-primary/8 to-primary/5 shadow-md overflow-hidden">
+                  {/* Prominent header — Ownership % rendered as a LARGE
+                      stat on the right so the LP's defining number stands
+                      out visually. The left side carries identity (LP name,
+                      vehicle, hold-time). */}
+                  <div className="bg-primary text-primary-foreground px-5 py-4">
+                    <div className="flex items-center justify-between gap-4">
+                      <div className="flex items-center gap-3 min-w-0">
+                        <span className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-white/20 text-xs font-bold shrink-0">
+                          {(myLp.name || 'Me').split(/\s+/).filter(Boolean).slice(0, 2).map(w => w[0]?.toUpperCase() ?? '').join('') || 'ME'}
+                        </span>
+                        <div className="min-w-0">
+                          <p className="text-[10px] font-semibold uppercase tracking-widest opacity-80 leading-tight">Your Performance</p>
+                          <p className="text-base font-bold leading-tight truncate">{myLp.name}</p>
+                          <p className="text-[11px] opacity-80 leading-tight">
+                            in <strong>{v.name}</strong>
+                            {myReturns?.lpFirstYear != null && myReturns?.lpHoldYears != null && (
+                              <> · joined {myReturns.lpFirstYear} ({myReturns.lpHoldYears} yr hold)</>
+                            )}
+                            {isFund && <> · XIRR (call-timing-weighted)</>}
+                          </p>
+                        </div>
+                      </div>
+                      <div className="text-right shrink-0">
+                        <p className="text-3xl font-bold tabular-nums leading-none">{myOwnPct.toFixed(2)}%</p>
+                        <p className="text-[10px] opacity-80 uppercase tracking-wide mt-1">Your stake</p>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="p-4">
+
+                  {/* Fund-specific "My Commitment" mini-strip */}
+                  {myCommitment && (
+                    <div className="mb-4 grid grid-cols-3 gap-3 p-3 bg-background rounded-md border border-primary/20">
+                      <div>
+                        <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">My Commitment</p>
+                        <p className="text-sm font-bold tabular-nums text-foreground mt-0.5">{fmt(myCommitment)}</p>
+                      </div>
+                      <div>
+                        <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">Called</p>
+                        <p className="text-sm font-bold tabular-nums text-foreground mt-0.5">
+                          {fmt(myInvestment)} <span className="text-[10px] font-normal text-muted-foreground">({myCalledPct?.toFixed(0)}%)</span>
+                        </p>
+                      </div>
+                      <div>
+                        <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">Unfunded</p>
+                        <p className="text-sm font-bold tabular-nums text-foreground mt-0.5">{fmt(myUnfunded)}</p>
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                    <KpiTile label="My Ownership Value" value={fmt(myValue)} compact />
+                    <KpiTile label={isFund ? 'Called to Date' : 'My Investment'} value={fmt(myInvestment)} compact />
+                    <KpiTile label="My IRR" value={myIrr != null ? `${myIrr.toFixed(1)}%` : '—'}
+                      tone={myIrr == null ? 'neutral' : myIrr >= 0 ? 'positive' : 'negative'} compact />
+                    <KpiTile label="My MOIC" value={myMoic != null ? `${myMoic.toFixed(1)}x` : '—'}
+                      tone={myMoic == null ? 'neutral' : myMoic >= 1 ? 'positive' : 'negative'} compact />
+                  </div>
+
+                  {/* Capital Activity breakdown — only shown when recycling has happened */}
+                  {hasRecycling && (
+                    <div className="mt-4 pt-4 border-t border-primary/20">
+                      <p className="text-[11px] font-semibold uppercase tracking-wide text-primary mb-2">
+                        Capital Activity
+                      </p>
+                      <div className="space-y-2 text-xs">
+                        <div className="flex items-baseline justify-between gap-3">
+                          <span className="text-muted-foreground">Initial contribution (cash you put in)</span>
+                          <span className="font-semibold tabular-nums text-foreground">{fmt(myInitial)}</span>
+                        </div>
+                        <div className="flex items-baseline justify-between gap-3">
+                          <span className="text-muted-foreground">+ Recycled by GP (profits redeployed on your behalf)</span>
+                          <span className="font-semibold tabular-nums text-foreground">{fmt(myRecycled)}</span>
+                        </div>
+                        <div className="flex items-baseline justify-between gap-3 pt-2 border-t border-primary/10">
+                          <span className="text-foreground font-medium">= Total deployed on your behalf</span>
+                          <span className="font-semibold tabular-nums text-foreground">{fmt(myInvestment)}</span>
+                        </div>
+                        <div className="flex items-baseline justify-between gap-3">
+                          <span className="text-foreground font-medium">Current value</span>
+                          <span className="font-bold tabular-nums text-foreground">{fmt(myValue)}</span>
+                        </div>
+                        {myMoicTotal != null && (
+                          <div className="flex items-baseline justify-between gap-3 text-muted-foreground">
+                            <span>MOIC on total deployed (alt. framing)</span>
+                            <span className="tabular-nums">
+                              {myMoicTotal.toFixed(2)}x &nbsp;·&nbsp; IRR {myIrrTotal?.toFixed(1)}%
+                            </span>
+                          </div>
+                        )}
+                      </div>
+                      <p className="text-[10px] text-muted-foreground mt-3 italic">
+                        Your <strong className="text-foreground">My MOIC</strong> above is computed on your initial
+                        cash ({fmt(myInitial)}) — the GP redeploying profits doesn&apos;t change how much you put in,
+                        so this is the truest measure of what your money turned into.
+                      </p>
+                    </div>
+                  )}
+                  </div>{/* end inner p-4 wrapper */}
+                </div>
+                );
+              })()}
+
               {/* LP roster table — admins see everyone; LP users see nothing
-                  here because the "My Performance" card above already shows
-                  their numbers in a richer format (no point repeating them). */}
+                  here because the "My Performance" card already shows their
+                  numbers in a richer format (no point repeating them). */}
               {!lpName && v.lps.length > 0 && (() => {
                 const rosterLps = v.lps;
                 if (rosterLps.length === 0) return null;
