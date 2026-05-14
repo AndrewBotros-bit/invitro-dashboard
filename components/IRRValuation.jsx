@@ -459,25 +459,34 @@ export default function IRRValuation({ data, user, selectedYear: selectedYearPro
                 const myCalledPct = myCommitment ? (myInvestment / myCommitment) * 100 : null;
                 const myUnfunded = myCommitment ? myCommitment - myInvestment : null;
                 return (
-                <div className="rounded-lg border border-primary/40 bg-primary/5 p-4">
-                  <div className="flex items-center justify-between mb-3">
-                    <div>
-                      <p className="text-xs font-semibold uppercase tracking-wide text-primary">My Performance</p>
-                      <p className="text-xs text-muted-foreground">
-                        Your <strong>{myOwnPct.toFixed(2)}%</strong> stake in {v.name}
+                <div className="rounded-xl border-2 border-primary bg-gradient-to-br from-primary/15 via-primary/8 to-primary/5 shadow-md overflow-hidden">
+                  {/* Prominent ribbon header — strong visual signal that
+                      "this section is about you, not the vehicle aggregate." */}
+                  <div className="bg-primary text-primary-foreground px-4 py-2.5 flex items-center justify-between gap-3">
+                    <div className="flex items-center gap-2.5">
+                      <span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-white/20 text-[11px] font-bold">
+                        {(lpName || 'Me').split(/\s+/).filter(Boolean).slice(0, 2).map(w => w[0]?.toUpperCase() ?? '').join('') || 'ME'}
+                      </span>
+                      <div>
+                        <p className="text-[11px] font-bold uppercase tracking-widest leading-tight">My Performance</p>
+                        <p className="text-[10px] opacity-80 leading-tight">
+                          {myLp.name} · {myOwnPct.toFixed(2)}% stake in {v.name}
+                        </p>
+                      </div>
+                    </div>
+                    {(myReturns?.lpFirstYear != null && myReturns?.lpHoldYears != null) || isFund ? (
+                      <div className="text-right text-[10px] opacity-90">
                         {myReturns?.lpFirstYear != null && myReturns?.lpHoldYears != null && (
-                          <span className="ml-2 text-[10px]">
-                            · Joined {myReturns.lpFirstYear} ({myReturns.lpHoldYears} yr hold)
-                          </span>
+                          <p>Joined {myReturns.lpFirstYear} · {myReturns.lpHoldYears} yr hold</p>
                         )}
                         {isFund && (
-                          <span className="ml-2 text-[10px] italic">
-                            · IRR via money-weighted XIRR (accounts for call timing)
-                          </span>
+                          <p className="italic">XIRR (call-timing-weighted)</p>
                         )}
-                      </p>
-                    </div>
+                      </div>
+                    ) : null}
                   </div>
+
+                  <div className="p-4">
 
                   {/* Fund-specific "My Commitment" mini-strip — visible only
                       when this LP has a declared commitment in FUND_COMMITMENTS. */}
@@ -551,6 +560,7 @@ export default function IRRValuation({ data, user, selectedYear: selectedYearPro
                       </p>
                     </div>
                   )}
+                  </div>{/* end inner p-4 wrapper */}
                 </div>
                 );
               })()}
@@ -618,14 +628,16 @@ export default function IRRValuation({ data, user, selectedYear: selectedYearPro
                 </div>
               )}
 
-              {/* LP roster table — admins see everyone, LP users see only themselves */}
-              {v.lps.length > 0 && (() => {
-                const rosterLps = lpName ? v.lps.filter(lp => lp.name === lpName) : v.lps;
+              {/* LP roster table — admins see everyone; LP users see nothing
+                  here because the "My Performance" card above already shows
+                  their numbers in a richer format (no point repeating them). */}
+              {!lpName && v.lps.length > 0 && (() => {
+                const rosterLps = v.lps;
                 if (rosterLps.length === 0) return null;
                 return (
                 <div>
                   <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-2">
-                    {lpName ? 'My Stake' : `Shareholders (${v.lps.length})`}
+                    Shareholders ({v.lps.length})
                   </p>
                   <Table>
                     <TableHeader>
