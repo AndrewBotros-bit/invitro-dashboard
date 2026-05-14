@@ -60,7 +60,8 @@
         "AllRx",
         "Osta",
         "AllCare",
-        "Needles"
+        "Needles",
+        "Consolidated"
       ],
       "tabs": [
         "overview",
@@ -78,7 +79,8 @@
         "expenseDrilldown": false,
         "auditConsole": false,
         "hcDetails": false
-      }
+      },
+      "lpName": null
     }
   },
   {
