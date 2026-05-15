@@ -57,11 +57,11 @@
     "role": "viewer",
     "permissions": {
       "companies": [
-        "AllRx",
         "Osta",
         "AllCare",
         "Needles",
-        "Consolidated"
+        "Consolidated",
+        "AllRx External"
       ],
       "tabs": [
         "overview",
