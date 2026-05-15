@@ -15,7 +15,12 @@ const ALL_COMPANIES = ['AllRx', 'AllCare', 'Osta', 'Needles', 'InVitro Studio'];
 // that grants access to the Consolidated sidebar view. NOT a real portco,
 // so it's kept separate from ALL_COMPANIES (which gates per-company
 // drill-down permission arrays like breakdowns.revenueDrilldown).
-const COMPANIES_INCLUDING_CONSOLIDATED = [...ALL_COMPANIES, 'Consolidated'];
+// 'AllRx External' is a per-user alternate view of AllRx (sourced from the
+// "AllRx P&L External" / "AllRx Cashflow External" tabs). Same handling as
+// Consolidated — allowed in `permissions.companies` but not a real portco,
+// so kept out of ALL_COMPANIES to prevent it from appearing in drill-down
+// permission arrays.
+const COMPANIES_INCLUDING_CONSOLIDATED = [...ALL_COMPANIES, 'Consolidated', 'AllRx External'];
 const ALL_TABS = ['overview', 'revenue', 'expenses', 'profitability', 'cashflow', 'irr', 'insights'];
 const BREAKDOWN_KEYS = ['revenueDrilldown', 'expenseDrilldown', 'auditConsole', 'hcDetails'];
 

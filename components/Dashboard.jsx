@@ -285,10 +285,60 @@ function InsightCard({ icon, title, body, type = "info" }) {
   );
 }
 
+/**
+ * Per-user view substitution for the AllRx external (public-target) tabs.
+ *
+ * Three cases, decided by what's in `permissions.companies`:
+ *  A. External-only — has 'AllRx External' but NOT 'AllRx':
+ *     Drop internal AllRx from data; rename external→"AllRx". The user sees
+ *     external numbers under the regular "AllRx" label and has no idea an
+ *     alternate view exists. Their perms.companies is also rewritten so the
+ *     existing canSeeCompany('AllRx') check passes naturally.
+ *  B. No external access — drop the external rows entirely so they never
+ *     leak into the user's view (they never had access to begin with).
+ *  C. Both — admin/insider view. Keep both as separate company entities.
+ *     Consolidated still uses internal only because 'AllRx External' is in
+ *     EXCLUDE_ALWAYS (lib/chartHelpers.js).
+ *
+ * Note: '*' (all-access admin) lands in case C — both kept, separate sidebar
+ * entries. Operates on a shallow copy; downstream code can treat result as
+ * immutable.
+ */
+function applyExternalAllRxView(data, perms) {
+  const compList = Array.isArray(perms.companies) ? perms.companies : null;
+  const hasExternal = perms.companies === '*' || compList?.includes('AllRx External') === true;
+  const hasInternal = perms.companies === '*' || compList?.includes('AllRx') === true;
+
+  if (hasExternal && !hasInternal) {
+    const transform = (arr) => (arr || [])
+      .filter(c => c.name !== 'AllRx')
+      .map(c => c.name === 'AllRx External' ? { ...c, name: 'AllRx' } : c);
+    return {
+      data: { ...data, pnl: transform(data.pnl), cashflow: transform(data.cashflow) },
+      perms: {
+        ...perms,
+        companies: compList ? compList.map(c => c === 'AllRx External' ? 'AllRx' : c) : perms.companies,
+      },
+    };
+  }
+  if (!hasExternal) {
+    const stripExt = (arr) => (arr || []).filter(c => c.name !== 'AllRx External');
+    return {
+      data: { ...data, pnl: stripExt(data.pnl), cashflow: stripExt(data.cashflow) },
+      perms,
+    };
+  }
+  return { data, perms };
+}
+
 /* ── Main Dashboard ── */
-export default function InVitroDashboard({ data, user }) {
+export default function InVitroDashboard({ data: rawData, user }) {
   // Permission helpers
-  const perms = user?.permissions || { companies: '*', tabs: '*', breakdowns: '*' };
+  const rawPerms = user?.permissions || { companies: '*', tabs: '*', breakdowns: '*' };
+  // Apply AllRx external view substitution *before* anything else reads
+  // `data` or `perms` — keeps every downstream chart helper agnostic to
+  // which AllRx variant is being shown.
+  const { data, perms } = applyExternalAllRxView(rawData, rawPerms);
 
   // LP auto-derived company set: when the user has an lpName, their visible
   // portfolio companies are *automatically* the union of companies their
@@ -346,8 +396,11 @@ export default function InVitroDashboard({ data, user }) {
   const [activeSection, setActiveSection] = useState('overview');
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
-  // Company selector state
-  const ALL_COMPANIES = ['AllRx', 'AllCare', 'Osta', 'Needles', 'InVitro Studio'];
+  // Company selector state. 'AllRx External' is a parallel sidebar entry
+  // that only materializes for users with explicit access to both AllRx
+  // variants (admin/superuser); external-only users have already had the
+  // entry renamed to "AllRx" upstream (applyExternalAllRxView).
+  const ALL_COMPANIES = ['AllRx', 'AllRx External', 'AllCare', 'Osta', 'Needles', 'InVitro Studio'];
   const DISPLAY_COMPANIES = ALL_COMPANIES.filter(canSeeCompany);
   // Initial selectedCompany: default to Consolidated (null) ONLY if the
   // user has consolidated access. Otherwise land them on their first
