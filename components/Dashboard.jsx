@@ -341,11 +341,15 @@ export default function InVitroDashboard({ data: rawData, user }) {
   const { data, perms } = applyExternalAllRxView(rawData, rawPerms);
 
   // LP auto-derived company set: when the user has an lpName, their visible
-  // portfolio companies are *automatically* the union of companies their
-  // vehicle(s) invested in. The admin-set `companies` list is ignored for
-  // portcos in that case (but is still consulted for the special
-  // 'Consolidated' permission). This is the "LPs only see what they're
-  // actually invested in" rule.
+  // portfolio companies *include* the companies their vehicle(s) invested
+  // in — auto-discovered from the IRR sheet so admin doesn't have to keep
+  // company lists in sync with vehicle investments.
+  //
+  // IRR sheet uses combined block names (e.g. "AllCare + Curenta" because
+  // Curenta acquired AllCare); the P&L and sidebar use plain "AllCare". We
+  // normalize IRR names → P&L names through this alias map so the
+  // auto-derive picks the same string the rest of the app uses.
+  const IRR_TO_PNL_ALIAS = { 'AllCare + Curenta': 'AllCare' };
   const lpName = perms.lpName || null;
   const lpAutoCompanies = (() => {
     if (!lpName) return null;
@@ -356,18 +360,25 @@ export default function InVitroDashboard({ data: rawData, user }) {
     for (const v of vehicles) {
       for (const co of (data?.irrValuation?.companies || [])) {
         const series = co.investments?.[v.name] || [];
-        if (series.some(x => x != null && x > 0)) allowed.add(co.name);
+        if (series.some(x => x != null && x > 0)) {
+          allowed.add(IRR_TO_PNL_ALIAS[co.name] || co.name);
+        }
       }
     }
     return [...allowed];
   })();
 
-  // canSeeCompany — for LP users, gated by their auto-derived set; for
-  // non-LP users, by the admin-set list as before. 'Consolidated' is a
-  // separate concept (see canSeeConsolidated below).
+  // canSeeCompany — admin's explicit grant (or '*') always allows; LP
+  // auto-derive *adds* the companies they're invested in on top. So an LP
+  // who admin also grants "AllCare" gets the union — their invested
+  // companies + AllCare. Previously the auto-derive was authoritative for
+  // LPs and silently dropped admin grants, which surprised Andrew when he
+  // added AllCare to an LP and the LP didn't see it.
   const canSeeCompany = (name) => {
-    if (lpName && lpAutoCompanies) return lpAutoCompanies.includes(name);
-    return perms.companies === '*' || (Array.isArray(perms.companies) && perms.companies.includes(name));
+    if (perms.companies === '*') return true;
+    if (Array.isArray(perms.companies) && perms.companies.includes(name)) return true;
+    if (lpName && lpAutoCompanies && lpAutoCompanies.includes(name)) return true;
+    return false;
   };
   // canSeeConsolidated — granted via '*' OR the literal 'Consolidated'
   // entry in perms.companies. Same data shape Andrew asked for: treat

@@ -830,15 +830,15 @@ export default function UserAdmin({ currentUser, lpNames = [] }) {
                 </div>
 
                 {/* Companies — 'Consolidated' is included as a checkbox.
-                    For LP users (lpName set), the runtime ignores the
-                    portfolio-company entries and auto-derives them from
-                    the LP's vehicle investments. Only the 'Consolidated'
-                    entry from this list has effect for LP users. */}
+                    For LP users (lpName set), the runtime gives them the
+                    UNION of admin-granted companies + companies their
+                    vehicle invested in. So admin can add extra companies
+                    on top of the auto-derived baseline. */}
                 <fieldset className="border border-border rounded-lg p-3">
                   <legend className="text-xs font-medium text-foreground uppercase tracking-wide px-1">Companies</legend>
                   {form.lpName && (
                     <div className="mb-2 -mt-1 px-2 py-1.5 bg-violet-50 border border-violet-200 rounded text-[11px] text-violet-900">
-                      <strong>LP scoping is ON</strong> · Portfolio companies are auto-derived from this LP&apos;s vehicle investments. Only the <strong>Consolidated</strong> checkbox below matters for this user; other selections are ignored.
+                      <strong>LP scoping is ON</strong> · This LP automatically sees the companies their vehicle invested in. Any companies you check below are <strong>added on top</strong> of that auto-derived set.
                     </div>
                   )}
                   <div className="space-y-2">
