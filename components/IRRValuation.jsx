@@ -82,6 +82,101 @@ function isFundStructured(vehicleName) {
 function getLpCommitment(vehicleName, lpName) {
   return FUND_COMMITMENTS[vehicleName]?.perLP?.[lpName] ?? null;
 }
+
+/**
+ * Cap-table data for shareholder-style (vehicle) entities.
+ *
+ * Phase 2 of shareholder reporting. The IRR sheet supplies per-year cash
+ * but not share counts or share prices — this config fills that gap so we
+ * can compute:
+ *   - Cumulative shares per shareholder per year (cash ÷ share price + non-cash events)
+ *   - Last-priced-round valuation (shares × most recent priced round price)
+ *   - Year-by-year share issuance with redistribution / bonus events
+ *
+ * Currently scoped to InVitro Ventures (prototype). Migration path: when
+ * we extend to Barsoum Brothers + Curenta Enterprise, this object grows
+ * — at that point, consider moving to a "Cap Table" sheet tab with the
+ * same event-per-row shape so non-engineers can maintain it.
+ *
+ * Important caveat (intentional, documented): this config assumes
+ * "shares = cash ÷ share price for that year". That's accurate for
+ * shareholders whose entire holding came from cash contributions (Ayman
+ * Ismail in InVitro Ventures). It's NOT accurate for founders/operators
+ * who hold founder-equity shares granted without cash (e.g. Amir Barsoum
+ * has 7M+ shares but only ~$1.1M of cash contributions in IRR). For
+ * those shareholders, this view will understate shares. The fix is to
+ * model their founder grants as non-cash events — out of prototype scope.
+ */
+const VEHICLE_CAP_TABLE = {
+  'InVitro Ventures': {
+    // Share price per year — converts cash contributions to shares.
+    // Until a priced round happens, contributions during the year use
+    // the prior priced-round price (typical SAFE/convertible behavior).
+    sharePriceByYear: {
+      2023: 1,
+      2024: 1,
+      2025: 1,
+      2026: 2, // R2 markup
+      2027: 2,
+    },
+    // The "Last Priced Round" card sources from this — the most recent
+    // round with a discovery-priced share price.
+    lastPricedRound: { name: 'R2', year: 2026, sharePrice: 2 },
+    // Non-cash share events. Per-shareholder array of { year, shares, label, description }.
+    // Year determines when the shares are added to cumulative count.
+    nonCashEvents: {
+      'Ayman Ismail': [
+        { year: 2024, shares: 50_000, label: 'Redistribution',
+          description: 'Bonus shares from Ambrish Mody redistribution' },
+      ],
+    },
+  },
+};
+
+function getCapTableConfig(vehicleName) {
+  return VEHICLE_CAP_TABLE[vehicleName] ?? null;
+}
+
+/**
+ * Cumulative shares for a shareholder through a given year.
+ *   shares = Σ (cash[y] ÷ sharePrice[y])  for y ≤ throughYear
+ *          + Σ nonCashEvents[lp].shares    for events whose year ≤ throughYear
+ *
+ * Returns null when the vehicle has no cap-table config (consumers fall
+ * back to cash-only display). Returns 0 when config exists but the
+ * shareholder has no contributions / events yet.
+ */
+function computeCumulativeShares(vehicleName, lpName, lpInvestmentSeries, years, throughYearIdx) {
+  const cfg = getCapTableConfig(vehicleName);
+  if (!cfg) return null;
+  let total = 0;
+  for (let i = 0; i <= throughYearIdx && i < (lpInvestmentSeries?.length ?? 0); i++) {
+    const cash = lpInvestmentSeries[i] ?? 0;
+    if (cash === 0) continue;
+    const price = cfg.sharePriceByYear[years[i]];
+    if (!price || price <= 0) continue;
+    total += cash / price;
+  }
+  const events = cfg.nonCashEvents?.[lpName] ?? [];
+  for (const ev of events) {
+    const evIdx = years.indexOf(ev.year);
+    if (evIdx >= 0 && evIdx <= throughYearIdx) total += ev.shares;
+  }
+  return total;
+}
+
+/** Shares issued in a specific year — both cash-derived and non-cash. */
+function computeSharesInYear(vehicleName, lpName, lpInvestmentSeries, years, yearIdx) {
+  const cfg = getCapTableConfig(vehicleName);
+  if (!cfg) return { cashShares: 0, nonCashShares: 0, nonCashEvents: [] };
+  const cash = lpInvestmentSeries?.[yearIdx] ?? 0;
+  const price = cfg.sharePriceByYear[years[yearIdx]];
+  const cashShares = (cash > 0 && price > 0) ? cash / price : 0;
+  const events = cfg.nonCashEvents?.[lpName] ?? [];
+  const yearEvents = events.filter(ev => ev.year === years[yearIdx]);
+  const nonCashShares = yearEvents.reduce((s, ev) => s + ev.shares, 0);
+  return { cashShares, nonCashShares, nonCashEvents: yearEvents };
+}
 function sumLpInvestmentsThroughYear(vehicle, yearIdx) {
   return vehicle.lps.reduce((s, lp) => {
     const series = lp.investment ?? [];
@@ -619,6 +714,62 @@ export default function IRRValuation({ data, user, selectedYear: selectedYearPro
                       tone={myMoic == null ? 'neutral' : myMoic >= 1 ? 'positive' : 'negative'} compact />
                   </div>
 
+                  {/* Last Priced Round mini-card (vehicle-style only).
+                      Shows the cap-table-implied valuation of the
+                      shareholder's stake based on the most recent priced
+                      round's share price. This is the "internal narrative"
+                      that complements (and often disagrees with) the
+                      portfolio-FMV view above — both are legitimate, just
+                      different methodologies. */}
+                  {!isFund && (() => {
+                    const cap = getCapTableConfig(v.name);
+                    if (!cap) return null;
+                    const cumShares = computeCumulativeShares(v.name, myLp.name, myLp.investment, years, yearIdx);
+                    if (cumShares == null || cumShares <= 0) return null;
+                    const lr = cap.lastPricedRound;
+                    const lastRoundStakeValue = cumShares * lr.sharePrice;
+                    const lastRoundMarkup = myInvestment > 0 ? lastRoundStakeValue / myInvestment : null;
+                    const blendedCostPerShare = myInvestment > 0 ? myInvestment / cumShares : null;
+                    return (
+                      <div className="mt-4 p-3 bg-amber-50/60 border border-amber-200 rounded-md">
+                        <div className="flex items-baseline justify-between mb-2 gap-2 flex-wrap">
+                          <p className="text-[11px] font-semibold uppercase tracking-wide text-amber-900">
+                            Last Priced Round (Cap-Table View)
+                          </p>
+                          <p className="text-[10px] text-amber-800">
+                            {lr.name} · {lr.year} · ${lr.sharePrice.toFixed(2)}/share
+                          </p>
+                        </div>
+                        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                          <div>
+                            <p className="text-[10px] uppercase tracking-wide text-muted-foreground">Your shares</p>
+                            <p className="text-sm font-bold tabular-nums text-foreground">{Math.round(cumShares).toLocaleString()}</p>
+                          </div>
+                          <div>
+                            <p className="text-[10px] uppercase tracking-wide text-muted-foreground">Blended cost / share</p>
+                            <p className="text-sm font-bold tabular-nums text-foreground">{blendedCostPerShare != null ? `$${blendedCostPerShare.toFixed(3)}` : '—'}</p>
+                          </div>
+                          <div>
+                            <p className="text-[10px] uppercase tracking-wide text-muted-foreground">Stake @ last round</p>
+                            <p className="text-sm font-bold tabular-nums text-foreground">{fmt(lastRoundStakeValue)}</p>
+                          </div>
+                          <div>
+                            <p className="text-[10px] uppercase tracking-wide text-muted-foreground">vs cost basis</p>
+                            <p className={cn(
+                              "text-sm font-bold tabular-nums",
+                              lastRoundMarkup != null && lastRoundMarkup >= 1 && "text-emerald-700",
+                              lastRoundMarkup != null && lastRoundMarkup < 1 && "text-red-600",
+                              lastRoundMarkup == null && "text-foreground",
+                            )}>{lastRoundMarkup != null ? `${lastRoundMarkup.toFixed(2)}×` : '—'}</p>
+                          </div>
+                        </div>
+                        <p className="text-[10px] text-amber-700 italic mt-2">
+                          Reflects insider pricing at the most recent priced round, not an independent valuation. Compare with <strong>Stake Fair Value</strong> above (portfolio-driven) for the fundamental view.
+                        </p>
+                      </div>
+                    );
+                  })()}
+
                   {/* Year-by-Year Contributions — vehicle-style only.
                       Shareholders need to see when they paid in, how their
                       cumulative cost basis built up, and how their stake
@@ -631,12 +782,21 @@ export default function IRRValuation({ data, user, selectedYear: selectedYearPro
                         Year-by-Year Contributions
                       </p>
                       <div className="overflow-x-auto">
+                      {(() => {
+                        // Cap-table data only available when the vehicle is
+                        // configured in VEHICLE_CAP_TABLE. Without it, share
+                        // columns are hidden (cash-only table).
+                        const capCfg = getCapTableConfig(v.name);
+                        const showShares = capCfg != null;
+                        return (
                       <Table>
                         <TableHeader>
                           <TableRow>
                             <TableHead className="text-xs">Year</TableHead>
                             <TableHead className="text-right text-xs">Cash Invested</TableHead>
                             <TableHead className="text-right text-xs">Cumulative Cost</TableHead>
+                            {showShares && <TableHead className="text-right text-xs">Shares Δ</TableHead>}
+                            {showShares && <TableHead className="text-right text-xs">Cum. Shares</TableHead>}
                             <TableHead className="text-right text-xs">Ownership %</TableHead>
                             <TableHead className="text-right text-xs">Stake FMV</TableHead>
                             <TableHead className="text-right text-xs">MOIC</TableHead>
@@ -655,15 +815,46 @@ export default function IRRValuation({ data, user, selectedYear: selectedYearPro
                             const vehVal = v.ownershipValue?.[idx];
                             const stakeFmv = vehVal != null && ownPctYr > 0 ? vehVal * (ownPctYr / 100) : null;
                             const moicYr = cumCash > 0 && stakeFmv != null ? stakeFmv / cumCash : null;
-                            // Skip rows with no contribution AND no FMV — they're
-                            // pre-investment or post-exit empty years.
-                            if (cash === 0 && cumCash === 0 && (stakeFmv == null || stakeFmv === 0)) return null;
+                            // Share computations for this year (cap-table only).
+                            const shareYear = showShares
+                              ? computeSharesInYear(v.name, myLp.name, myLp.investment, years, idx)
+                              : null;
+                            const yearTotalShares = shareYear ? shareYear.cashShares + shareYear.nonCashShares : 0;
+                            const cumShares = showShares
+                              ? computeCumulativeShares(v.name, myLp.name, myLp.investment, years, idx)
+                              : null;
+                            // Skip rows with no contribution AND no FMV AND no
+                            // share event — they're pre-investment or post-exit
+                            // empty years.
+                            if (cash === 0 && cumCash === 0 && (stakeFmv == null || stakeFmv === 0) && yearTotalShares === 0) return null;
                             const isSelectedYear = idx === yearIdx;
                             return (
                               <TableRow key={year} className={isSelectedYear ? 'bg-primary/10 font-medium' : ''}>
                                 <TableCell className="text-xs tabular-nums">{year}</TableCell>
                                 <TableCell className="text-right text-xs tabular-nums">{cash !== 0 ? fmt(cash) : '—'}</TableCell>
                                 <TableCell className="text-right text-xs tabular-nums font-medium">{fmt(cumCash)}</TableCell>
+                                {showShares && (
+                                  <TableCell className="text-right text-xs tabular-nums">
+                                    {yearTotalShares > 0 ? (
+                                      <>
+                                        +{Math.round(yearTotalShares).toLocaleString()}
+                                        {shareYear?.nonCashShares > 0 && (
+                                          <span
+                                            className="ml-1 text-amber-700 cursor-help"
+                                            title={shareYear.nonCashEvents.map(ev => `${ev.label} (${ev.year}): +${ev.shares.toLocaleString()} — ${ev.description}`).join('\n')}
+                                          >
+                                            *
+                                          </span>
+                                        )}
+                                      </>
+                                    ) : '—'}
+                                  </TableCell>
+                                )}
+                                {showShares && (
+                                  <TableCell className="text-right text-xs tabular-nums font-medium">
+                                    {cumShares != null && cumShares > 0 ? Math.round(cumShares).toLocaleString() : '—'}
+                                  </TableCell>
+                                )}
                                 <TableCell className="text-right text-xs tabular-nums">{ownPctYr > 0 ? `${ownPctYr.toFixed(1)}%` : '—'}</TableCell>
                                 <TableCell className="text-right text-xs tabular-nums">{stakeFmv != null && stakeFmv > 0 ? fmt(stakeFmv) : '—'}</TableCell>
                                 <TableCell className={cn(
@@ -676,9 +867,13 @@ export default function IRRValuation({ data, user, selectedYear: selectedYearPro
                           })}
                         </TableBody>
                       </Table>
+                        );
+                      })()}
                       </div>
                       <p className="text-[10px] text-muted-foreground mt-3 italic">
                         <strong className="text-foreground">Cost Basis</strong> = cumulative cash you&apos;ve put into the vehicle.
+                        <strong className="text-foreground"> Shares Δ</strong> = shares issued each year (cash ÷ that year&apos;s share price, plus any non-cash events).
+                        Rows marked with <span className="text-amber-700">*</span> include non-cash share grants (redistribution, bonus, etc.) — hover for details.
                         <strong className="text-foreground"> Stake FMV</strong> = your ownership % × the vehicle&apos;s mark-to-market value at year-end,
                         driven by the underlying portfolio company valuations.
                         <strong className="text-foreground"> MOIC</strong> = Stake FMV ÷ Cost Basis (≥ 1.00× means the stake is worth more than what you paid in).
