@@ -788,11 +788,84 @@ export default function IRRValuation({ data, user, selectedYear: selectedYearPro
                         // columns are hidden (cash-only table).
                         const capCfg = getCapTableConfig(v.name);
                         const showShares = capCfg != null;
+
+                        // Build the row list. Each year may produce one or
+                        // two rows: a cash row (if cash > 0) and one row per
+                        // non-cash event (e.g. redistribution). Year-end
+                        // metrics (ownership %, Stake FMV, MOIC) attach to
+                        // the LAST row of the year — they're year-end
+                        // snapshots, so they'd misrepresent mid-year events
+                        // if duplicated across rows.
+                        const rows = [];
+                        let runningShares = 0;
+                        for (let idx = 0; idx < years.length; idx++) {
+                          const year = years[idx];
+                          const cash = myLp.investment?.[idx] ?? 0;
+                          const cumCash = (myLp.investment ?? [])
+                            .slice(0, idx + 1)
+                            .reduce((a, v) => a + (v ?? 0), 0);
+                          const ownPctYr = myLp.ownership?.[idx] ?? 0;
+                          const vehVal = v.ownershipValue?.[idx];
+                          const stakeFmv = vehVal != null && ownPctYr > 0 ? vehVal * (ownPctYr / 100) : null;
+                          const moicYr = cumCash > 0 && stakeFmv != null ? stakeFmv / cumCash : null;
+                          const yearNonCash = showShares
+                            ? (capCfg.nonCashEvents?.[myLp.name] || []).filter(ev => ev.year === year)
+                            : [];
+                          const sharePrice = showShares ? capCfg.sharePriceByYear[year] : null;
+                          const cashShares = (cash > 0 && sharePrice > 0) ? cash / sharePrice : 0;
+
+                          // Build per-year event list (chronological): cash
+                          // first, then non-cash events (assumed mid/late
+                          // year — the order doesn't change running totals).
+                          const events = [];
+                          if (cash > 0) {
+                            runningShares += cashShares;
+                            events.push({
+                              kind: 'cash',
+                              year, cash, cumCash,
+                              sharesDelta: cashShares,
+                              cumShares: runningShares,
+                            });
+                          }
+                          for (const ev of yearNonCash) {
+                            runningShares += ev.shares;
+                            events.push({
+                              kind: 'nonCash',
+                              year, label: ev.label, description: ev.description,
+                              cash: null, cumCash,
+                              sharesDelta: ev.shares,
+                              cumShares: runningShares,
+                            });
+                          }
+                          // Idle year (no cash, no events) but the LP has
+                          // existing position — render a stub so year-end
+                          // FMV/MOIC still appears.
+                          if (events.length === 0 && cumCash > 0) {
+                            events.push({
+                              kind: 'idle',
+                              year, cash: null, cumCash,
+                              sharesDelta: null,
+                              cumShares: runningShares || null,
+                            });
+                          }
+                          if (events.length === 0) continue; // pre-investment year
+                          // Attach year-end metrics to LAST event row
+                          events[events.length - 1].ownPctYr = ownPctYr;
+                          events[events.length - 1].stakeFmv = stakeFmv;
+                          events[events.length - 1].moicYr = moicYr;
+                          events[events.length - 1].isYearEnd = true;
+                          events[events.length - 1].isSelectedYear = idx === yearIdx;
+                          // Mark first cash row of selected year too (so the
+                          // whole year visually highlights when selected)
+                          if (idx === yearIdx) events.forEach(e => e.isSelectedYear = true);
+                          rows.push(...events);
+                        }
+
                         return (
                       <Table>
                         <TableHeader>
                           <TableRow>
-                            <TableHead className="text-xs">Year</TableHead>
+                            <TableHead className="text-xs">Year / Event</TableHead>
                             <TableHead className="text-right text-xs">Cash Invested</TableHead>
                             <TableHead className="text-right text-xs">Cumulative Cost</TableHead>
                             {showShares && <TableHead className="text-right text-xs">Shares Δ</TableHead>}
@@ -803,65 +876,46 @@ export default function IRRValuation({ data, user, selectedYear: selectedYearPro
                           </TableRow>
                         </TableHeader>
                         <TableBody>
-                          {years.map((year, idx) => {
-                            const cash = myLp.investment?.[idx] ?? 0;
-                            const cumCash = (myLp.investment ?? [])
-                              .slice(0, idx + 1)
-                              .reduce((a, v) => a + (v ?? 0), 0);
-                            // ownership is stored in percent units (25 = 25%),
-                            // matching the convention used in computeLpReturns
-                            // (see lpValue = vehicleValue * (ownPct/100)).
-                            const ownPctYr = myLp.ownership?.[idx] ?? 0;
-                            const vehVal = v.ownershipValue?.[idx];
-                            const stakeFmv = vehVal != null && ownPctYr > 0 ? vehVal * (ownPctYr / 100) : null;
-                            const moicYr = cumCash > 0 && stakeFmv != null ? stakeFmv / cumCash : null;
-                            // Share computations for this year (cap-table only).
-                            const shareYear = showShares
-                              ? computeSharesInYear(v.name, myLp.name, myLp.investment, years, idx)
-                              : null;
-                            const yearTotalShares = shareYear ? shareYear.cashShares + shareYear.nonCashShares : 0;
-                            const cumShares = showShares
-                              ? computeCumulativeShares(v.name, myLp.name, myLp.investment, years, idx)
-                              : null;
-                            // Skip rows with no contribution AND no FMV AND no
-                            // share event — they're pre-investment or post-exit
-                            // empty years.
-                            if (cash === 0 && cumCash === 0 && (stakeFmv == null || stakeFmv === 0) && yearTotalShares === 0) return null;
-                            const isSelectedYear = idx === yearIdx;
+                          {rows.map((r, ri) => {
+                            const rowCls = cn(
+                              r.isSelectedYear && 'bg-primary/10',
+                              r.isSelectedYear && r.isYearEnd && 'font-medium',
+                              r.kind === 'nonCash' && !r.isSelectedYear && 'bg-amber-50/50',
+                            );
                             return (
-                              <TableRow key={year} className={isSelectedYear ? 'bg-primary/10 font-medium' : ''}>
-                                <TableCell className="text-xs tabular-nums">{year}</TableCell>
-                                <TableCell className="text-right text-xs tabular-nums">{cash !== 0 ? fmt(cash) : '—'}</TableCell>
-                                <TableCell className="text-right text-xs tabular-nums font-medium">{fmt(cumCash)}</TableCell>
+                              <TableRow key={`${r.year}-${r.kind}-${ri}`} className={rowCls}>
+                                <TableCell className="text-xs tabular-nums">
+                                  {r.kind === 'nonCash' ? (
+                                    <span className="text-amber-800" title={r.description}>
+                                      <span className="text-muted-foreground">↳ {r.year}</span>{' '}
+                                      <em className="not-italic font-medium">{r.label}</em>
+                                    </span>
+                                  ) : (
+                                    <span>{r.year}</span>
+                                  )}
+                                </TableCell>
+                                <TableCell className="text-right text-xs tabular-nums">{r.cash != null && r.cash !== 0 ? fmt(r.cash) : '—'}</TableCell>
+                                <TableCell className="text-right text-xs tabular-nums font-medium">{fmt(r.cumCash)}</TableCell>
                                 {showShares && (
-                                  <TableCell className="text-right text-xs tabular-nums">
-                                    {yearTotalShares > 0 ? (
-                                      <>
-                                        +{Math.round(yearTotalShares).toLocaleString()}
-                                        {shareYear?.nonCashShares > 0 && (
-                                          <span
-                                            className="ml-1 text-amber-700 cursor-help"
-                                            title={shareYear.nonCashEvents.map(ev => `${ev.label} (${ev.year}): +${ev.shares.toLocaleString()} — ${ev.description}`).join('\n')}
-                                          >
-                                            *
-                                          </span>
-                                        )}
-                                      </>
-                                    ) : '—'}
+                                  <TableCell className={cn(
+                                    "text-right text-xs tabular-nums",
+                                    r.kind === 'nonCash' && "text-amber-800 font-semibold",
+                                  )}>
+                                    {r.sharesDelta != null && r.sharesDelta > 0 ? `+${Math.round(r.sharesDelta).toLocaleString()}` : '—'}
                                   </TableCell>
                                 )}
                                 {showShares && (
                                   <TableCell className="text-right text-xs tabular-nums font-medium">
-                                    {cumShares != null && cumShares > 0 ? Math.round(cumShares).toLocaleString() : '—'}
+                                    {r.cumShares != null && r.cumShares > 0 ? Math.round(r.cumShares).toLocaleString() : '—'}
                                   </TableCell>
                                 )}
-                                <TableCell className="text-right text-xs tabular-nums">{ownPctYr > 0 ? `${ownPctYr.toFixed(1)}%` : '—'}</TableCell>
-                                <TableCell className="text-right text-xs tabular-nums">{stakeFmv != null && stakeFmv > 0 ? fmt(stakeFmv) : '—'}</TableCell>
+                                <TableCell className="text-right text-xs tabular-nums">{r.isYearEnd && r.ownPctYr > 0 ? `${r.ownPctYr.toFixed(1)}%` : '—'}</TableCell>
+                                <TableCell className="text-right text-xs tabular-nums">{r.isYearEnd && r.stakeFmv != null && r.stakeFmv > 0 ? fmt(r.stakeFmv) : '—'}</TableCell>
                                 <TableCell className={cn(
                                   "text-right text-xs tabular-nums",
-                                  moicYr != null && moicYr >= 1 && "text-emerald-700",
-                                  moicYr != null && moicYr < 1 && "text-red-600",
-                                )}>{moicYr != null ? `${moicYr.toFixed(2)}x` : '—'}</TableCell>
+                                  r.isYearEnd && r.moicYr != null && r.moicYr >= 1 && "text-emerald-700",
+                                  r.isYearEnd && r.moicYr != null && r.moicYr < 1 && "text-red-600",
+                                )}>{r.isYearEnd && r.moicYr != null ? `${r.moicYr.toFixed(2)}x` : '—'}</TableCell>
                               </TableRow>
                             );
                           })}
@@ -872,8 +926,8 @@ export default function IRRValuation({ data, user, selectedYear: selectedYearPro
                       </div>
                       <p className="text-[10px] text-muted-foreground mt-3 italic">
                         <strong className="text-foreground">Cost Basis</strong> = cumulative cash you&apos;ve put into the vehicle.
-                        <strong className="text-foreground"> Shares Δ</strong> = shares issued each year (cash ÷ that year&apos;s share price, plus any non-cash events).
-                        Rows marked with <span className="text-amber-700">*</span> include non-cash share grants (redistribution, bonus, etc.) — hover for details.
+                        <strong className="text-foreground"> Shares Δ</strong> = shares issued by each event (cash ÷ share price for cash rounds; full count for non-cash events like redistributions or bonus grants).
+                        <span className="text-amber-700"> Amber rows</span> are non-cash share events — hover the label for details.
                         <strong className="text-foreground"> Stake FMV</strong> = your ownership % × the vehicle&apos;s mark-to-market value at year-end,
                         driven by the underlying portfolio company valuations.
                         <strong className="text-foreground"> MOIC</strong> = Stake FMV ÷ Cost Basis (≥ 1.00× means the stake is worth more than what you paid in).
