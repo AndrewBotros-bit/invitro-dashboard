@@ -648,10 +648,12 @@ export default function IRRValuation({ data, user, selectedYear: selectedYearPro
                             const cumCash = (myLp.investment ?? [])
                               .slice(0, idx + 1)
                               .reduce((a, v) => a + (v ?? 0), 0);
-                            const ownFrac = myLp.ownership?.[idx] ?? 0;
-                            const ownPctYr = ownFrac * 100;
+                            // ownership is stored in percent units (25 = 25%),
+                            // matching the convention used in computeLpReturns
+                            // (see lpValue = vehicleValue * (ownPct/100)).
+                            const ownPctYr = myLp.ownership?.[idx] ?? 0;
                             const vehVal = v.ownershipValue?.[idx];
-                            const stakeFmv = vehVal != null && ownFrac > 0 ? vehVal * ownFrac : null;
+                            const stakeFmv = vehVal != null && ownPctYr > 0 ? vehVal * (ownPctYr / 100) : null;
                             const moicYr = cumCash > 0 && stakeFmv != null ? stakeFmv / cumCash : null;
                             // Skip rows with no contribution AND no FMV — they're
                             // pre-investment or post-exit empty years.
