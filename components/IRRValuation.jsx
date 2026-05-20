@@ -601,14 +601,88 @@ export default function IRRValuation({ data, user, selectedYear: selectedYearPro
                     </div>
                   )}
 
+                  {/* KPI grid — labels diverge by legal structure:
+                      - FUND (InVitro Fund): partnership-style language —
+                        "Called to Date", "Ownership Value", IRR is XIRR.
+                      - VEHICLE (Barsoum Brothers, Curenta Enterprise,
+                        InVitro Ventures): shareholder-style language —
+                        "Cost Basis", "Stake Fair Value" to disambiguate
+                        cap-table cost from mark-to-market portfolio FMV.
+                      Same data, different vocabulary — what a shareholder
+                      vs an LP expects to see on their statement. */}
                   <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                    <KpiTile label="My Ownership Value" value={fmt(myValue)} compact />
-                    <KpiTile label={isFund ? 'Called to Date' : 'My Investment'} value={fmt(myInvestment)} compact />
-                    <KpiTile label="My IRR" value={myIrr != null ? `${myIrr.toFixed(1)}%` : '—'}
+                    <KpiTile label={isFund ? 'My Ownership Value' : 'Stake Fair Value'} value={fmt(myValue)} compact />
+                    <KpiTile label={isFund ? 'Called to Date' : 'Cost Basis'} value={fmt(myInvestment)} compact />
+                    <KpiTile label={isFund ? 'My IRR' : 'IRR'} value={myIrr != null ? `${myIrr.toFixed(1)}%` : '—'}
                       tone={myIrr == null ? 'neutral' : myIrr >= 0 ? 'positive' : 'negative'} compact />
-                    <KpiTile label="My MOIC" value={myMoic != null ? `${myMoic.toFixed(1)}x` : '—'}
+                    <KpiTile label={isFund ? 'My MOIC' : 'MOIC'} value={myMoic != null ? `${myMoic.toFixed(1)}x` : '—'}
                       tone={myMoic == null ? 'neutral' : myMoic >= 1 ? 'positive' : 'negative'} compact />
                   </div>
+
+                  {/* Year-by-Year Contributions — vehicle-style only.
+                      Shareholders need to see when they paid in, how their
+                      cumulative cost basis built up, and how their stake
+                      FMV evolved alongside it. Fund LPs get the same story
+                      through the "Called to Date" + commitment mini-strip
+                      above, so this table would be redundant for them. */}
+                  {!isFund && myLp.investment?.some(x => x != null && x !== 0) && (
+                    <div className="mt-4 pt-4 border-t border-primary/20">
+                      <p className="text-[11px] font-semibold uppercase tracking-wide text-primary mb-2">
+                        Year-by-Year Contributions
+                      </p>
+                      <div className="overflow-x-auto">
+                      <Table>
+                        <TableHeader>
+                          <TableRow>
+                            <TableHead className="text-xs">Year</TableHead>
+                            <TableHead className="text-right text-xs">Cash Invested</TableHead>
+                            <TableHead className="text-right text-xs">Cumulative Cost</TableHead>
+                            <TableHead className="text-right text-xs">Ownership %</TableHead>
+                            <TableHead className="text-right text-xs">Stake FMV</TableHead>
+                            <TableHead className="text-right text-xs">MOIC</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {years.map((year, idx) => {
+                            const cash = myLp.investment?.[idx] ?? 0;
+                            const cumCash = (myLp.investment ?? [])
+                              .slice(0, idx + 1)
+                              .reduce((a, v) => a + (v ?? 0), 0);
+                            const ownFrac = myLp.ownership?.[idx] ?? 0;
+                            const ownPctYr = ownFrac * 100;
+                            const vehVal = v.ownershipValue?.[idx];
+                            const stakeFmv = vehVal != null && ownFrac > 0 ? vehVal * ownFrac : null;
+                            const moicYr = cumCash > 0 && stakeFmv != null ? stakeFmv / cumCash : null;
+                            // Skip rows with no contribution AND no FMV — they're
+                            // pre-investment or post-exit empty years.
+                            if (cash === 0 && cumCash === 0 && (stakeFmv == null || stakeFmv === 0)) return null;
+                            const isSelectedYear = idx === yearIdx;
+                            return (
+                              <TableRow key={year} className={isSelectedYear ? 'bg-primary/10 font-medium' : ''}>
+                                <TableCell className="text-xs tabular-nums">{year}</TableCell>
+                                <TableCell className="text-right text-xs tabular-nums">{cash !== 0 ? fmt(cash) : '—'}</TableCell>
+                                <TableCell className="text-right text-xs tabular-nums font-medium">{fmt(cumCash)}</TableCell>
+                                <TableCell className="text-right text-xs tabular-nums">{ownPctYr > 0 ? `${ownPctYr.toFixed(1)}%` : '—'}</TableCell>
+                                <TableCell className="text-right text-xs tabular-nums">{stakeFmv != null && stakeFmv > 0 ? fmt(stakeFmv) : '—'}</TableCell>
+                                <TableCell className={cn(
+                                  "text-right text-xs tabular-nums",
+                                  moicYr != null && moicYr >= 1 && "text-emerald-700",
+                                  moicYr != null && moicYr < 1 && "text-red-600",
+                                )}>{moicYr != null ? `${moicYr.toFixed(2)}x` : '—'}</TableCell>
+                              </TableRow>
+                            );
+                          })}
+                        </TableBody>
+                      </Table>
+                      </div>
+                      <p className="text-[10px] text-muted-foreground mt-3 italic">
+                        <strong className="text-foreground">Cost Basis</strong> = cumulative cash you&apos;ve put into the vehicle.
+                        <strong className="text-foreground"> Stake FMV</strong> = your ownership % × the vehicle&apos;s mark-to-market value at year-end,
+                        driven by the underlying portfolio company valuations.
+                        <strong className="text-foreground"> MOIC</strong> = Stake FMV ÷ Cost Basis (≥ 1.00× means the stake is worth more than what you paid in).
+                      </p>
+                    </div>
+                  )}
 
                   {/* Capital Activity breakdown — only shown when recycling has happened */}
                   {hasRecycling && (
