@@ -119,9 +119,13 @@ const VEHICLE_CAP_TABLE = {
       2026: 2, // R2 markup
       2027: 2,
     },
-    // The "Last Priced Round" card sources from this — the most recent
-    // round with a discovery-priced share price.
-    lastPricedRound: { name: 'R2', year: 2026, sharePrice: 2 },
+    // All priced rounds, chronologically. The "Last Priced Round" card
+    // picks the most recent one ≤ selected year (so a user viewing 2025
+    // sees R1 — R2 hasn't happened yet from their as-of viewpoint).
+    pricedRounds: [
+      { name: 'R1', year: 2023, sharePrice: 1 },
+      { name: 'R2', year: 2026, sharePrice: 2 },
+    ],
     // Non-cash share events. Per-shareholder array of { year, shares, label, description }.
     // Year determines when the shares are added to cumulative count.
     // Ayman's +50K redistribution happened in 2025 (post the R1-2nd-batch
@@ -138,6 +142,21 @@ const VEHICLE_CAP_TABLE = {
 
 function getCapTableConfig(vehicleName) {
   return VEHICLE_CAP_TABLE[vehicleName] ?? null;
+}
+
+/**
+ * Most recent priced round whose year is ≤ asOfYear. Returns null when
+ * no priced round has happened yet (or the vehicle isn't cap-table-
+ * configured). Used by the "Last Priced Round" card to render the
+ * snapshot from the as-of-selected-year viewpoint, not the absolute
+ * latest.
+ */
+function getPricedRoundAsOf(vehicleName, asOfYear) {
+  const cfg = getCapTableConfig(vehicleName);
+  if (!cfg?.pricedRounds?.length) return null;
+  const eligible = cfg.pricedRounds.filter(r => r.year <= asOfYear);
+  if (eligible.length === 0) return null;
+  return eligible.reduce((latest, r) => (r.year > latest.year ? r : latest), eligible[0]);
 }
 
 /**
@@ -729,7 +748,12 @@ export default function IRRValuation({ data, user, selectedYear: selectedYearPro
                     if (!cap) return null;
                     const cumShares = computeCumulativeShares(v.name, myLp.name, myLp.investment, years, yearIdx);
                     if (cumShares == null || cumShares <= 0) return null;
-                    const lr = cap.lastPricedRound;
+                    // Pick the most recent priced round AS OF the selected
+                    // year — so 2025 sees R1, 2026/2027 see R2, etc. Falls
+                    // back gracefully (returns null) if no priced round
+                    // has happened by the selected year.
+                    const lr = getPricedRoundAsOf(v.name, years[yearIdx]);
+                    if (!lr) return null;
                     const lastRoundStakeValue = cumShares * lr.sharePrice;
                     const lastRoundMarkup = myInvestment > 0 ? lastRoundStakeValue / myInvestment : null;
                     const blendedCostPerShare = myInvestment > 0 ? myInvestment / cumShares : null;
