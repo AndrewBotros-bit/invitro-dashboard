@@ -124,9 +124,12 @@ const VEHICLE_CAP_TABLE = {
     lastPricedRound: { name: 'R2', year: 2026, sharePrice: 2 },
     // Non-cash share events. Per-shareholder array of { year, shares, label, description }.
     // Year determines when the shares are added to cumulative count.
+    // Ayman's +50K redistribution happened in 2025 (post the R1-2nd-batch
+    // close, when Ambrish ceased contributing); the year-end-2025
+    // ownership jumps from 24.6% (2024 cap-table) to 25.0% as a result.
     nonCashEvents: {
       'Ayman Ismail': [
-        { year: 2024, shares: 50_000, label: 'Redistribution',
+        { year: 2025, shares: 50_000, label: 'Redistribution',
           description: 'Bonus shares from Ambrish Mody redistribution' },
       ],
     },
