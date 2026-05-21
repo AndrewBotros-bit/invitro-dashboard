@@ -729,7 +729,14 @@ export default function IRRValuation({ data, user, selectedYear: selectedYearPro
                       vs an LP expects to see on their statement. */}
                   <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                     <KpiTile label={isFund ? 'My Ownership Value' : 'Stake Fair Value'} value={fmt(myValue)} compact />
-                    <KpiTile label={isFund ? 'Called to Date' : 'Cost Basis'} value={fmt(myInvestment)} compact />
+                    {/* Cost Basis = actual cash the shareholder paid in.
+                        For vehicles with recycling (Curenta Enterprise,
+                        Barsoum Brothers), the post-recycling-start entries
+                        in lp.investment are GP-redeployed profits, NOT new
+                        cash — so cost basis is initialContrib, not the
+                        cumulative total. The recycled portion is surfaced
+                        in the "Capital Activity" breakdown below. */}
+                    <KpiTile label={isFund ? 'Called to Date' : 'Cost Basis'} value={fmt(isFund ? myInvestment : myInitial)} compact />
                     <KpiTile label={isFund ? 'My IRR' : 'IRR'} value={myIrr != null ? `${myIrr.toFixed(1)}%` : '—'}
                       tone={myIrr == null ? 'neutral' : myIrr >= 0 ? 'positive' : 'negative'} compact />
                     <KpiTile label={isFund ? 'My MOIC' : 'MOIC'} value={myMoic != null ? `${myMoic.toFixed(1)}x` : '—'}
@@ -815,41 +822,63 @@ export default function IRRValuation({ data, user, selectedYear: selectedYearPro
                         // columns are hidden (cash-only table).
                         const capCfg = getCapTableConfig(v.name);
                         const showShares = capCfg != null;
+                        // Recycling-aware: when the vehicle recycles, post-
+                        // recyclingStartYear entries in lp.investment are
+                        // GP-redeployed profits, NOT new cash. We split
+                        // them into a separate "Recycled (GP)" column so
+                        // the cost basis number isn't double-counted.
+                        const recyclingStartYear = VEHICLE_RECYCLING_START_YEAR[v.name];
+                        const hasRecyclingCol = recyclingStartYear != null;
 
                         // Build the row list. Each year may produce one or
-                        // two rows: a cash row (if cash > 0) and one row per
-                        // non-cash event (e.g. redistribution). Year-end
-                        // metrics (ownership %, Stake FMV, MOIC) attach to
-                        // the LAST row of the year — they're year-end
-                        // snapshots, so they'd misrepresent mid-year events
-                        // if duplicated across rows.
+                        // two rows: a cash/recycled row (if amount > 0) and
+                        // one row per non-cash event (e.g. redistribution).
+                        // Year-end metrics (ownership %, Stake FMV, MOIC)
+                        // attach to the LAST row of the year — they're
+                        // year-end snapshots, so they'd misrepresent mid-
+                        // year events if duplicated across rows.
                         const rows = [];
                         let runningShares = 0;
+                        let runningInitial = 0;  // cumulative initial cash (= cost basis)
+                        let runningRecycled = 0; // cumulative GP-recycled allocations
                         for (let idx = 0; idx < years.length; idx++) {
                           const year = years[idx];
-                          const cash = myLp.investment?.[idx] ?? 0;
-                          const cumCash = (myLp.investment ?? [])
-                            .slice(0, idx + 1)
-                            .reduce((a, v) => a + (v ?? 0), 0);
+                          const investmentVal = myLp.investment?.[idx] ?? 0;
+                          const isRecycled = hasRecyclingCol && year >= recyclingStartYear;
+                          const initialThisYear = isRecycled ? 0 : investmentVal;
+                          const recycledThisYear = isRecycled ? investmentVal : 0;
+                          runningInitial += initialThisYear;
+                          runningRecycled += recycledThisYear;
                           const ownPctYr = myLp.ownership?.[idx] ?? 0;
                           const vehVal = v.ownershipValue?.[idx];
                           const stakeFmv = vehVal != null && ownPctYr > 0 ? vehVal * (ownPctYr / 100) : null;
-                          const moicYr = cumCash > 0 && stakeFmv != null ? stakeFmv / cumCash : null;
+                          // MOIC = stake FMV ÷ initial cost basis (cash actually paid).
+                          // Recycled allocations are NOT in the denominator — they're
+                          // GP-redeployed profits, not new investor capital.
+                          const moicYr = runningInitial > 0 && stakeFmv != null ? stakeFmv / runningInitial : null;
                           const yearNonCash = showShares
                             ? (capCfg.nonCashEvents?.[myLp.name] || []).filter(ev => ev.year === year)
                             : [];
                           const sharePrice = showShares ? capCfg.sharePriceByYear[year] : null;
-                          const cashShares = (cash > 0 && sharePrice > 0) ? cash / sharePrice : 0;
+                          // Share derivation: only initial cash buys shares at
+                          // the cap-table share price. Recycled allocations don't
+                          // create new shares (they reflect GP P&L motion, not
+                          // shareholder capital). For vehicles without cap-table
+                          // config (no Phase 2 data yet), this falls through to 0.
+                          const cashShares = (initialThisYear > 0 && sharePrice > 0) ? initialThisYear / sharePrice : 0;
 
-                          // Build per-year event list (chronological): cash
-                          // first, then non-cash events (assumed mid/late
-                          // year — the order doesn't change running totals).
+                          // Build per-year event list (chronological): cash/recycled
+                          // first, then non-cash events.
                           const events = [];
-                          if (cash > 0) {
+                          if (investmentVal > 0) {
                             runningShares += cashShares;
                             events.push({
-                              kind: 'cash',
-                              year, cash, cumCash,
+                              kind: isRecycled ? 'recycled' : 'cash',
+                              year,
+                              initial: initialThisYear,
+                              recycled: recycledThisYear,
+                              cumInitial: runningInitial,
+                              cumRecycled: runningRecycled,
                               sharesDelta: cashShares,
                               cumShares: runningShares,
                             });
@@ -859,18 +888,22 @@ export default function IRRValuation({ data, user, selectedYear: selectedYearPro
                             events.push({
                               kind: 'nonCash',
                               year, label: ev.label, description: ev.description,
-                              cash: null, cumCash,
+                              initial: 0, recycled: 0,
+                              cumInitial: runningInitial,
+                              cumRecycled: runningRecycled,
                               sharesDelta: ev.shares,
                               cumShares: runningShares,
                             });
                           }
-                          // Idle year (no cash, no events) but the LP has
-                          // existing position — render a stub so year-end
-                          // FMV/MOIC still appears.
-                          if (events.length === 0 && cumCash > 0) {
+                          // Idle year — no contribution, no event, but cumulative
+                          // position exists.
+                          if (events.length === 0 && (runningInitial > 0 || runningRecycled > 0)) {
                             events.push({
                               kind: 'idle',
-                              year, cash: null, cumCash,
+                              year,
+                              initial: 0, recycled: 0,
+                              cumInitial: runningInitial,
+                              cumRecycled: runningRecycled,
                               sharesDelta: null,
                               cumShares: runningShares || null,
                             });
@@ -882,8 +915,6 @@ export default function IRRValuation({ data, user, selectedYear: selectedYearPro
                           events[events.length - 1].moicYr = moicYr;
                           events[events.length - 1].isYearEnd = true;
                           events[events.length - 1].isSelectedYear = idx === yearIdx;
-                          // Mark first cash row of selected year too (so the
-                          // whole year visually highlights when selected)
                           if (idx === yearIdx) events.forEach(e => e.isSelectedYear = true);
                           rows.push(...events);
                         }
@@ -893,7 +924,12 @@ export default function IRRValuation({ data, user, selectedYear: selectedYearPro
                         <TableHeader>
                           <TableRow>
                             <TableHead className="text-xs">Year / Event</TableHead>
-                            <TableHead className="text-right text-xs">Cash Invested</TableHead>
+                            <TableHead className="text-right text-xs">{hasRecyclingCol ? 'Initial Cash' : 'Cash Invested'}</TableHead>
+                            {hasRecyclingCol && (
+                              <TableHead className="text-right text-xs text-amber-800" title="GP-recycled profits redeployed on your behalf — not new cash from you">
+                                Recycled (GP)
+                              </TableHead>
+                            )}
                             <TableHead className="text-right text-xs">Cumulative Cost</TableHead>
                             {showShares && <TableHead className="text-right text-xs">Shares Δ</TableHead>}
                             {showShares && <TableHead className="text-right text-xs">Cum. Shares</TableHead>}
@@ -908,6 +944,7 @@ export default function IRRValuation({ data, user, selectedYear: selectedYearPro
                               r.isSelectedYear && 'bg-primary/10',
                               r.isSelectedYear && r.isYearEnd && 'font-medium',
                               r.kind === 'nonCash' && !r.isSelectedYear && 'bg-amber-50/50',
+                              r.kind === 'recycled' && !r.isSelectedYear && 'bg-sky-50/50',
                             );
                             return (
                               <TableRow key={`${r.year}-${r.kind}-${ri}`} className={rowCls}>
@@ -917,12 +954,19 @@ export default function IRRValuation({ data, user, selectedYear: selectedYearPro
                                       <span className="text-muted-foreground">↳ {r.year}</span>{' '}
                                       <em className="not-italic font-medium">{r.label}</em>
                                     </span>
+                                  ) : r.kind === 'recycled' ? (
+                                    <span className="text-sky-800" title="GP recycled profits into a new investment on your behalf — no new cash from you">
+                                      {r.year} <em className="not-italic text-[10px] font-medium">↻ Recycled</em>
+                                    </span>
                                   ) : (
                                     <span>{r.year}</span>
                                   )}
                                 </TableCell>
-                                <TableCell className="text-right text-xs tabular-nums">{r.cash != null && r.cash !== 0 ? fmt(r.cash) : '—'}</TableCell>
-                                <TableCell className="text-right text-xs tabular-nums font-medium">{fmt(r.cumCash)}</TableCell>
+                                <TableCell className="text-right text-xs tabular-nums">{r.initial > 0 ? fmt(r.initial) : '—'}</TableCell>
+                                {hasRecyclingCol && (
+                                  <TableCell className="text-right text-xs tabular-nums text-sky-800">{r.recycled > 0 ? fmt(r.recycled) : '—'}</TableCell>
+                                )}
+                                <TableCell className="text-right text-xs tabular-nums font-medium">{fmt(r.cumInitial)}</TableCell>
                                 {showShares && (
                                   <TableCell className={cn(
                                     "text-right text-xs tabular-nums",
@@ -952,12 +996,12 @@ export default function IRRValuation({ data, user, selectedYear: selectedYearPro
                       })()}
                       </div>
                       <p className="text-[10px] text-muted-foreground mt-3 italic">
-                        <strong className="text-foreground">Cost Basis</strong> = cumulative cash you&apos;ve put into the vehicle.
-                        <strong className="text-foreground"> Shares Δ</strong> = shares issued by each event (cash ÷ share price for cash rounds; full count for non-cash events like redistributions or bonus grants).
-                        <span className="text-amber-700"> Amber rows</span> are non-cash share events — hover the label for details.
-                        <strong className="text-foreground"> Stake FMV</strong> = your ownership % × the vehicle&apos;s mark-to-market value at year-end,
-                        driven by the underlying portfolio company valuations.
-                        <strong className="text-foreground"> MOIC</strong> = Stake FMV ÷ Cost Basis (≥ 1.00× means the stake is worth more than what you paid in).
+                        <strong className="text-foreground">Initial Cash</strong> = cash you actually contributed to the vehicle.
+                        <strong className="text-sky-800"> Recycled (GP)</strong> = GP redeploying vehicle profits into new investments on your behalf — these are NOT new cash from you and are excluded from Cost Basis and MOIC math.
+                        <strong className="text-foreground"> Cumulative Cost</strong> = your running cost basis (initial cash only).
+                        <span className="text-amber-700"> Amber rows</span> are non-cash share events (redistribution, bonus, etc.) — hover for details.
+                        <strong className="text-foreground"> Stake FMV</strong> = your ownership % × the vehicle&apos;s mark-to-market value at year-end.
+                        <strong className="text-foreground"> MOIC</strong> = Stake FMV ÷ Cumulative Cost (≥ 1.00× means the stake is worth more than what you paid in).
                       </p>
                     </div>
                   )}
