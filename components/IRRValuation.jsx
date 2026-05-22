@@ -138,6 +138,80 @@ const VEHICLE_CAP_TABLE = {
       ],
     },
   },
+  // Barsoum Brothers — founder-heavy SPV. Amir & Ramy are founders;
+  // most of their shares are founder grants (no cash). Cash contributions
+  // (pre-2024 only; 2024+ are recycled per VEHICLE_RECYCLING_START_YEAR)
+  // priced at $0.99/share since vehicle formation in 2021. Interest
+  // accrual on convertible note converted into additional shares in 2024.
+  'Barsoum Brothers': {
+    sharePriceByYear: {
+      2021: 0.99, 2022: 0.99, 2023: 0.99, 2024: 0.99,
+      2025: 0.99, 2026: 0.99, 2027: 0.99,
+    },
+    pricedRounds: [
+      { name: 'R1', year: 2021, sharePrice: 0.99 },
+    ],
+    nonCashEvents: {
+      'Amir Barsoum': [
+        { year: 2021, shares: 5_394_344, label: 'Founder grant',
+          description: 'Founder equity at vehicle formation — no cash' },
+        { year: 2024, shares: 37_963, label: 'Interest accrual',
+          description: 'Accrued interest on convertible note, converted to shares' },
+      ],
+      'Ramy Barsoum': [
+        { year: 2021, shares: 3_599_000, label: 'Founder grant',
+          description: 'Founder equity at vehicle formation — no cash' },
+        { year: 2024, shares: 5_880, label: 'Interest accrual',
+          description: 'Accrued interest on convertible note, converted to shares' },
+      ],
+    },
+  },
+  // Curenta Enterprise — mixed cap table with founder Common (Amir/Ramy
+  // got no-cash founder shares) + CrowdFunding Common at a different
+  // historical price + Convertible class (most LPs) at $0.041/share.
+  // 2024+ entries are GP-recycled per VEHICLE_RECYCLING_START_YEAR.
+  // Per-LP interest accruals on the convertibles are modeled below for
+  // major shareholders; minor LPs' interest is approximated (cumulative
+  // shares slightly underestimates for them — acceptable given their
+  // small stakes; can be added explicitly if a specific LP loads up).
+  'Curenta Enterprise': {
+    sharePriceByYear: {
+      2021: 0.041, 2022: 0.041, 2023: 0.041, 2024: 0.041,
+      2025: 0.041, 2026: 0.041, 2027: 0.041,
+    },
+    pricedRounds: [
+      { name: 'R1', year: 2021, sharePrice: 0.041 },
+    ],
+    nonCashEvents: {
+      // Founder Common shares (no cash) granted at vehicle formation
+      'Amir Barsoum': [
+        { year: 2021, shares: 1_080_000, label: 'Founder grant',
+          description: 'Common voting shares granted at vehicle formation' },
+        { year: 2024, shares: 81_002, label: 'Interest accrual',
+          description: 'Accrued interest on Ex-Mic convertible' },
+      ],
+      'Ramy Barsoum': [
+        { year: 2021, shares: 720_000, label: 'Founder grant',
+          description: 'Common voting shares granted at vehicle formation' },
+        { year: 2024, shares: 81_002, label: 'Interest accrual',
+          description: 'Accrued interest on Ex-Mic convertible' },
+      ],
+      // Per-LP interest accruals (modeled for the larger holders;
+      // smaller LPs' interest can be added on request).
+      'Ihab Dorotta':       [{ year: 2024, shares:  536_585, label: 'Interest accrual', description: 'Accrued convertible interest' }],
+      'Ayman Ismail':       [{ year: 2024, shares: 1_185_767, label: 'Interest accrual', description: 'Accrued convertible interest' }],
+      'Rasha Abdrabou':     [{ year: 2024, shares:  179_419, label: 'Interest accrual', description: 'Accrued convertible interest' }],
+      'Luis Garcia':        [{ year: 2024, shares:  157_868, label: 'Interest accrual', description: 'Accrued convertible interest' }],
+      'Mario Karras':       [{ year: 2024, shares:  155_112, label: 'Interest accrual', description: 'Accrued convertible interest' }],
+      'Daniella Karras':    [{ year: 2024, shares:  155_112, label: 'Interest accrual', description: 'Accrued convertible interest' }],
+      'Betul Aslandogan':   [{ year: 2024, shares:  117_441, label: 'Interest accrual', description: 'Accrued convertible interest' }],
+      'Sameh Halaka':       [{ year: 2024, shares:  105_246, label: 'Interest accrual', description: 'Accrued convertible interest' }],
+      'Hala Karras':        [{ year: 2024, shares:  102_907, label: 'Interest accrual', description: 'Accrued convertible interest' }],
+      'Abdulamir Kahtan Fadel': [{ year: 2024, shares: 59_389, label: 'Interest accrual', description: 'Accrued convertible interest' }],
+      'Hassan Mohammad Fawaz':  [{ year: 2024, shares: 59_389, label: 'Interest accrual', description: 'Accrued convertible interest' }],
+      'Marc Farhat':        [{ year: 2024, shares:   57_467, label: 'Interest accrual', description: 'Accrued convertible interest' }],
+    },
+  },
 };
 
 function getCapTableConfig(vehicleName) {
@@ -1002,6 +1076,84 @@ export default function IRRValuation({ data, user, selectedYear: selectedYearPro
                         <span className="text-amber-700"> Amber rows</span> are non-cash share events (redistribution, bonus, etc.) — hover for details.
                         <strong className="text-foreground"> Stake FMV</strong> = your ownership % × the vehicle&apos;s mark-to-market value at year-end.
                         <strong className="text-foreground"> MOIC</strong> = Stake FMV ÷ Cumulative Cost (≥ 1.00× means the stake is worth more than what you paid in).
+                      </p>
+                    </div>
+                  )}
+
+                  {/* Capital Call Schedule — fund LPs only.
+                      The fund equivalent of the vehicle-style year-by-year
+                      table. Uses ILPA-style fund vocabulary:
+                        - "Capital Called" instead of "Cash Invested"
+                        - "Stake NAV" instead of "Stake FMV"
+                        - "TVPI" (Total Value to Paid-In) instead of MOIC
+                      No shares, no priced rounds — partnership interest is
+                      the unit, not equity shares.
+                      Mgmt fees deducted at call time are reflected in the
+                      net amount stored in the IRR sheet (not shown as a
+                      separate column here — can be added later if needed). */}
+                  {isFund && myLp.investment?.some(x => x != null && x !== 0) && (
+                    <div className="mt-4 pt-4 border-t border-primary/20">
+                      <p className="text-[11px] font-semibold uppercase tracking-wide text-primary mb-2">
+                        Capital Call Schedule
+                      </p>
+                      <div className="overflow-x-auto">
+                      <Table>
+                        <TableHeader>
+                          <TableRow>
+                            <TableHead className="text-xs">Year</TableHead>
+                            <TableHead className="text-right text-xs">Capital Called</TableHead>
+                            <TableHead className="text-right text-xs">Cum Called</TableHead>
+                            {myCommitment && <TableHead className="text-right text-xs">% of Commitment</TableHead>}
+                            {myCommitment && <TableHead className="text-right text-xs">Unfunded</TableHead>}
+                            <TableHead className="text-right text-xs">Stake NAV</TableHead>
+                            <TableHead className="text-right text-xs">TVPI</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {years.map((year, idx) => {
+                            const called = myLp.investment?.[idx] ?? 0;
+                            const cumCalled = (myLp.investment ?? [])
+                              .slice(0, idx + 1)
+                              .reduce((a, v) => a + (v ?? 0), 0);
+                            const pctCommitted = myCommitment ? (cumCalled / myCommitment) * 100 : null;
+                            const unfunded = myCommitment ? Math.max(0, myCommitment - cumCalled) : null;
+                            const ownPctYr = myLp.ownership?.[idx] ?? 0;
+                            const vehVal = v.ownershipValue?.[idx];
+                            const stakeNav = vehVal != null && ownPctYr > 0 ? vehVal * (ownPctYr / 100) : null;
+                            const tvpi = cumCalled > 0 && stakeNav != null ? stakeNav / cumCalled : null;
+                            // Skip pre-investment / post-exit empty years
+                            if (called === 0 && cumCalled === 0 && (stakeNav == null || stakeNav === 0)) return null;
+                            const isSelectedYear = idx === yearIdx;
+                            return (
+                              <TableRow key={year} className={isSelectedYear ? 'bg-primary/10 font-medium' : ''}>
+                                <TableCell className="text-xs tabular-nums">{year}</TableCell>
+                                <TableCell className="text-right text-xs tabular-nums">{called !== 0 ? fmt(called) : '—'}</TableCell>
+                                <TableCell className="text-right text-xs tabular-nums font-medium">{fmt(cumCalled)}</TableCell>
+                                {myCommitment && (
+                                  <TableCell className="text-right text-xs tabular-nums">{pctCommitted != null ? `${pctCommitted.toFixed(1)}%` : '—'}</TableCell>
+                                )}
+                                {myCommitment && (
+                                  <TableCell className="text-right text-xs tabular-nums">{unfunded != null ? fmt(unfunded) : '—'}</TableCell>
+                                )}
+                                <TableCell className="text-right text-xs tabular-nums">{stakeNav != null && stakeNav > 0 ? fmt(stakeNav) : '—'}</TableCell>
+                                <TableCell className={cn(
+                                  "text-right text-xs tabular-nums",
+                                  tvpi != null && tvpi >= 1 && "text-emerald-700",
+                                  tvpi != null && tvpi < 1 && "text-red-600",
+                                )}>{tvpi != null ? `${tvpi.toFixed(2)}x` : '—'}</TableCell>
+                              </TableRow>
+                            );
+                          })}
+                        </TableBody>
+                      </Table>
+                      </div>
+                      <p className="text-[10px] text-muted-foreground mt-3 italic">
+                        <strong className="text-foreground">Capital Called</strong> = capital drawn from your commitment in that year.
+                        <strong className="text-foreground"> Cum Called</strong> = total paid-in to date.
+                        <strong className="text-foreground"> Unfunded</strong> = remaining commitment you haven&apos;t paid in yet.
+                        <strong className="text-foreground"> Stake NAV</strong> = your ownership × the fund&apos;s net asset value at year-end.
+                        <strong className="text-foreground"> TVPI</strong> = Stake NAV ÷ Cum Called (Total Value to Paid-In; ≥ 1.00× means you&apos;re in the green).
+                        Capital amounts are net of any management fees deducted at call.
                       </p>
                     </div>
                   )}
