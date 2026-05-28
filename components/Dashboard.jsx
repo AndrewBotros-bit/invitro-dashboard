@@ -2068,16 +2068,28 @@ export default function InVitroDashboard({ data: rawData, user }) {
               </CardContent>
             </Card>
 
-            {/* Monthly Operating Cash Flow by Company — stacked bars */}
+            {/* Monthly Operating Cash Flow by Company — stacked bars.
+                Per CFO direction: roll up "Operational Cash Flow" per
+                portfolio company EXCEPT InVitro Studio which uses
+                "Direct Operational Cash Flow" (its "Operational Cash
+                Flow" line includes intercompany allocations that are
+                already counted at the portco level — double-counting).
+                EXCLUDE_ALWAYS strips pseudo entities (AllRx External,
+                holdings, Curenta combined block) from the consolidated
+                rollup so the Total reflects the operating businesses
+                only. */}
             {(() => {
               const ML = ['','Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-              const OPS_KEYS = ['Operational Cash Flow', 'Direct Operational Cash Flow', 'Operational Cash Flow (Internal budget)'];
-              const companies = selectedCompany ? [selectedCompany] : DISPLAY_COMPANIES;
+              const opsKeyFor = (name) =>
+                name === 'InVitro Studio' ? 'Direct Operational Cash Flow' : 'Operational Cash Flow';
+              const companies = selectedCompany
+                ? [selectedCompany]
+                : DISPLAY_COMPANIES.filter(n => !EXCLUDE_ALWAYS.includes(n));
               const monthMap = {};
               for (const name of companies) {
                 const co = data.cashflow.find(c => c.name === name);
                 if (!co) continue;
-                const metric = OPS_KEYS.reduce((found, key) => found || co.metrics?.[key], null);
+                const metric = co.metrics?.[opsKeyFor(name)];
                 if (!metric) continue;
                 for (const v of metric) {
                   if (!inRange(v)) continue;
