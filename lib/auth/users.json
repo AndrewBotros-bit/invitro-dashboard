@@ -147,13 +147,16 @@
         "revenue",
         "profitability",
         "expenses",
-        "insights"
+        "insights",
+        "cashflow"
       ],
       "breakdowns": {
         "revenueDrilldown": [
           "AllCare"
         ],
-        "expenseDrilldown": false,
+        "expenseDrilldown": [
+          "InVitro Studio"
+        ],
         "auditConsole": false,
         "hcDetails": false
       },
