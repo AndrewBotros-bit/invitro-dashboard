@@ -2330,12 +2330,19 @@ export default function InVitroDashboard({ data: rawData, user }) {
                   const breakdown = DEPTS.map(dept => {
                     const deptRows = filtered.filter(e => e.department === dept);
                     const hc = deptRows.filter(e => e.category === 'HC').reduce((s, e) => s + (e.amount ?? 0), 0);
-                    const nonHc = deptRows.filter(e => e.category === 'NON-HC').reduce((s, e) => s + (e.amount ?? 0), 0);
-                    return { department: dept, hc, nonHc, total: hc + nonHc };
+                    // Split NON-HC into two buckets:
+                    //   - nonHc: recurring/monthly/etc. (excluding ad-hoc)
+                    //   - adhocks: ad-hoc only (Frequency='Ad-hoc'/'Ad-Hoc')
+                    // Sum of the two equals the legacy "Non-HC" total so
+                    // Total = HC + nonHc + adhocks stays unchanged.
+                    const nonHc = deptRows.filter(e => e.category === 'NON-HC' && !e.isAdhock).reduce((s, e) => s + (e.amount ?? 0), 0);
+                    const adhocks = deptRows.filter(e => e.category === 'NON-HC' && e.isAdhock).reduce((s, e) => s + (e.amount ?? 0), 0);
+                    return { department: dept, hc, nonHc, adhocks, total: hc + nonHc + adhocks };
                   }).filter(r => r.total !== 0);
                   const totalHc = breakdown.reduce((s, r) => s + r.hc, 0);
                   const totalNonHc = breakdown.reduce((s, r) => s + r.nonHc, 0);
-                  const totalAll = totalHc + totalNonHc;
+                  const totalAdhocks = breakdown.reduce((s, r) => s + r.adhocks, 0);
+                  const totalAll = totalHc + totalNonHc + totalAdhocks;
                   // Prior-month totals (across all departments) for the footer badges
                   const totalDrillM = expenseDrilldown?.month;
                   const totalDrillY = expenseDrilldown?.year;
@@ -2347,8 +2354,9 @@ export default function InVitroDashboard({ data: rawData, user }) {
                     !EXCLUDED_GL.includes(e.gl) &&
                     (selectedCompany ? e.company === selectedCompany : DISPLAY_COMPANIES.includes(e.company));
                   const priorTotalHc = totalDrillM ? (data.expenses ?? []).filter(totalPriorMatch).filter(e => e.category === 'HC').reduce((s, e) => s + Math.abs(e.amount ?? 0), 0) : 0;
-                  const priorTotalNonHc = totalDrillM ? (data.expenses ?? []).filter(totalPriorMatch).filter(e => e.category === 'NON-HC').reduce((s, e) => s + Math.abs(e.amount ?? 0), 0) : 0;
-                  const priorTotalAll = priorTotalHc + priorTotalNonHc;
+                  const priorTotalNonHc = totalDrillM ? (data.expenses ?? []).filter(totalPriorMatch).filter(e => e.category === 'NON-HC' && !e.isAdhock).reduce((s, e) => s + Math.abs(e.amount ?? 0), 0) : 0;
+                  const priorTotalAdhocks = totalDrillM ? (data.expenses ?? []).filter(totalPriorMatch).filter(e => e.category === 'NON-HC' && e.isAdhock).reduce((s, e) => s + Math.abs(e.amount ?? 0), 0) : 0;
+                  const priorTotalAll = priorTotalHc + priorTotalNonHc + priorTotalAdhocks;
                   // Drill-month revenue across all included companies (for % of rev)
                   const totalDrillRevenue = totalDrillM && totalDrillY ? (selectedCompany
                     ? (data.pnl.find(c => c.name === selectedCompany)?.metrics['Revenues'] ?? [])
@@ -2390,16 +2398,27 @@ export default function InVitroDashboard({ data: rawData, user }) {
                                 <TableHead>Department</TableHead>
                                 <TableHead className="text-right">HC</TableHead>
                                 <TableHead className="text-right">Non-HC</TableHead>
+                                <TableHead className="text-right" title="Ad-hoc / one-off Non-HC expenses (Frequency='Ad-hoc' in the source sheet). Kept in its own column so recurring opex can be analyzed independently.">Adhocks (Non-HC)</TableHead>
                                 <TableHead className="text-right">Total</TableHead>
                               </TableRow>
                             </TableHeader>
                             <TableBody>
                               {breakdown.map(r => {
                                 const isExpanded = expandedDept === r.department;
-                                // GL sub-breakdown for Non-HC when expanded
+                                // GL sub-breakdown when expanded — split into
+                                // recurring Non-HC and Adhocks so each appears
+                                // in its own card. Adhocks were previously
+                                // mixed into Non-HC, which obscured one-off
+                                // spend (e.g. consulting projects, M&A fees).
                                 const glRows = isExpanded ? (() => {
                                   const byGL = {};
-                                  filtered.filter(e => e.department === r.department && e.category === 'NON-HC')
+                                  filtered.filter(e => e.department === r.department && e.category === 'NON-HC' && !e.isAdhock)
+                                    .forEach(e => { byGL[e.gl || 'Other'] = (byGL[e.gl || 'Other'] || 0) + (e.amount ?? 0); });
+                                  return Object.entries(byGL).sort((a, b) => b[1] - a[1]).map(([gl, amt]) => ({ gl, amount: amt }));
+                                })() : [];
+                                const adhockRows = isExpanded ? (() => {
+                                  const byGL = {};
+                                  filtered.filter(e => e.department === r.department && e.category === 'NON-HC' && e.isAdhock)
                                     .forEach(e => { byGL[e.gl || 'Other'] = (byGL[e.gl || 'Other'] || 0) + (e.amount ?? 0); });
                                   return Object.entries(byGL).sort((a, b) => b[1] - a[1]).map(([gl, amt]) => ({ gl, amount: amt }));
                                 })() : [];
@@ -2412,7 +2431,18 @@ export default function InVitroDashboard({ data: rawData, user }) {
                                   const byGL = {};
                                   (data.expenses ?? [])
                                     .filter(e => e.year === priorYearIdx && e.month === priorMonthIdx)
-                                    .filter(e => e.department === r.department && e.category === 'NON-HC')
+                                    .filter(e => e.department === r.department && e.category === 'NON-HC' && !e.isAdhock)
+                                    .filter(e => e.department !== 'Direct Cost' && !EXCLUDED_GL.includes(e.gl))
+                                    .filter(e => selectedCompany ? e.company === selectedCompany : DISPLAY_COMPANIES.includes(e.company))
+                                    .forEach(e => { byGL[e.gl || 'Other'] = (byGL[e.gl || 'Other'] || 0) + Math.abs(e.amount ?? 0); });
+                                  return byGL;
+                                })() : {};
+                                // Prior-month GL totals for adhocks (separate from recurring)
+                                const priorAdhockGLTotals = isExpanded && drillM ? (() => {
+                                  const byGL = {};
+                                  (data.expenses ?? [])
+                                    .filter(e => e.year === priorYearIdx && e.month === priorMonthIdx)
+                                    .filter(e => e.department === r.department && e.category === 'NON-HC' && e.isAdhock)
                                     .filter(e => e.department !== 'Direct Cost' && !EXCLUDED_GL.includes(e.gl))
                                     .filter(e => selectedCompany ? e.company === selectedCompany : DISPLAY_COMPANIES.includes(e.company))
                                     .forEach(e => { byGL[e.gl || 'Other'] = (byGL[e.gl || 'Other'] || 0) + Math.abs(e.amount ?? 0); });
@@ -2433,8 +2463,9 @@ export default function InVitroDashboard({ data: rawData, user }) {
                                   !EXCLUDED_GL.includes(e.gl) &&
                                   (selectedCompany ? e.company === selectedCompany : DISPLAY_COMPANIES.includes(e.company));
                                 const priorHc = drillM ? (data.expenses ?? []).filter(priorMonthMatch).filter(e => e.category === 'HC').reduce((s, e) => s + Math.abs(e.amount ?? 0), 0) : 0;
-                                const priorNonHc = drillM ? (data.expenses ?? []).filter(priorMonthMatch).filter(e => e.category === 'NON-HC').reduce((s, e) => s + Math.abs(e.amount ?? 0), 0) : 0;
-                                const priorTotal = priorHc + priorNonHc;
+                                const priorNonHc = drillM ? (data.expenses ?? []).filter(priorMonthMatch).filter(e => e.category === 'NON-HC' && !e.isAdhock).reduce((s, e) => s + Math.abs(e.amount ?? 0), 0) : 0;
+                                const priorAdhocks = drillM ? (data.expenses ?? []).filter(priorMonthMatch).filter(e => e.category === 'NON-HC' && e.isAdhock).reduce((s, e) => s + Math.abs(e.amount ?? 0), 0) : 0;
+                                const priorTotal = priorHc + priorNonHc + priorAdhocks;
                                 // Helper to render the badge stack under a cell value
                                 const cellBadges = (curr, prior) => {
                                   if (!drillM) return null;
@@ -2475,16 +2506,20 @@ export default function InVitroDashboard({ data: rawData, user }) {
                                         <div>{fmt(r.nonHc)}</div>
                                         {cellBadges(r.nonHc, priorNonHc)}
                                       </TableCell>
+                                      <TableCell className="text-right font-medium text-rose-600">
+                                        <div>{r.adhocks !== 0 ? fmt(r.adhocks) : '—'}</div>
+                                        {r.adhocks !== 0 && cellBadges(r.adhocks, priorAdhocks)}
+                                      </TableCell>
                                       <TableCell className="text-right font-bold">
                                         <div>{fmt(r.total)}</div>
                                         {cellBadges(r.total, priorTotal)}
                                       </TableCell>
                                     </TableRow>
-                                    {/* ── Expanded: HC + Non-HC card sections ── */}
+                                    {/* ── Expanded: HC + Non-HC + Adhocks card sections ── */}
                                     {isExpanded && (
                                       <TableRow className="hover:bg-transparent">
-                                        <TableCell colSpan={4} className="p-0 pt-1 pb-3">
-                                          <div className="mx-2 grid gap-3" style={{ gridTemplateColumns: '1fr 1fr' }}>
+                                        <TableCell colSpan={5} className="p-0 pt-1 pb-3">
+                                          <div className="mx-2 grid gap-3" style={{ gridTemplateColumns: r.adhocks !== 0 ? '1fr 1fr 1fr' : '1fr 1fr' }}>
                                             {/* ── BLUE: HC Section (col 2, under HC column) ──
                                                 Gated by canBreakdown('hcDetails', ...): admin can
                                                 grant expense-drilldown access without revealing
@@ -2609,13 +2644,14 @@ export default function InVitroDashboard({ data: rawData, user }) {
                                                 </div>
                                               );
                                             })()}
-                                            {/* ── AMBER: Non-HC Section ── */}
+                                            {/* ── AMBER: Non-HC Section (excludes adhocks) ── */}
                                             {r.nonHc !== 0 && (
                                               <div className="rounded-lg border border-amber-200/60 bg-amber-50/20 overflow-hidden">
                                                 <div className="flex items-center justify-between px-4 py-2 border-b border-amber-200/40">
                                                   <div className="flex items-center gap-2">
                                                     <span className="inline-block w-2 h-2 rounded-full bg-amber-500"></span>
                                                     <span className="text-xs font-semibold uppercase tracking-wide text-amber-700">Non-Headcount</span>
+                                                    <span className="text-[9px] text-amber-600/70">(excl. adhocks)</span>
                                                   </div>
                                                   <span className="text-xs font-bold text-amber-700 tabular-nums">{fmt(r.nonHc)}</span>
                                                 </div>
@@ -2624,7 +2660,10 @@ export default function InVitroDashboard({ data: rawData, user }) {
                                                     const glExpanded = expandedGL === g.gl;
                                                     const merchantRows = glExpanded ? (() => {
                                                       const byMerchant = {};
-                                                      filtered.filter(e => e.department === r.department && e.category === 'NON-HC' && e.gl === g.gl)
+                                                      // Non-HC merchant drill — excludes adhock transactions
+                                                      // so the merchant totals reconcile to the Non-HC card
+                                                      // total (which itself excludes adhocks).
+                                                      filtered.filter(e => e.department === r.department && e.category === 'NON-HC' && !e.isAdhock && e.gl === g.gl)
                                                         .forEach(e => { const m = e.merchant?.trim() || 'Unknown'; byMerchant[m] = (byMerchant[m] || 0) + (e.amount ?? 0); });
                                                       return Object.entries(byMerchant).sort((a, b) => b[1] - a[1]).map(([name, amt]) => ({ name, amount: amt }));
                                                     })() : [];
@@ -2679,6 +2718,80 @@ export default function InVitroDashboard({ data: rawData, user }) {
                                                 </div>
                                               </div>
                                             )}
+                                            {/* ── ROSE: Adhocks (Non-HC) Section ──
+                                                Same shape as the Non-HC card but
+                                                rose-tinted to signal "one-off /
+                                                non-recurring" at a glance. Only
+                                                renders when this department has
+                                                ad-hoc expenses in the drill period. */}
+                                            {r.adhocks !== 0 && (
+                                              <div className="rounded-lg border border-rose-200/60 bg-rose-50/20 overflow-hidden">
+                                                <div className="flex items-center justify-between px-4 py-2 border-b border-rose-200/40">
+                                                  <div className="flex items-center gap-2">
+                                                    <span className="inline-block w-2 h-2 rounded-full bg-rose-500"></span>
+                                                    <span className="text-xs font-semibold uppercase tracking-wide text-rose-700">Adhocks (Non-HC)</span>
+                                                  </div>
+                                                  <span className="text-xs font-bold text-rose-700 tabular-nums">{fmt(r.adhocks)}</span>
+                                                </div>
+                                                <div className="py-1">
+                                                  {adhockRows.map(g => {
+                                                    const glExpanded = expandedGL === `adhock:${g.gl}`;
+                                                    const merchantRows = glExpanded ? (() => {
+                                                      const byMerchant = {};
+                                                      filtered.filter(e => e.department === r.department && e.category === 'NON-HC' && e.isAdhock && e.gl === g.gl)
+                                                        .forEach(e => { const m = e.merchant?.trim() || 'Unknown'; byMerchant[m] = (byMerchant[m] || 0) + (e.amount ?? 0); });
+                                                      return Object.entries(byMerchant).sort((a, b) => b[1] - a[1]).map(([name, amt]) => ({ name, amount: amt }));
+                                                    })() : [];
+                                                    const priorAmt = priorAdhockGLTotals[g.gl] || 0;
+                                                    const pctChg = priorAmt > 0 ? ((g.amount - priorAmt) / priorAmt * 100) : null;
+                                                    const costRevPct = deptDrillRevenue > 0 ? (g.amount / deptDrillRevenue * 100) : null;
+                                                    return (
+                                                      <div key={g.gl}>
+                                                        <div
+                                                          className="px-4 py-2 text-xs cursor-pointer hover:bg-rose-50/50 rounded mx-1"
+                                                          onClick={() => setExpandedGL(glExpanded ? null : `adhock:${g.gl}`)}
+                                                        >
+                                                          <div className="flex items-center justify-between">
+                                                            <span className="font-medium text-foreground/80">
+                                                              <span className="inline-block w-3 mr-1 text-muted-foreground">{glExpanded ? '▾' : '›'}</span>
+                                                              {g.gl}
+                                                            </span>
+                                                            <span className="font-medium text-foreground/70 tabular-nums">{fmt(g.amount)}</span>
+                                                          </div>
+                                                          {(pctChg !== null || costRevPct !== null) && (
+                                                            <div className="flex items-center gap-3 mt-0.5 ml-4">
+                                                              {pctChg !== null && (
+                                                                <span className={`text-[10px] font-medium ${pctChg > 0 ? 'text-red-500' : pctChg < 0 ? 'text-emerald-600' : 'text-muted-foreground'}`}>
+                                                                  {pctChg > 0 ? '▲' : pctChg < 0 ? '▼' : '—'} {Math.abs(pctChg).toFixed(1)}% vs {MONTHS_S[priorMonthIdx]} {String(priorYearIdx).slice(-2)}
+                                                                </span>
+                                                              )}
+                                                              {costRevPct !== null && (
+                                                                <span className="text-[10px] text-muted-foreground/70">
+                                                                  {costRevPct.toFixed(1)}% of rev
+                                                                </span>
+                                                              )}
+                                                            </div>
+                                                          )}
+                                                        </div>
+                                                        {glExpanded && (
+                                                          <div className="ml-7 mb-1 border-l-2 border-rose-200/40 pl-3">
+                                                            {merchantRows.map(mr => (
+                                                              <div key={mr.name} className="flex items-center justify-between px-2 py-1 text-[11px] text-muted-foreground">
+                                                                <span>
+                                                                  <span className="inline-block w-1.5 h-1.5 rounded-full bg-rose-300/50 mr-2 align-middle"></span>
+                                                                  {mr.name}
+                                                                </span>
+                                                                <span className="tabular-nums">{fmt(mr.amount)}</span>
+                                                              </div>
+                                                            ))}
+                                                          </div>
+                                                        )}
+                                                      </div>
+                                                    );
+                                                  })}
+                                                </div>
+                                              </div>
+                                            )}
                                           </div>
                                         </TableCell>
                                       </TableRow>
@@ -2697,6 +2810,10 @@ export default function InVitroDashboard({ data: rawData, user }) {
                                 <TableCell className="text-right font-bold">
                                   <div>{fmt(totalNonHc)}</div>
                                   {totalCellBadges(totalNonHc, priorTotalNonHc)}
+                                </TableCell>
+                                <TableCell className="text-right font-bold">
+                                  <div>{totalAdhocks !== 0 ? fmt(totalAdhocks) : '—'}</div>
+                                  {totalAdhocks !== 0 && totalCellBadges(totalAdhocks, priorTotalAdhocks)}
                                 </TableCell>
                                 <TableCell className="text-right font-bold">
                                   <div>{fmt(totalAll)}</div>
