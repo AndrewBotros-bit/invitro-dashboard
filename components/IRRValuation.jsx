@@ -517,14 +517,46 @@ export default function IRRValuation({ data, user, selectedYear: selectedYearPro
    */
   function computeLookThrough(lpNameArg) {
     if (!lpNameArg || !irr) return [];
+
+    // LP-centric cost basis convention: the LP's cumulative cash into
+    // each vehicle IS what "I put in" — not what the vehicle later
+    // deployed × my ownership % (which can drift from cash contributions
+    // due to timing). For per-portco apportionment, we split the LP's
+    // vehicle cash by the vehicle's NON-STUDIO deployment fractions so
+    // per-portco rows sum vertically to the Consolidated total.
+    // (Studio is excluded from look-through; if we kept it in the
+    // denominator, per-portco Investments would sum to LESS than the
+    // Consolidated, leaving "ghost" cost basis hidden in Studio.)
+    const isOperatingPortco = (coName) => coName !== 'InVitro Studio';
+
+    // Pre-compute per-vehicle: LP's cumulative cash basis + vehicle's
+    // total deployment across non-Studio portcos (for apportionment).
+    const lpCashByVehicle = new Map();          // vehicleName → LP cum cash
+    const vehicleTotalDeployment = new Map();   // vehicleName → total non-Studio deployment
+    const vehicleEarliestYearIdx = new Map();   // vehicleName → idx
+    for (const v of irr.vehicles || []) {
+      const lpInVehicle = v.lps?.find(lp => lp.name === lpNameArg);
+      if (!lpInVehicle) continue;
+      // LP's cumulative cash basis in this vehicle through selected year
+      const cumCash = (lpInVehicle.investment ?? [])
+        .slice(0, yearIdx + 1).reduce((s, val) => s + (val ?? 0), 0);
+      lpCashByVehicle.set(v.name, cumCash);
+      // Anchor for CAGR
+      const firstIdx = (lpInVehicle.investment ?? []).findIndex(val => val != null && val > 0);
+      if (firstIdx >= 0) vehicleEarliestYearIdx.set(v.name, firstIdx);
+      // Vehicle's cumulative deployment across all non-Studio portcos
+      let deployment = 0;
+      for (const co of irr.companies || []) {
+        if (!isOperatingPortco(co.name)) continue;
+        deployment += (co.investments?.[v.name] ?? [])
+          .slice(0, yearIdx + 1).reduce((s, val) => s + (val ?? 0), 0);
+      }
+      vehicleTotalDeployment.set(v.name, deployment);
+    }
+
     const results = [];
     for (const co of irr.companies || []) {
-      // InVitro Studio is the parent venture studio entity — its
-      // valuation derives from the portcos it already holds stakes in.
-      // Including it here would double-count those portcos (which are
-      // also in this loop as standalone entries). Per the same rule
-      // used in the per-vehicle "Companies Invested In" table.
-      if (co.name === 'InVitro Studio') continue;
+      if (!isOperatingPortco(co.name)) continue;
       const valuation = co.financials?.valuation?.[yearIdx] ?? 0;
       // Direct stake (from "(Individual)" rows in the IRR sheet)
       const directRecord = co.directShareholders?.[lpNameArg];
@@ -532,14 +564,11 @@ export default function IRRValuation({ data, user, selectedYear: selectedYearPro
       const directValue = valuation * (directOwnPct / 100);
       const directCash = (directRecord?.investment ?? [])
         .slice(0, yearIdx + 1).reduce((s, v) => s + (v ?? 0), 0);
-      // First-investment-year for the direct stake (used to anchor CAGR)
+      // CAGR anchor: earliest year of any contribution (direct or via vehicle)
       const directFirstIdx = (directRecord?.investment ?? [])
         .findIndex(v => v != null && v > 0);
-      // Earliest year of any contribution (direct or via any vehicle).
-      // Used as the CAGR base year for the look-through IRR.
       let earliestYearIdx = directFirstIdx >= 0 ? directFirstIdx : Infinity;
 
-      // Indirect through each vehicle the LP is a member of
       const indirect = [];
       let totalIndirectPct = 0;
       let totalIndirectValue = 0;
@@ -551,31 +580,30 @@ export default function IRRValuation({ data, user, selectedYear: selectedYearPro
         if (vehicleOwnsCoPct === 0) continue;
         const lpInVehiclePct = lpInVehicle.ownership?.[yearIdx] ?? 0;
         if (lpInVehiclePct === 0) continue;
-        // Effective look-through ownership: multiply the two %s.
-        // (vehicleOwnsCoPct and lpInVehiclePct are both in percent units,
-        // so the product is in pct² — divide once by 100 to get back to
-        // a percent of the portco.)
+        // Effective ownership: vehicle's % of portco × LP's % of vehicle
         const effectivePct = (vehicleOwnsCoPct * lpInVehiclePct) / 100;
         const effectiveValue = valuation * (effectivePct / 100);
-        // LP's attributable cost basis flowing into this portco via this
-        // vehicle. The vehicle's cumulative cash into the portco × LP's
-        // current ownership of the vehicle — that's the LP's slice of
-        // the dollars deployed.
+        // Apportioned cost basis: LP's cash basis in vehicle × allocation
+        // fraction of that vehicle's non-Studio deployment that went to
+        // THIS portco. Per-portco rows then sum to Consolidated.
+        const lpCashInVehicle = lpCashByVehicle.get(v.name) ?? 0;
         const vehicleCashIntoCo = (co.investments?.[v.name] ?? [])
           .slice(0, yearIdx + 1).reduce((s, val) => s + (val ?? 0), 0);
-        const lpAttributableInvestment = vehicleCashIntoCo * (lpInVehiclePct / 100);
+        const totalDeployment = vehicleTotalDeployment.get(v.name) ?? 0;
+        const allocationFraction = totalDeployment > 0 ? vehicleCashIntoCo / totalDeployment : 0;
+        const lpAttributableInvestment = lpCashInVehicle * allocationFraction;
 
-        // Anchor for CAGR: LP's first investment year in this vehicle
-        const lpInvSeries = lpInVehicle.investment ?? [];
-        const lpFirstInVehicleIdx = lpInvSeries.findIndex(val => val != null && val > 0);
-        if (lpFirstInVehicleIdx >= 0 && lpFirstInVehicleIdx < earliestYearIdx) {
-          earliestYearIdx = lpFirstInVehicleIdx;
+        const vehFirstIdx = vehicleEarliestYearIdx.get(v.name);
+        if (vehFirstIdx != null && vehFirstIdx < earliestYearIdx) {
+          earliestYearIdx = vehFirstIdx;
         }
 
         indirect.push({
           vehicle: v.name, vehicleOwnsCoPct, lpInVehiclePct,
           effectivePct, effectiveValue,
           lpAttributableInvestment,
+          allocationFraction,        // for tooltip / explanation
+          lpCashInVehicle,           // raw LP cash (un-apportioned, for ref)
         });
         totalIndirectPct += effectivePct;
         totalIndirectValue += effectiveValue;
@@ -584,12 +612,7 @@ export default function IRRValuation({ data, user, selectedYear: selectedYearPro
       const totalPct = directOwnPct + totalIndirectPct;
       const totalValue = directValue + totalIndirectValue;
       const totalInvestment = directCash + totalIndirectInvestment;
-      // MOIC = current value ÷ cumulative cost basis
       const moic = totalInvestment > 0 ? totalValue / totalInvestment : null;
-      // CAGR-style IRR (approximation; full XIRR would require per-year
-      // cash-flow timing across direct + each vehicle slice — out of
-      // scope for the look-through summary, but vehicle-level XIRR is
-      // still available on each vehicle's My Performance card)
       let lookThruIrr = null;
       if (moic != null && moic > 0 && earliestYearIdx !== Infinity) {
         const holdYears = years[yearIdx] - years[earliestYearIdx];
@@ -609,6 +632,9 @@ export default function IRRValuation({ data, user, selectedYear: selectedYearPro
         });
       }
     }
+    // Stash per-vehicle LP cash (for Consolidated card; avoids re-summing
+    // since per-portco apportionment already sums correctly).
+    results._lpCashByVehicle = lpCashByVehicle;
     return results;
   }
 
