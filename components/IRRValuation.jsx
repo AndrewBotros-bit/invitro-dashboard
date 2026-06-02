@@ -632,6 +632,77 @@ export default function IRRValuation({ data, user, selectedYear: selectedYearPro
               </p>
             </div>
             <div className="p-4 space-y-4">
+              {/* Consolidated summary — rolls the per-portco cards up
+                  into a single "total exposure across the whole
+                  portfolio" view, broken down by source (direct + each
+                  vehicle). This is the answer to "what's the total $
+                  value of everything I'm exposed to?" The numbers
+                  reconcile downward — sum of direct/vehicle rows here
+                  matches the sum of direct/vehicle rows across the
+                  per-portco cards below. */}
+              {(() => {
+                let totalDirect = 0;
+                let totalDirectCash = 0;
+                const byVehicle = new Map(); // vehicleName → cumulative effective value
+                let totalAll = 0;
+                for (const lt of lookThrough) {
+                  totalDirect += lt.directValue;
+                  totalDirectCash += lt.directCash;
+                  for (const ind of lt.indirect) {
+                    byVehicle.set(ind.vehicle, (byVehicle.get(ind.vehicle) ?? 0) + ind.effectiveValue);
+                  }
+                  totalAll += lt.totalValue;
+                }
+                if (totalAll <= 0) return null;
+                return (
+                  <div className="rounded-lg border-2 border-violet-400 bg-violet-100/40 overflow-hidden">
+                    <div className="flex items-center justify-between px-4 py-2 border-b border-violet-300/60 bg-violet-200/30">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <span className="text-xs font-bold uppercase tracking-wide text-violet-900">Consolidated</span>
+                        <span className="text-[10px] text-violet-700">total across all portcos · {lookThrough.length} {lookThrough.length === 1 ? 'company' : 'companies'}</span>
+                      </div>
+                      <div className="text-right">
+                        <p className="text-[10px] text-violet-700 uppercase tracking-wide">Grand total</p>
+                        <p className="text-lg font-bold tabular-nums text-violet-900">{fmt(totalAll)}</p>
+                      </div>
+                    </div>
+                    <div className="px-4 py-2 space-y-1.5">
+                      {/* Direct line (only if any direct exposure) */}
+                      {totalDirect > 0 && (
+                        <div className="flex items-baseline justify-between gap-3 py-1">
+                          <div className="text-xs">
+                            <span className="font-semibold text-fuchsia-800">Direct holdings</span>
+                            <span className="text-muted-foreground ml-2">cumulative cost basis {fmt(totalDirectCash)}</span>
+                          </div>
+                          <div className="text-right tabular-nums">
+                            <span className="text-xs font-bold text-fuchsia-800">{fmt(totalDirect)}</span>
+                            <span className="text-[10px] text-muted-foreground ml-2">{totalAll > 0 ? ((totalDirect / totalAll) * 100).toFixed(1) : '0.0'}% of total</span>
+                          </div>
+                        </div>
+                      )}
+                      {/* Per-vehicle rollup — sorted by size descending */}
+                      {[...byVehicle.entries()]
+                        .sort((a, b) => b[1] - a[1])
+                        .map(([vehicle, val]) => (
+                          <div key={vehicle} className="flex items-baseline justify-between gap-3 py-1">
+                            <div className="text-xs">
+                              <span className="text-foreground">via <span className="font-medium text-violet-800">{vehicle}</span></span>
+                            </div>
+                            <div className="text-right tabular-nums">
+                              <span className="text-xs font-medium text-foreground">{fmt(val)}</span>
+                              <span className="text-[10px] text-muted-foreground ml-2">{totalAll > 0 ? ((val / totalAll) * 100).toFixed(1) : '0.0'}% of total</span>
+                            </div>
+                          </div>
+                        ))}
+                      {/* Grand total */}
+                      <div className="flex items-baseline justify-between gap-3 pt-2 mt-1 border-t-2 border-violet-300/60">
+                        <span className="text-sm font-bold text-violet-900">Total economic exposure (all paths, all portcos)</span>
+                        <span className="text-base font-bold tabular-nums text-violet-900">{fmt(totalAll)}</span>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })()}
               {lookThrough.map(lt => (
                 <div key={lt.portcoName} className="rounded-lg border border-violet-200/70 bg-white/70 overflow-hidden">
                   <div className="flex items-center justify-between px-4 py-2 border-b border-violet-100">
@@ -828,27 +899,9 @@ export default function IRRValuation({ data, user, selectedYear: selectedYearPro
                         const isParentStudio = co.name === 'InVitro Studio';
                         const stakeValue = (own / 100) * valuation;
                         const multiple = co.financials?.multiple?.[yearIdx];
-                        // Direct shareholders of this portco (e.g. Amir Barsoum
-                        // owns AllCare+Curenta both via vehicles AND directly).
-                        // Surface here so admin can see the full ownership
-                        // picture without leaving the vehicle view.
-                        const directHolders = Object.entries(co.directShareholders || {})
-                          .map(([name, rec]) => ({
-                            name,
-                            pct: rec.ownership?.[yearIdx] ?? 0,
-                          }))
-                          .filter(d => d.pct > 0);
                         return (
                           <TableRow key={co.name}>
-                            <TableCell className="font-medium">
-                              {co.name}
-                              {directHolders.length > 0 && (
-                                <div className="text-[10px] text-fuchsia-700 font-normal mt-0.5"
-                                     title="Direct shareholders of this portco (in addition to vehicle ownership)">
-                                  + direct: {directHolders.map(d => `${d.name} ${d.pct.toFixed(1)}%`).join(', ')}
-                                </div>
-                              )}
-                            </TableCell>
+                            <TableCell className="font-medium">{co.name}</TableCell>
                             <TableCell className="text-right tabular-nums">{fmt(inv)}</TableCell>
                             <TableCell className="text-right tabular-nums font-medium">{fmt(cumInv)}</TableCell>
                             <TableCell className="text-right tabular-nums">{own.toFixed(1)}%</TableCell>
