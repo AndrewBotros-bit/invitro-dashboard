@@ -519,6 +519,12 @@ export default function IRRValuation({ data, user, selectedYear: selectedYearPro
     if (!lpNameArg || !irr) return [];
     const results = [];
     for (const co of irr.companies || []) {
+      // InVitro Studio is the parent venture studio entity — its
+      // valuation derives from the portcos it already holds stakes in.
+      // Including it here would double-count those portcos (which are
+      // also in this loop as standalone entries). Per the same rule
+      // used in the per-vehicle "Companies Invested In" table.
+      if (co.name === 'InVitro Studio') continue;
       const valuation = co.financials?.valuation?.[yearIdx] ?? 0;
       // Direct stake (from "(Individual)" rows in the IRR sheet)
       const directRecord = co.directShareholders?.[lpNameArg];
