@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { useState, Fragment } from "react";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Table, TableHeader, TableBody, TableHead, TableRow, TableCell } from "@/components/ui/table";
 import { fmt, pct } from "@/lib/formatters";
@@ -764,38 +764,43 @@ export default function IRRValuation({ data, user, selectedYear: selectedYearPro
                         </div>
                       </div>
                     </div>
-                    <div className="px-4 py-2 space-y-1.5">
-                      {/* Direct line (only if any direct exposure) */}
-                      {totalDirect > 0 && (
-                        <div className="flex items-baseline justify-between gap-3 py-1">
-                          <div className="text-xs">
-                            <span className="font-semibold text-fuchsia-800">Direct holdings</span>
-                            <span className="text-muted-foreground ml-2">cumulative cost basis {fmt(totalDirectCash)}</span>
-                          </div>
-                          <div className="text-right tabular-nums">
-                            <span className="text-xs font-bold text-fuchsia-800">{fmt(totalDirect)}</span>
-                            <span className="text-[10px] text-muted-foreground ml-2">{totalAll > 0 ? ((totalDirect / totalAll) * 100).toFixed(1) : '0.0'}% of total</span>
-                          </div>
-                        </div>
-                      )}
-                      {/* Per-vehicle rollup — sorted by size descending */}
-                      {[...byVehicle.entries()]
-                        .sort((a, b) => b[1] - a[1])
-                        .map(([vehicle, val]) => (
-                          <div key={vehicle} className="flex items-baseline justify-between gap-3 py-1">
-                            <div className="text-xs">
-                              <span className="text-foreground">via <span className="font-medium text-violet-800">{vehicle}</span></span>
-                            </div>
-                            <div className="text-right tabular-nums">
-                              <span className="text-xs font-medium text-foreground">{fmt(val)}</span>
-                              <span className="text-[10px] text-muted-foreground ml-2">{totalAll > 0 ? ((val / totalAll) * 100).toFixed(1) : '0.0'}% of total</span>
-                            </div>
-                          </div>
-                        ))}
-                      {/* Grand total */}
-                      <div className="flex items-baseline justify-between gap-3 pt-2 mt-1 border-t-2 border-violet-300/60">
-                        <span className="text-sm font-bold text-violet-900">Total economic exposure (all paths, all portcos)</span>
-                        <span className="text-base font-bold tabular-nums text-violet-900">{fmt(totalAll)}</span>
+                    <div className="px-4 py-2">
+                      {/* Per-source breakdown with explicit Cost Basis + Stake Value
+                          columns. Column totals reconcile vertically to the top
+                          strip's Investment and Total Value respectively. */}
+                      <div className="grid grid-cols-[1fr_auto_auto_auto] gap-x-4 gap-y-1 text-xs items-baseline">
+                        <span className="text-[10px] uppercase tracking-wide text-violet-700 font-semibold pb-1">Source</span>
+                        <span className="text-[10px] uppercase tracking-wide text-violet-700 font-semibold text-right pb-1">Cost Basis</span>
+                        <span className="text-[10px] uppercase tracking-wide text-violet-700 font-semibold text-right pb-1">Stake Value</span>
+                        <span className="text-[10px] uppercase tracking-wide text-violet-700 font-semibold text-right pb-1">% of value</span>
+                        {/* Direct row */}
+                        {(totalDirect > 0 || totalDirectCash > 0) && (
+                          <>
+                            <span className="font-semibold text-fuchsia-800">Direct holdings <span className="text-[10px] text-muted-foreground font-normal">(your cap-table stake)</span></span>
+                            <span className="text-right tabular-nums font-medium text-fuchsia-800">{fmt(totalDirectCash)}</span>
+                            <span className="text-right tabular-nums font-medium text-fuchsia-800">{fmt(totalDirect)}</span>
+                            <span className="text-right tabular-nums text-[10px] text-muted-foreground">{totalAll > 0 ? ((totalDirect / totalAll) * 100).toFixed(1) : '0.0'}%</span>
+                          </>
+                        )}
+                        {/* Per-vehicle rows — sorted by Stake Value desc */}
+                        {[...byVehicle.entries()]
+                          .sort((a, b) => b[1] - a[1])
+                          .map(([vehicle, val]) => {
+                            const cost = byVehicleInvestment.get(vehicle) ?? 0;
+                            return (
+                              <Fragment key={vehicle}>
+                                <span className="text-foreground">via <span className="font-medium text-violet-800">{vehicle}</span></span>
+                                <span className="text-right tabular-nums">{fmt(cost)}</span>
+                                <span className="text-right tabular-nums font-medium">{fmt(val)}</span>
+                                <span className="text-right tabular-nums text-[10px] text-muted-foreground">{totalAll > 0 ? ((val / totalAll) * 100).toFixed(1) : '0.0'}%</span>
+                              </Fragment>
+                            );
+                          })}
+                        {/* Grand total row */}
+                        <span className="text-sm font-bold text-violet-900 pt-2 mt-1 border-t-2 border-violet-300/60">Total</span>
+                        <span className="text-right text-sm font-bold tabular-nums text-violet-900 pt-2 mt-1 border-t-2 border-violet-300/60">{fmt(totalInvestmentAll)}</span>
+                        <span className="text-right text-base font-bold tabular-nums text-violet-900 pt-2 mt-1 border-t-2 border-violet-300/60">{fmt(totalAll)}</span>
+                        <span className="text-right text-[10px] text-muted-foreground pt-2 mt-1 border-t-2 border-violet-300/60">100%</span>
                       </div>
                     </div>
                   </div>
