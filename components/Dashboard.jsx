@@ -481,12 +481,19 @@ export default function InVitroDashboard({ data: rawData, user }) {
   // entry renamed to "AllRx" upstream (applyExternalAllRxView).
   const ALL_COMPANIES = ['AllRx', 'AllRx External', 'AllCare', 'Osta', 'Needles', 'InVitro Studio'];
   const DISPLAY_COMPANIES = ALL_COMPANIES.filter(canSeeCompany);
-  // Initial selectedCompany: default to Consolidated (null) ONLY if the
-  // user has consolidated access. Otherwise land them on their first
-  // allowed company — prevents an LP without Consolidated permission
-  // from initially seeing the consolidated view they can't access.
+  // Initial selectedCompany: AllCare is the default landing target for
+  // Portfolio Performance (per CFO direction — AllCare is the headline
+  // portfolio company most users are interested in by default).
+  // Fallback chain:
+  //   1. AllCare, if user has permission to see it
+  //   2. First company in their allowed list, otherwise
+  //   3. null (Consolidated) if no companies available at all
+  // LP users WITHOUT consolidated access used to land on their first
+  // allowed company; that still works because lpAutoCompanies typically
+  // includes AllCare for InVitro Fund/InVitro Ventures LPs (since both
+  // vehicles invest in AllCare).
   const [selectedCompany, setSelectedCompany] = useState(() => {
-    if (canSeeConsolidated()) return null;
+    if (DISPLAY_COMPANIES.includes('AllCare')) return 'AllCare';
     return DISPLAY_COMPANIES[0] ?? null;
   });
   const [expenseDrilldown, setExpenseDrilldown] = useState(null); // { year, month } or null
@@ -500,11 +507,22 @@ export default function InVitroDashboard({ data: rawData, user }) {
 
   // IRR & Valuation has different time semantics than the other tabs (point-
   // in-time per year, not a range), so it keeps its own state. Initial year
-  // defaults to the most recent year with any vehicle ownership data.
+  // is 2026 per CFO direction — current year is the most actionable
+  // reference for an LP arriving on the page. Fallback chain:
+  //   1. 2026 if it's in the IRR years AND has data
+  //   2. Most recent year with vehicle ownership data
+  //   3. Last year in the IRR years array (no-data fallback)
   const irrYearsAvailable = data?.irrValuation?.years ?? [];
   const [irrYear, setIrrYear] = useState(() => {
     const irr = data?.irrValuation;
     if (!irr || !irr.years?.length) return null;
+    const PREFERRED = 2026;
+    const prefIdx = irr.years.indexOf(PREFERRED);
+    if (prefIdx >= 0) {
+      const hasData = irr.vehicles.some(v => v.ownershipValue?.[prefIdx] != null && v.ownershipValue[prefIdx] > 0);
+      if (hasData) return PREFERRED;
+    }
+    // Fallback: most recent year with data
     for (let i = irr.years.length - 1; i >= 0; i--) {
       const hasData = irr.vehicles.some(v => v.ownershipValue?.[i] != null && v.ownershipValue[i] > 0);
       if (hasData) return irr.years[i];
@@ -513,8 +531,11 @@ export default function InVitroDashboard({ data: rawData, user }) {
   });
   const [irrCompareEnabled, setIrrCompareEnabled] = useState(false);
   const [irrCompYear, setIrrCompYear] = useState(() => {
-    // Default comparison: the year right before the default current year.
+    // Default comparison: the year directly before the default current
+    // year (2026 → 2025). Falls back to second-to-last in the array if
+    // 2025 isn't present.
     const years = data?.irrValuation?.years ?? [];
+    if (years.includes(2025)) return 2025;
     return years.length >= 2 ? years[years.length - 2] : null;
   });
   const [compareEnabled, setCompareEnabled] = useState(false);
