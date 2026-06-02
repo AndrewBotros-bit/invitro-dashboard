@@ -518,40 +518,80 @@ export default function IRRValuation({ data, user, selectedYear: selectedYearPro
   function computeLookThrough(lpNameArg) {
     if (!lpNameArg || !irr) return [];
 
-    // LP-centric cost basis convention: the LP's cumulative cash into
-    // each vehicle IS what "I put in" — not what the vehicle later
-    // deployed × my ownership % (which can drift from cash contributions
-    // due to timing). For per-portco apportionment, we split the LP's
-    // vehicle cash by the vehicle's NON-STUDIO deployment fractions so
-    // per-portco rows sum vertically to the Consolidated total.
-    // (Studio is excluded from look-through; if we kept it in the
-    // denominator, per-portco Investments would sum to LESS than the
-    // Consolidated, leaving "ghost" cost basis hidden in Studio.)
+    // PHASE-SPLIT attribution convention (follow the money):
+    // ------------------------------------------------------
+    // For vehicles with recycling (Barsoum Brothers, Curenta Enterprise),
+    // LP cash gets split into two phases by year:
+    //   - INITIAL: years before VEHICLE_RECYCLING_START_YEAR — real new
+    //     LP cash flowing into the vehicle's initial investments
+    //   - RECYCLED: years ≥ recycling start — vehicle's own profits being
+    //     redeployed (still "the LP's money" economically, but going to
+    //     a different set of portcos than the initial cash)
+    //
+    // Each phase is apportioned to portcos by the vehicle's deployment
+    // fractions in that SAME phase. Concretely for Amir's Barsoum
+    // Brothers stake at 2026:
+    //   - Initial ($560K) × (BB's initial deployment to each portco /
+    //     BB's total initial deployment to non-Studio portcos)
+    //     → AllRx 100% × $560K = $560K, AC+C 0% × $560K = $0
+    //   - Recycled ($2.22M) × (BB's recycled deployment to each portco /
+    //     BB's total recycled deployment to non-Studio portcos)
+    //     → AllRx 0% × $2.22M = $0, AC+C 100% × $2.22M = $2.22M
+    //   - Sum across portcos = $560K (AllRx) + $2.22M (AC+C) = $2.78M
+    //     which matches Amir's total cumulative BB cash.
+    //
+    // This is more accurate than uniform proportional apportionment and
+    // matches the LP's mental model ("my $560K bought AllRx exposure;
+    // my recycled profits later bought AC+C exposure").
     const isOperatingPortco = (coName) => coName !== 'InVitro Studio';
+    const recyclingStartFor = (vehicleName) => VEHICLE_RECYCLING_START_YEAR[vehicleName] ?? null;
+    const isRecycledYear = (vehicleName, yIdx) => {
+      const start = recyclingStartFor(vehicleName);
+      return start != null && years[yIdx] >= start;
+    };
 
-    // Pre-compute per-vehicle: LP's cumulative cash basis + vehicle's
-    // total deployment across non-Studio portcos (for apportionment).
-    const lpCashByVehicle = new Map();          // vehicleName → LP cum cash
-    const vehicleTotalDeployment = new Map();   // vehicleName → total non-Studio deployment
-    const vehicleEarliestYearIdx = new Map();   // vehicleName → idx
+    // Pre-compute per-vehicle state.
+    const lpInitialByVehicle = new Map();    // vehicleName → LP initial cash
+    const lpRecycledByVehicle = new Map();   // vehicleName → LP recycled cash
+    const vehicleInitDeployment = new Map(); // vehicleName → {portcoName: $}
+    const vehicleRecDeployment = new Map();  // vehicleName → {portcoName: $}
+    const vehicleInitTotal = new Map();      // vehicleName → total initial deployment to non-Studio
+    const vehicleRecTotal = new Map();       // vehicleName → total recycled deployment to non-Studio
+    const vehicleEarliestYearIdx = new Map();
     for (const v of irr.vehicles || []) {
       const lpInVehicle = v.lps?.find(lp => lp.name === lpNameArg);
       if (!lpInVehicle) continue;
-      // LP's cumulative cash basis in this vehicle through selected year
-      const cumCash = (lpInVehicle.investment ?? [])
-        .slice(0, yearIdx + 1).reduce((s, val) => s + (val ?? 0), 0);
-      lpCashByVehicle.set(v.name, cumCash);
-      // Anchor for CAGR
-      const firstIdx = (lpInVehicle.investment ?? []).findIndex(val => val != null && val > 0);
+      let lpInit = 0, lpRec = 0, firstIdx = -1;
+      for (let i = 0; i <= yearIdx; i++) {
+        const val = lpInVehicle.investment?.[i] ?? 0;
+        if (val === 0) continue;
+        if (firstIdx === -1) firstIdx = i;
+        if (isRecycledYear(v.name, i)) lpRec += val; else lpInit += val;
+      }
+      lpInitialByVehicle.set(v.name, lpInit);
+      lpRecycledByVehicle.set(v.name, lpRec);
       if (firstIdx >= 0) vehicleEarliestYearIdx.set(v.name, firstIdx);
-      // Vehicle's cumulative deployment across all non-Studio portcos
-      let deployment = 0;
+
+      const initByPortco = {}, recByPortco = {};
+      let initTot = 0, recTot = 0;
       for (const co of irr.companies || []) {
         if (!isOperatingPortco(co.name)) continue;
-        deployment += (co.investments?.[v.name] ?? [])
-          .slice(0, yearIdx + 1).reduce((s, val) => s + (val ?? 0), 0);
+        const series = co.investments?.[v.name] ?? [];
+        let init = 0, rec = 0;
+        for (let i = 0; i <= yearIdx; i++) {
+          const val = series[i] ?? 0;
+          if (val === 0) continue;
+          if (isRecycledYear(v.name, i)) rec += val; else init += val;
+        }
+        initByPortco[co.name] = init;
+        recByPortco[co.name] = rec;
+        initTot += init;
+        recTot += rec;
       }
-      vehicleTotalDeployment.set(v.name, deployment);
+      vehicleInitDeployment.set(v.name, initByPortco);
+      vehicleRecDeployment.set(v.name, recByPortco);
+      vehicleInitTotal.set(v.name, initTot);
+      vehicleRecTotal.set(v.name, recTot);
     }
 
     const results = [];
@@ -583,15 +623,22 @@ export default function IRRValuation({ data, user, selectedYear: selectedYearPro
         // Effective ownership: vehicle's % of portco × LP's % of vehicle
         const effectivePct = (vehicleOwnsCoPct * lpInVehiclePct) / 100;
         const effectiveValue = valuation * (effectivePct / 100);
-        // Apportioned cost basis: LP's cash basis in vehicle × allocation
-        // fraction of that vehicle's non-Studio deployment that went to
-        // THIS portco. Per-portco rows then sum to Consolidated.
-        const lpCashInVehicle = lpCashByVehicle.get(v.name) ?? 0;
-        const vehicleCashIntoCo = (co.investments?.[v.name] ?? [])
-          .slice(0, yearIdx + 1).reduce((s, val) => s + (val ?? 0), 0);
-        const totalDeployment = vehicleTotalDeployment.get(v.name) ?? 0;
-        const allocationFraction = totalDeployment > 0 ? vehicleCashIntoCo / totalDeployment : 0;
-        const lpAttributableInvestment = lpCashInVehicle * allocationFraction;
+        // PHASE-SPLIT attribution: LP's initial cash → allocated to where
+        // the vehicle deployed during its initial phase; LP's recycled
+        // cash → allocated to where the vehicle deployed during recycling.
+        // For Amir BB→AllRx: $560K × (658/658) = $560K (all of his initial
+        // went to AllRx, since BB's only initial deployment was there).
+        const lpInit = lpInitialByVehicle.get(v.name) ?? 0;
+        const lpRec = lpRecycledByVehicle.get(v.name) ?? 0;
+        const initByPortco = vehicleInitDeployment.get(v.name) ?? {};
+        const recByPortco = vehicleRecDeployment.get(v.name) ?? {};
+        const initTot = vehicleInitTotal.get(v.name) ?? 0;
+        const recTot = vehicleRecTotal.get(v.name) ?? 0;
+        const initInCo = initByPortco[co.name] ?? 0;
+        const recInCo = recByPortco[co.name] ?? 0;
+        const initAttribution = initTot > 0 ? lpInit * (initInCo / initTot) : 0;
+        const recAttribution = recTot > 0 ? lpRec * (recInCo / recTot) : 0;
+        const lpAttributableInvestment = initAttribution + recAttribution;
 
         const vehFirstIdx = vehicleEarliestYearIdx.get(v.name);
         if (vehFirstIdx != null && vehFirstIdx < earliestYearIdx) {
@@ -602,8 +649,9 @@ export default function IRRValuation({ data, user, selectedYear: selectedYearPro
           vehicle: v.name, vehicleOwnsCoPct, lpInVehiclePct,
           effectivePct, effectiveValue,
           lpAttributableInvestment,
-          allocationFraction,        // for tooltip / explanation
-          lpCashInVehicle,           // raw LP cash (un-apportioned, for ref)
+          initAttribution,           // LP initial cash attributed to this portco
+          recAttribution,            // LP recycled cash attributed to this portco
+          lpCashInVehicle: lpInit + lpRec,  // for ref / display
         });
         totalIndirectPct += effectivePct;
         totalIndirectValue += effectiveValue;
@@ -632,9 +680,6 @@ export default function IRRValuation({ data, user, selectedYear: selectedYearPro
         });
       }
     }
-    // Stash per-vehicle LP cash (for Consolidated card; avoids re-summing
-    // since per-portco apportionment already sums correctly).
-    results._lpCashByVehicle = lpCashByVehicle;
     return results;
   }
 
