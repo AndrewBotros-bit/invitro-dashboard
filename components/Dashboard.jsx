@@ -286,6 +286,65 @@ function InsightCard({ icon, title, body, type = "info" }) {
 }
 
 /**
+ * ChangeCard — renders one comparative insight (a ChangeRecord from
+ * lib/insights.js). Shows the KPI label, the scope (Consolidated or
+ * company name), and the actual numbers in both periods plus the delta.
+ *
+ * Tone color comes from the record (positive/warning/danger/info). The
+ * arrow direction maps to whether the change is directionally good for
+ * that KPI — "EBITDA went up" is positive, "Opex went up" is warning.
+ */
+function ChangeCard({ rec, rankBadge }) {
+  const styles = {
+    positive: { border: 'border-emerald-200', bg: 'bg-emerald-50/50', text: 'text-emerald-900', accent: 'text-emerald-700' },
+    warning:  { border: 'border-amber-200',   bg: 'bg-amber-50/50',   text: 'text-amber-900',   accent: 'text-amber-700' },
+    danger:   { border: 'border-red-200',     bg: 'bg-red-50/50',     text: 'text-red-900',     accent: 'text-red-700' },
+    info:     { border: 'border-slate-200',   bg: 'bg-slate-50/50',   text: 'text-slate-900',   accent: 'text-slate-700' },
+  };
+  const s = styles[rec.tone] || styles.info;
+  const arrow = rec.absDelta > 0 ? '▲' : rec.absDelta < 0 ? '▼' : '–';
+  const formatVal = (v) =>
+    rec.isMargin
+      ? (v == null ? '—' : `${(v * 100).toFixed(1)}%`)
+      : fmt(v);
+  const deltaPctStr = rec.pctDelta != null
+    ? `${rec.pctDelta >= 0 ? '+' : ''}${(rec.pctDelta * 100).toFixed(1)}%`
+    : 'new';
+  const deltaAbsStr = rec.isMargin
+    ? `${rec.absDelta >= 0 ? '+' : ''}${(rec.absDelta * 100).toFixed(1)} pp`
+    : `${rec.absDelta >= 0 ? '+' : ''}${fmt(Math.abs(rec.absDelta)).replace(/^-/, '')}`;
+  return (
+    <div className={`rounded-lg border ${s.border} ${s.bg} p-3 mb-2`}>
+      <div className="flex items-start justify-between gap-2 mb-1">
+        <div className="flex items-center gap-2 min-w-0">
+          {rankBadge !== undefined && (
+            <span className="inline-flex items-center justify-center min-w-[20px] h-5 px-1.5 rounded-full bg-foreground/10 text-[10px] font-bold text-foreground/70">
+              {rankBadge}
+            </span>
+          )}
+          <span className={`text-base ${s.accent}`}>{arrow}</span>
+          <span className={`text-sm font-semibold ${s.text}`}>{rec.kpi}</span>
+          <span className={`text-[11px] px-1.5 py-0.5 rounded ${rec.isConsolidated ? 'bg-primary text-primary-foreground' : 'bg-foreground/5 text-foreground/70'} truncate`}>
+            {rec.scope}
+          </span>
+        </div>
+        <div className={`text-xs font-bold tabular-nums ${s.accent} whitespace-nowrap`}>
+          {deltaPctStr}
+          {rec.pctDelta != null && <span className="text-[10px] opacity-70 ml-1">({deltaAbsStr})</span>}
+        </div>
+      </div>
+      <div className={`text-xs ${s.accent} tabular-nums flex items-center gap-2 flex-wrap`}>
+        <span className="text-muted-foreground">prior:</span>
+        <span className="font-medium">{formatVal(rec.prior)}</span>
+        <span className="text-muted-foreground">→</span>
+        <span className="text-muted-foreground">current:</span>
+        <span className={`font-bold ${s.text}`}>{formatVal(rec.current)}</span>
+      </div>
+    </div>
+  );
+}
+
+/**
  * Per-user view substitution for the AllRx external (public-target) tabs.
  *
  * Three cases, decided by what's in `permissions.companies`:
@@ -1117,8 +1176,12 @@ export default function InVitroDashboard({ data: rawData, user }) {
     year: 'numeric', month: 'long'
   });
 
-  // Insights
-  const insights = generateInsights(data, rangeFrom, rangeTo, selectedCompany);
+  // Comparative insights: rank-ordered MoM & QoQ change records.
+  // generateInsights() now derives its own periods (last-actual month and
+  // surrounding quarter), so it ignores rangeFrom/rangeTo. The CFO wants
+  // a fixed comparison baseline ("what changed since last close"), not
+  // something dependent on whatever date filter the user has selected.
+  const insightsResult = generateInsights(data, selectedCompany);
 
   // Deploy handler
   const [reloadCountdown, setReloadCountdown] = useState(null);
@@ -2906,23 +2969,94 @@ export default function InVitroDashboard({ data: rawData, user }) {
             />
           )}
 
-          {activeSection === 'insights' && (<>
-            <div className="mb-4">
-              <h2 className="text-lg font-bold mb-1">Executive Insights &amp; Analysis</h2>
-              <p className="text-sm text-muted-foreground mb-4">
-                Auto-generated findings from the latest financial data
-              </p>
-            </div>
+          {activeSection === 'insights' && (() => {
+            const { mom, qoq, alerts } = insightsResult;
+            const TOP_N_MOM = 10;
+            const TOP_N_QOQ = 10;
+            const momChanges = mom?.changes ?? [];
+            const qoqChanges = qoq?.changes ?? [];
+            // Group MoM top changes by Consolidated vs per-company so the
+            // CFO can read "what shifted at the portfolio level" first,
+            // then drill into "and at which portco specifically".
+            const momTop = momChanges.slice(0, TOP_N_MOM);
+            const qoqTop = qoqChanges.slice(0, TOP_N_QOQ);
 
-            {insights.length > 0 ? (
-              insights.map((insight, i) => (
-                <InsightCard key={i} type={insight.type} icon={insight.icon}
-                  title={insight.title} body={insight.body} />
-              ))
-            ) : (
-              <p className="text-sm text-muted-foreground">No notable insights detected in current data.</p>
-            )}
-          </>)}
+            return (<>
+              <div className="mb-4">
+                <h2 className="text-lg font-bold mb-1">Executive Insights &amp; Analysis</h2>
+                <p className="text-sm text-muted-foreground mb-2">
+                  Ranked by magnitude of change. Each card shows what moved, by how much, and whether it&apos;s a good or bad direction for that metric.
+                </p>
+                <div className="flex flex-wrap items-center gap-3 text-[11px] text-muted-foreground">
+                  <span className="inline-flex items-center gap-1"><span className="inline-block w-2 h-2 rounded-full bg-emerald-500" />Positive change</span>
+                  <span className="inline-flex items-center gap-1"><span className="inline-block w-2 h-2 rounded-full bg-amber-500" />Watch</span>
+                  <span className="inline-flex items-center gap-1"><span className="inline-block w-2 h-2 rounded-full bg-red-500" />Adverse / large drop</span>
+                  <span className="inline-flex items-center gap-1"><span className="inline-block px-1.5 py-0.5 rounded bg-primary text-primary-foreground text-[9px] font-semibold">Consolidated</span>=portfolio total</span>
+                </div>
+              </div>
+
+              {/* High-priority alerts (cash runway, etc.) always at top */}
+              {alerts.length > 0 && (
+                <div className="mb-6">
+                  {alerts.map((a, i) => (
+                    <InsightCard key={i} type={a.type} icon={a.icon} title={a.title} body={a.body} />
+                  ))}
+                </div>
+              )}
+
+              {/* MoM section */}
+              {mom && (
+                <div className="mb-6">
+                  <div className="flex items-baseline justify-between mb-2">
+                    <h3 className="text-sm font-bold text-foreground">
+                      Month-over-Month
+                      <span className="ml-2 text-xs font-normal text-muted-foreground">
+                        {mom.current.label} vs {mom.prior.label}
+                      </span>
+                    </h3>
+                    <span className="text-[10px] text-muted-foreground">
+                      Top {Math.min(momTop.length, TOP_N_MOM)} of {momChanges.length} ranked changes
+                    </span>
+                  </div>
+                  {momTop.length === 0 ? (
+                    <p className="text-xs text-muted-foreground">No notable month-over-month changes detected.</p>
+                  ) : (
+                    momTop.map((rec, i) => (
+                      <ChangeCard key={`mom-${i}`} rec={rec} rankBadge={i + 1} />
+                    ))
+                  )}
+                </div>
+              )}
+
+              {/* QoQ section */}
+              {qoq && (
+                <div className="mb-6">
+                  <div className="flex items-baseline justify-between mb-2">
+                    <h3 className="text-sm font-bold text-foreground">
+                      Quarter-over-Quarter
+                      <span className="ml-2 text-xs font-normal text-muted-foreground">
+                        {qoq.current.label} (forecast-inclusive) vs {qoq.prior.label}
+                      </span>
+                    </h3>
+                    <span className="text-[10px] text-muted-foreground">
+                      Top {Math.min(qoqTop.length, TOP_N_QOQ)} of {qoqChanges.length} ranked changes
+                    </span>
+                  </div>
+                  {qoqTop.length === 0 ? (
+                    <p className="text-xs text-muted-foreground">No notable quarter-over-quarter changes detected.</p>
+                  ) : (
+                    qoqTop.map((rec, i) => (
+                      <ChangeCard key={`qoq-${i}`} rec={rec} rankBadge={i + 1} />
+                    ))
+                  )}
+                </div>
+              )}
+
+              {!mom && !qoq && alerts.length === 0 && (
+                <p className="text-sm text-muted-foreground">No insights available — data may not have a last-actual month identified.</p>
+              )}
+            </>);
+          })()}
         {/* Footer */}
         <div className="mt-10 border-t border-border/50 pt-4 text-center">
           <p className="text-xs text-muted-foreground">
