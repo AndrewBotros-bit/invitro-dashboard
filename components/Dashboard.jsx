@@ -340,6 +340,15 @@ function ChangeCard({ rec, rankBadge }) {
         <span className="text-muted-foreground">current:</span>
         <span className={`font-bold ${s.text}`}>{formatVal(rec.current)}</span>
       </div>
+      {/* Narrative / interpretation text. Generated in lib/insights.js
+          buildNarrative() with cross-references to sibling KPIs (e.g.
+          when EBITDA drops, the narrative checks whether Revenue moved
+          with it to identify topline vs margin as the driver). */}
+      {rec.narrative && (
+        <p className={`mt-2 pt-2 border-t ${s.border}/60 text-[11px] leading-relaxed ${s.text}/90 italic`}>
+          {rec.narrative}
+        </p>
+      )}
     </div>
   );
 }
