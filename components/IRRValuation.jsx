@@ -503,6 +503,64 @@ export default function IRRValuation({ data, user, selectedYear: selectedYearPro
     ? irr.vehicles.filter(v => v.lps.some(lp => lp.name === lpName))
     : irr.vehicles;
 
+  /**
+   * Compute look-through exposure: an LP's total economic interest in
+   * each portco, summing their direct stake (if any) + their pro-rata
+   * slice through every vehicle they're invested in.
+   *
+   *   effective % = direct % + Σ (vehicle's % of portco × LP's % of vehicle)
+   *   effective $ = portco_valuation × effective %
+   *
+   * Returns one entry per portco where the LP has any exposure (direct
+   * OR indirect). Used for the violet "Look-Through Exposure" card that
+   * shows above the per-vehicle sections for LPs who have direct stakes.
+   */
+  function computeLookThrough(lpNameArg) {
+    if (!lpNameArg || !irr) return [];
+    const results = [];
+    for (const co of irr.companies || []) {
+      const valuation = co.financials?.valuation?.[yearIdx] ?? 0;
+      // Direct stake (from "(Individual)" rows in the IRR sheet)
+      const directRecord = co.directShareholders?.[lpNameArg];
+      const directOwnPct = directRecord?.ownership?.[yearIdx] ?? 0;
+      const directValue = valuation * (directOwnPct / 100);
+      const directCash = (directRecord?.investment ?? [])
+        .slice(0, yearIdx + 1).reduce((s, v) => s + (v ?? 0), 0);
+      // Indirect through each vehicle the LP is a member of
+      const indirect = [];
+      let totalIndirectPct = 0;
+      let totalIndirectValue = 0;
+      for (const v of irr.vehicles || []) {
+        const lpInVehicle = v.lps?.find(lp => lp.name === lpNameArg);
+        if (!lpInVehicle) continue;
+        const vehicleOwnsCoPct = co.ownership?.[v.name]?.[yearIdx] ?? 0;
+        if (vehicleOwnsCoPct === 0) continue;
+        const lpInVehiclePct = lpInVehicle.ownership?.[yearIdx] ?? 0;
+        if (lpInVehiclePct === 0) continue;
+        // Effective look-through ownership: multiply the two %s.
+        // (vehicleOwnsCoPct and lpInVehiclePct are both in percent units,
+        // so the product is in pct² — divide once by 100 to get back to
+        // a percent of the portco.)
+        const effectivePct = (vehicleOwnsCoPct * lpInVehiclePct) / 100;
+        const effectiveValue = valuation * (effectivePct / 100);
+        indirect.push({ vehicle: v.name, vehicleOwnsCoPct, lpInVehiclePct, effectivePct, effectiveValue });
+        totalIndirectPct += effectivePct;
+        totalIndirectValue += effectiveValue;
+      }
+      const totalPct = directOwnPct + totalIndirectPct;
+      const totalValue = directValue + totalIndirectValue;
+      if (totalValue > 0 || totalPct > 0 || directCash > 0) {
+        results.push({
+          portcoName: co.name, valuation,
+          directOwnPct, directValue, directCash,
+          indirect, totalIndirectPct, totalIndirectValue,
+          totalPct, totalValue,
+        });
+      }
+    }
+    return results;
+  }
+
   // Companies invested in by a vehicle, in the selected year.
   // `inv` is year-only (what was put in this year), `cumInv` is the running total
   // through the selected year — this matches the sheet's vehicle-rollup convention
@@ -555,6 +613,82 @@ export default function IRRValuation({ data, user, selectedYear: selectedYearPro
           </p>
         </div>
       )}
+
+      {/* Look-Through Exposure — only renders for LPs who have at least
+          one direct shareholder stake. For non-direct LPs the per-vehicle
+          breakdown already tells the whole story, so this card would be
+          redundant. For Amir (and any future direct shareholders) it
+          aggregates direct + indirect exposure to each portco. */}
+      {lpName && (() => {
+        const lookThrough = computeLookThrough(lpName);
+        const hasAnyDirect = lookThrough.some(lt => lt.directOwnPct > 0 || lt.directCash > 0);
+        if (!hasAnyDirect) return null;
+        return (
+          <div className="rounded-xl border-2 border-violet-300 bg-gradient-to-br from-violet-50 via-violet-50/60 to-fuchsia-50/40 shadow-sm overflow-hidden">
+            <div className="px-5 py-3 border-b border-violet-200/60 bg-violet-100/40">
+              <p className="text-[10px] font-semibold uppercase tracking-widest text-violet-700">Your Look-Through Exposure</p>
+              <p className="text-sm text-violet-900 mt-0.5">
+                Total economic interest in each portfolio company — your direct stake plus your pro-rata slice through every vehicle.
+              </p>
+            </div>
+            <div className="p-4 space-y-4">
+              {lookThrough.map(lt => (
+                <div key={lt.portcoName} className="rounded-lg border border-violet-200/70 bg-white/70 overflow-hidden">
+                  <div className="flex items-center justify-between px-4 py-2 border-b border-violet-100">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <span className="text-sm font-bold text-violet-900 truncate">{lt.portcoName}</span>
+                      <span className="text-[10px] text-violet-600">Portco valuation: {fmt(lt.valuation)}</span>
+                    </div>
+                    <div className="text-right">
+                      <p className="text-[10px] text-violet-600 uppercase tracking-wide">Total exposure</p>
+                      <p className="text-base font-bold tabular-nums text-violet-900">{fmt(lt.totalValue)}</p>
+                      <p className="text-[10px] text-violet-700">{lt.totalPct.toFixed(2)}% effective</p>
+                    </div>
+                  </div>
+                  <div className="px-4 py-2 space-y-1.5">
+                    {/* Direct row */}
+                    {(lt.directOwnPct > 0 || lt.directCash > 0) && (
+                      <div className="flex items-baseline justify-between gap-3 py-1">
+                        <div className="text-xs">
+                          <span className="font-semibold text-fuchsia-800">Direct</span>
+                          <span className="text-muted-foreground ml-2">your name on the cap table · cost basis {fmt(lt.directCash)}</span>
+                        </div>
+                        <div className="text-right tabular-nums">
+                          <span className="text-xs font-bold text-fuchsia-800">{fmt(lt.directValue)}</span>
+                          <span className="text-[10px] text-muted-foreground ml-2">{lt.directOwnPct.toFixed(2)}%</span>
+                        </div>
+                      </div>
+                    )}
+                    {/* Vehicle rows */}
+                    {lt.indirect.map(ind => (
+                      <div key={ind.vehicle} className="flex items-baseline justify-between gap-3 py-1">
+                        <div className="text-xs">
+                          <span className="text-foreground">via <span className="font-medium text-violet-800">{ind.vehicle}</span></span>
+                          <span className="text-muted-foreground ml-2">
+                            ({ind.lpInVehiclePct.toFixed(1)}% × {ind.vehicleOwnsCoPct.toFixed(1)}%)
+                          </span>
+                        </div>
+                        <div className="text-right tabular-nums">
+                          <span className="text-xs font-medium text-foreground">{fmt(ind.effectiveValue)}</span>
+                          <span className="text-[10px] text-muted-foreground ml-2">{ind.effectivePct.toFixed(2)}%</span>
+                        </div>
+                      </div>
+                    ))}
+                    {/* Total row */}
+                    <div className="flex items-baseline justify-between gap-3 pt-2 mt-1 border-t border-violet-100">
+                      <span className="text-xs font-semibold text-violet-900">Total economic exposure</span>
+                      <div className="text-right tabular-nums">
+                        <span className="text-sm font-bold text-violet-900">{fmt(lt.totalValue)}</span>
+                        <span className="text-[10px] font-medium text-violet-700 ml-2">{lt.totalPct.toFixed(2)}%</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        );
+      })()}
 
       {/* Vehicles */}
       {visibleVehicles.map(v => {
@@ -694,9 +828,27 @@ export default function IRRValuation({ data, user, selectedYear: selectedYearPro
                         const isParentStudio = co.name === 'InVitro Studio';
                         const stakeValue = (own / 100) * valuation;
                         const multiple = co.financials?.multiple?.[yearIdx];
+                        // Direct shareholders of this portco (e.g. Amir Barsoum
+                        // owns AllCare+Curenta both via vehicles AND directly).
+                        // Surface here so admin can see the full ownership
+                        // picture without leaving the vehicle view.
+                        const directHolders = Object.entries(co.directShareholders || {})
+                          .map(([name, rec]) => ({
+                            name,
+                            pct: rec.ownership?.[yearIdx] ?? 0,
+                          }))
+                          .filter(d => d.pct > 0);
                         return (
                           <TableRow key={co.name}>
-                            <TableCell className="font-medium">{co.name}</TableCell>
+                            <TableCell className="font-medium">
+                              {co.name}
+                              {directHolders.length > 0 && (
+                                <div className="text-[10px] text-fuchsia-700 font-normal mt-0.5"
+                                     title="Direct shareholders of this portco (in addition to vehicle ownership)">
+                                  + direct: {directHolders.map(d => `${d.name} ${d.pct.toFixed(1)}%`).join(', ')}
+                                </div>
+                              )}
+                            </TableCell>
                             <TableCell className="text-right tabular-nums">{fmt(inv)}</TableCell>
                             <TableCell className="text-right tabular-nums font-medium">{fmt(cumInv)}</TableCell>
                             <TableCell className="text-right tabular-nums">{own.toFixed(1)}%</TableCell>
