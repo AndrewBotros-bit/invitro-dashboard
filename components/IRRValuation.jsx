@@ -532,10 +532,18 @@ export default function IRRValuation({ data, user, selectedYear: selectedYearPro
       const directValue = valuation * (directOwnPct / 100);
       const directCash = (directRecord?.investment ?? [])
         .slice(0, yearIdx + 1).reduce((s, v) => s + (v ?? 0), 0);
+      // First-investment-year for the direct stake (used to anchor CAGR)
+      const directFirstIdx = (directRecord?.investment ?? [])
+        .findIndex(v => v != null && v > 0);
+      // Earliest year of any contribution (direct or via any vehicle).
+      // Used as the CAGR base year for the look-through IRR.
+      let earliestYearIdx = directFirstIdx >= 0 ? directFirstIdx : Infinity;
+
       // Indirect through each vehicle the LP is a member of
       const indirect = [];
       let totalIndirectPct = 0;
       let totalIndirectValue = 0;
+      let totalIndirectInvestment = 0;
       for (const v of irr.vehicles || []) {
         const lpInVehicle = v.lps?.find(lp => lp.name === lpNameArg);
         if (!lpInVehicle) continue;
@@ -549,18 +557,55 @@ export default function IRRValuation({ data, user, selectedYear: selectedYearPro
         // a percent of the portco.)
         const effectivePct = (vehicleOwnsCoPct * lpInVehiclePct) / 100;
         const effectiveValue = valuation * (effectivePct / 100);
-        indirect.push({ vehicle: v.name, vehicleOwnsCoPct, lpInVehiclePct, effectivePct, effectiveValue });
+        // LP's attributable cost basis flowing into this portco via this
+        // vehicle. The vehicle's cumulative cash into the portco × LP's
+        // current ownership of the vehicle — that's the LP's slice of
+        // the dollars deployed.
+        const vehicleCashIntoCo = (co.investments?.[v.name] ?? [])
+          .slice(0, yearIdx + 1).reduce((s, val) => s + (val ?? 0), 0);
+        const lpAttributableInvestment = vehicleCashIntoCo * (lpInVehiclePct / 100);
+
+        // Anchor for CAGR: LP's first investment year in this vehicle
+        const lpInvSeries = lpInVehicle.investment ?? [];
+        const lpFirstInVehicleIdx = lpInvSeries.findIndex(val => val != null && val > 0);
+        if (lpFirstInVehicleIdx >= 0 && lpFirstInVehicleIdx < earliestYearIdx) {
+          earliestYearIdx = lpFirstInVehicleIdx;
+        }
+
+        indirect.push({
+          vehicle: v.name, vehicleOwnsCoPct, lpInVehiclePct,
+          effectivePct, effectiveValue,
+          lpAttributableInvestment,
+        });
         totalIndirectPct += effectivePct;
         totalIndirectValue += effectiveValue;
+        totalIndirectInvestment += lpAttributableInvestment;
       }
       const totalPct = directOwnPct + totalIndirectPct;
       const totalValue = directValue + totalIndirectValue;
+      const totalInvestment = directCash + totalIndirectInvestment;
+      // MOIC = current value ÷ cumulative cost basis
+      const moic = totalInvestment > 0 ? totalValue / totalInvestment : null;
+      // CAGR-style IRR (approximation; full XIRR would require per-year
+      // cash-flow timing across direct + each vehicle slice — out of
+      // scope for the look-through summary, but vehicle-level XIRR is
+      // still available on each vehicle's My Performance card)
+      let lookThruIrr = null;
+      if (moic != null && moic > 0 && earliestYearIdx !== Infinity) {
+        const holdYears = years[yearIdx] - years[earliestYearIdx];
+        if (holdYears > 0) {
+          lookThruIrr = (Math.pow(moic, 1 / holdYears) - 1) * 100;
+        }
+      }
+
       if (totalValue > 0 || totalPct > 0 || directCash > 0) {
         results.push({
           portcoName: co.name, valuation,
           directOwnPct, directValue, directCash,
-          indirect, totalIndirectPct, totalIndirectValue,
-          totalPct, totalValue,
+          indirect, totalIndirectPct, totalIndirectValue, totalIndirectInvestment,
+          totalPct, totalValue, totalInvestment,
+          moic, irr: lookThruIrr,
+          earliestYearIdx,
         });
       }
     }
@@ -649,27 +694,74 @@ export default function IRRValuation({ data, user, selectedYear: selectedYearPro
               {(() => {
                 let totalDirect = 0;
                 let totalDirectCash = 0;
-                const byVehicle = new Map(); // vehicleName → cumulative effective value
+                const byVehicle = new Map();          // vehicleName → cumulative effective value
+                const byVehicleInvestment = new Map(); // vehicleName → cumulative attributable investment
                 let totalAll = 0;
+                let totalInvestmentAll = 0;
+                let earliestYearIdxAll = Infinity;
                 for (const lt of lookThrough) {
                   totalDirect += lt.directValue;
                   totalDirectCash += lt.directCash;
+                  totalInvestmentAll += lt.totalInvestment;
                   for (const ind of lt.indirect) {
                     byVehicle.set(ind.vehicle, (byVehicle.get(ind.vehicle) ?? 0) + ind.effectiveValue);
+                    byVehicleInvestment.set(ind.vehicle, (byVehicleInvestment.get(ind.vehicle) ?? 0) + ind.lpAttributableInvestment);
                   }
                   totalAll += lt.totalValue;
+                  if (lt.earliestYearIdx < earliestYearIdxAll) earliestYearIdxAll = lt.earliestYearIdx;
                 }
                 if (totalAll <= 0) return null;
+                // Consolidated MOIC = total value ÷ total cost basis
+                const consMoic = totalInvestmentAll > 0 ? totalAll / totalInvestmentAll : null;
+                // Consolidated IRR (CAGR) anchored on the earliest year ANY
+                // contribution to ANY portco started. Approximate — full
+                // XIRR would aggregate per-year flows across direct + every
+                // vehicle slice across every portco; the per-vehicle
+                // XIRR (on the My Performance card) is still the authoritative
+                // per-vehicle number.
+                let consIrr = null;
+                if (consMoic != null && consMoic > 0 && earliestYearIdxAll !== Infinity) {
+                  const holdYears = years[yearIdx] - years[earliestYearIdxAll];
+                  if (holdYears > 0) consIrr = (Math.pow(consMoic, 1 / holdYears) - 1) * 100;
+                }
                 return (
                   <div className="rounded-lg border-2 border-violet-400 bg-violet-100/40 overflow-hidden">
-                    <div className="flex items-center justify-between px-4 py-2 border-b border-violet-300/60 bg-violet-200/30">
-                      <div className="flex items-center gap-2 min-w-0">
-                        <span className="text-xs font-bold uppercase tracking-wide text-violet-900">Consolidated</span>
-                        <span className="text-[10px] text-violet-700">total across all portcos · {lookThrough.length} {lookThrough.length === 1 ? 'company' : 'companies'}</span>
+                    <div className="px-4 py-2 border-b border-violet-300/60 bg-violet-200/30">
+                      <div className="flex items-baseline justify-between gap-2 flex-wrap mb-2">
+                        <div className="flex items-baseline gap-2 min-w-0">
+                          <span className="text-xs font-bold uppercase tracking-wide text-violet-900">Consolidated</span>
+                          <span className="text-[10px] text-violet-700">total across all portcos · {lookThrough.length} {lookThrough.length === 1 ? 'company' : 'companies'}</span>
+                        </div>
                       </div>
-                      <div className="text-right">
-                        <p className="text-[10px] text-violet-700 uppercase tracking-wide">Grand total</p>
-                        <p className="text-lg font-bold tabular-nums text-violet-900">{fmt(totalAll)}</p>
+                      {/* Consolidated metrics strip — same shape as the
+                          per-portco strip so the eye scans top-to-bottom
+                          across rows. Value + Investment reconcile to
+                          the column totals below. */}
+                      <div className="grid grid-cols-4 gap-2 text-center">
+                        <div>
+                          <p className="text-[10px] text-violet-700 uppercase tracking-wide">Investment</p>
+                          <p className="text-base font-bold tabular-nums text-violet-900">{totalInvestmentAll > 0 ? fmt(totalInvestmentAll) : '—'}</p>
+                        </div>
+                        <div>
+                          <p className="text-[10px] text-violet-700 uppercase tracking-wide">Total Value</p>
+                          <p className="text-base font-bold tabular-nums text-violet-900">{fmt(totalAll)}</p>
+                        </div>
+                        <div>
+                          <p className="text-[10px] text-violet-700 uppercase tracking-wide">MOIC</p>
+                          <p className={cn(
+                            "text-base font-bold tabular-nums",
+                            consMoic == null ? "text-violet-900" :
+                            consMoic >= 1 ? "text-emerald-700" : "text-red-600"
+                          )}>{consMoic != null ? `${consMoic.toFixed(2)}×` : '—'}</p>
+                        </div>
+                        <div>
+                          <p className="text-[10px] text-violet-700 uppercase tracking-wide">IRR</p>
+                          <p className={cn(
+                            "text-base font-bold tabular-nums",
+                            consIrr == null ? "text-violet-900" :
+                            consIrr >= 0 ? "text-emerald-700" : "text-red-600"
+                          )}>{consIrr != null ? `${consIrr.toFixed(1)}%` : '—'}</p>
+                        </div>
                       </div>
                     </div>
                     <div className="px-4 py-2 space-y-1.5">
@@ -711,15 +803,44 @@ export default function IRRValuation({ data, user, selectedYear: selectedYearPro
               })()}
               {lookThrough.map(lt => (
                 <div key={lt.portcoName} className="rounded-lg border border-violet-200/70 bg-white/70 overflow-hidden">
-                  <div className="flex items-center justify-between px-4 py-2 border-b border-violet-100">
-                    <div className="flex items-center gap-2 min-w-0">
-                      <span className="text-sm font-bold text-violet-900 truncate">{lt.portcoName}</span>
-                      <span className="text-[10px] text-violet-600">Portco valuation: {fmt(lt.valuation)}</span>
+                  <div className="px-4 py-2 border-b border-violet-100">
+                    <div className="flex items-baseline justify-between gap-2 flex-wrap mb-2">
+                      <div className="flex items-baseline gap-2 min-w-0">
+                        <span className="text-sm font-bold text-violet-900 truncate">{lt.portcoName}</span>
+                        <span className="text-[10px] text-violet-600">Portco valuation: {fmt(lt.valuation)}</span>
+                      </div>
+                      <span className="text-[10px] text-violet-700">{lt.totalPct.toFixed(2)}% effective ownership</span>
                     </div>
-                    <div className="text-right">
-                      <p className="text-[10px] text-violet-600 uppercase tracking-wide">Total exposure</p>
-                      <p className="text-base font-bold tabular-nums text-violet-900">{fmt(lt.totalValue)}</p>
-                      <p className="text-[10px] text-violet-700">{lt.totalPct.toFixed(2)}% effective</p>
+                    {/* Per-portco metrics strip — Investment (cost basis),
+                        Value (current stake FMV), MOIC, IRR (CAGR over
+                        earliest investment year). Null-safe display
+                        for portcos where the LP has only exposure but
+                        no cost basis. */}
+                    <div className="grid grid-cols-4 gap-2 text-center">
+                      <div>
+                        <p className="text-[10px] text-violet-600 uppercase tracking-wide">Investment</p>
+                        <p className="text-sm font-bold tabular-nums text-violet-900">{lt.totalInvestment > 0 ? fmt(lt.totalInvestment) : '—'}</p>
+                      </div>
+                      <div>
+                        <p className="text-[10px] text-violet-600 uppercase tracking-wide">Stake Value</p>
+                        <p className="text-sm font-bold tabular-nums text-violet-900">{fmt(lt.totalValue)}</p>
+                      </div>
+                      <div>
+                        <p className="text-[10px] text-violet-600 uppercase tracking-wide">MOIC</p>
+                        <p className={cn(
+                          "text-sm font-bold tabular-nums",
+                          lt.moic == null ? "text-violet-900" :
+                          lt.moic >= 1 ? "text-emerald-700" : "text-red-600"
+                        )}>{lt.moic != null ? `${lt.moic.toFixed(2)}×` : '—'}</p>
+                      </div>
+                      <div>
+                        <p className="text-[10px] text-violet-600 uppercase tracking-wide">IRR</p>
+                        <p className={cn(
+                          "text-sm font-bold tabular-nums",
+                          lt.irr == null ? "text-violet-900" :
+                          lt.irr >= 0 ? "text-emerald-700" : "text-red-600"
+                        )}>{lt.irr != null ? `${lt.irr.toFixed(1)}%` : '—'}</p>
+                      </div>
                     </div>
                   </div>
                   <div className="px-4 py-2 space-y-1.5">
