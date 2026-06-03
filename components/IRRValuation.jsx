@@ -846,16 +846,20 @@ export default function IRRValuation({ data, user, selectedYear: selectedYearPro
                       {/* Per-source breakdown with explicit Cost Basis + Stake Value
                           columns. Column totals reconcile vertically to the top
                           strip's Investment and Total Value respectively. */}
-                      <div className="grid grid-cols-[1fr_auto_auto_auto] gap-x-4 gap-y-1 text-xs items-baseline">
+                      {/* Per-source breakdown: Source | Stake Value | % of value.
+                          Cost Basis column removed per CFO direction —
+                          per-source Investment allocation is noisy and adds
+                          little signal vs the aggregate Investment shown in
+                          the top-strip. Aggregate Cost Basis is still
+                          available there ($ totalInvestmentAll). */}
+                      <div className="grid grid-cols-[1fr_auto_auto] gap-x-4 gap-y-1 text-xs items-baseline">
                         <span className="text-[10px] uppercase tracking-wide text-violet-700 font-semibold pb-1">Source</span>
-                        <span className="text-[10px] uppercase tracking-wide text-violet-700 font-semibold text-right pb-1">Cost Basis</span>
                         <span className="text-[10px] uppercase tracking-wide text-violet-700 font-semibold text-right pb-1">Stake Value</span>
                         <span className="text-[10px] uppercase tracking-wide text-violet-700 font-semibold text-right pb-1">% of value</span>
                         {/* Direct row */}
                         {(totalDirect > 0 || totalDirectCash > 0) && (
                           <>
                             <span className="font-semibold text-fuchsia-800">Direct holdings <span className="text-[10px] text-muted-foreground font-normal">(your cap-table stake)</span></span>
-                            <span className="text-right tabular-nums font-medium text-fuchsia-800">{fmt(totalDirectCash)}</span>
                             <span className="text-right tabular-nums font-medium text-fuchsia-800">{fmt(totalDirect)}</span>
                             <span className="text-right tabular-nums text-[10px] text-muted-foreground">{totalAll > 0 ? ((totalDirect / totalAll) * 100).toFixed(1) : '0.0'}%</span>
                           </>
@@ -863,20 +867,15 @@ export default function IRRValuation({ data, user, selectedYear: selectedYearPro
                         {/* Per-vehicle rows — sorted by Stake Value desc */}
                         {[...byVehicle.entries()]
                           .sort((a, b) => b[1] - a[1])
-                          .map(([vehicle, val]) => {
-                            const cost = byVehicleInvestment.get(vehicle) ?? 0;
-                            return (
-                              <Fragment key={vehicle}>
-                                <span className="text-foreground">via <span className="font-medium text-violet-800">{vehicle}</span></span>
-                                <span className="text-right tabular-nums">{fmt(cost)}</span>
-                                <span className="text-right tabular-nums font-medium">{fmt(val)}</span>
-                                <span className="text-right tabular-nums text-[10px] text-muted-foreground">{totalAll > 0 ? ((val / totalAll) * 100).toFixed(1) : '0.0'}%</span>
-                              </Fragment>
-                            );
-                          })}
+                          .map(([vehicle, val]) => (
+                            <Fragment key={vehicle}>
+                              <span className="text-foreground">via <span className="font-medium text-violet-800">{vehicle}</span></span>
+                              <span className="text-right tabular-nums font-medium">{fmt(val)}</span>
+                              <span className="text-right tabular-nums text-[10px] text-muted-foreground">{totalAll > 0 ? ((val / totalAll) * 100).toFixed(1) : '0.0'}%</span>
+                            </Fragment>
+                          ))}
                         {/* Grand total row */}
                         <span className="text-sm font-bold text-violet-900 pt-2 mt-1 border-t-2 border-violet-300/60">Total</span>
-                        <span className="text-right text-sm font-bold tabular-nums text-violet-900 pt-2 mt-1 border-t-2 border-violet-300/60">{fmt(totalInvestmentAll)}</span>
                         <span className="text-right text-base font-bold tabular-nums text-violet-900 pt-2 mt-1 border-t-2 border-violet-300/60">{fmt(totalAll)}</span>
                         <span className="text-right text-[10px] text-muted-foreground pt-2 mt-1 border-t-2 border-violet-300/60">100%</span>
                       </div>
@@ -932,7 +931,7 @@ export default function IRRValuation({ data, user, selectedYear: selectedYearPro
                       <div className="flex items-baseline justify-between gap-3 py-1">
                         <div className="text-xs">
                           <span className="font-semibold text-fuchsia-800">Direct</span>
-                          <span className="text-muted-foreground ml-2">your name on the cap table · cost basis {fmt(lt.directCash)}</span>
+                          <span className="text-muted-foreground ml-2">your name on the cap table</span>
                         </div>
                         <div className="text-right tabular-nums">
                           <span className="text-xs font-bold text-fuchsia-800">{fmt(lt.directValue)}</span>
