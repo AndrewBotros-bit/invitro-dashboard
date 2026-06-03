@@ -499,6 +499,14 @@ export default function IRRValuation({ data, user, selectedYear: selectedYearPro
 
   // LP scoping
   const lpName = user?.permissions?.lpName || null;
+  // Look-Through view mode toggle — "by-company" shows the portco-centric
+  // decomposition (Consolidated per-company table + per-portco detail
+  // cards); "by-source" shows the vehicle-centric decomposition
+  // (Consolidated per-vehicle table + per-vehicle detail sections like
+  // My Performance). Defaults to by-company since most LPs care first
+  // about "what am I exposed to", then drill into "how did it get
+  // structured". The toggle is the dropdown at the top of the IRR tab.
+  const [lookThroughView, setLookThroughView] = useState('by-company');
   const visibleVehicles = lpName
     ? irr.vehicles.filter(v => v.lps.some(lp => lp.name === lpName))
     : irr.vehicles;
@@ -725,16 +733,34 @@ export default function IRRValuation({ data, user, selectedYear: selectedYearPro
 
   return (
     <div className="space-y-6">
-      {/* Title / LP scope label. Year + Compare selectors live in the
-          page header (Dashboard component) so they're consistent with
-          the other tabs' header treatment. */}
-      <div>
-        <h2 className="text-xl font-semibold tracking-tight">
-          IRR &amp; Valuation — {selectedYear}{compEnabled ? ` vs ${compareYear}` : ''}
-        </h2>
-        <p className="text-sm text-muted-foreground">
-          {lpName ? <>Viewing your stakes as <strong>{lpName}</strong></> : <>All investment vehicles</>}
-        </p>
+      {/* Title / LP scope label + view-mode toggle. The dropdown switches
+          the entire below content between two decompositions of the same
+          data: by company (portco-centric) or by source (vehicle-centric).
+          Only LP users get the toggle; admin/non-LP keeps the original
+          vehicle-centric layout (no look-through view exists for them). */}
+      <div className="flex items-start justify-between gap-3 flex-wrap">
+        <div>
+          <h2 className="text-xl font-semibold tracking-tight">
+            IRR &amp; Valuation — {selectedYear}{compEnabled ? ` vs ${compareYear}` : ''}
+          </h2>
+          <p className="text-sm text-muted-foreground">
+            {lpName ? <>Viewing your stakes as <strong>{lpName}</strong></> : <>All investment vehicles</>}
+          </p>
+        </div>
+        {lpName && (
+          <div className="flex items-center gap-2">
+            <label htmlFor="lt-view" className="text-[11px] uppercase tracking-wide text-muted-foreground font-semibold">View by</label>
+            <select
+              id="lt-view"
+              value={lookThroughView}
+              onChange={(e) => setLookThroughView(e.target.value)}
+              className="text-sm font-medium border border-border rounded-md px-2.5 py-1.5 bg-background hover:bg-muted focus:outline-none focus:ring-2 focus:ring-primary/40"
+            >
+              <option value="by-company">Company</option>
+              <option value="by-source">Source (Vehicle)</option>
+            </select>
+          </div>
+        )}
       </div>
 
       {/* LP-scoped wayfinding banner — tells the LP up-front how many
@@ -895,7 +921,9 @@ export default function IRRValuation({ data, user, selectedYear: selectedYearPro
                           Investment column shows the LP's attributable
                           cost basis routed through each vehicle — by
                           phase-split construction these sum vertically
-                          to the top-strip Investment number. */}
+                          to the top-strip Investment number.
+                          Only rendered in 'by-source' view. */}
+                      {lookThroughView === 'by-source' && (
                       <div className="grid grid-cols-[1fr_auto_auto_auto] gap-x-4 gap-y-1 text-xs items-baseline">
                         <span className="text-[10px] uppercase tracking-wide text-violet-700 font-semibold pb-1">Source</span>
                         <span className="text-[10px] uppercase tracking-wide text-violet-700 font-semibold text-right pb-1">Investment</span>
@@ -949,14 +977,17 @@ export default function IRRValuation({ data, user, selectedYear: selectedYearPro
                         <span className="text-right text-base font-bold tabular-nums text-violet-900 pt-2 mt-1 border-t-2 border-violet-300/60">{fmt(totalAll)}</span>
                         <span className="text-right text-[10px] text-muted-foreground pt-2 mt-1 border-t-2 border-violet-300/60">100%</span>
                       </div>
+                      )}
 
                       {/* Per-company breakdown — same dollars as the per-
                           vehicle table above, just decomposed by destination
                           (portco) instead of by path (vehicle). Both totals
                           reconcile to the top-strip Investment + Total Value.
                           Useful for the LP's "where did my money end up?"
-                          question vs "how did it get there?" (vehicle table). */}
-                      <div className="grid grid-cols-[1fr_auto_auto_auto] gap-x-4 gap-y-1 text-xs items-baseline mt-4 pt-4 border-t border-violet-200/70">
+                          question vs "how did it get there?" (vehicle table).
+                          Only rendered in 'by-company' view. */}
+                      {lookThroughView === 'by-company' && (
+                      <div className="grid grid-cols-[1fr_auto_auto_auto] gap-x-4 gap-y-1 text-xs items-baseline">
                         <span className="text-[10px] uppercase tracking-wide text-violet-700 font-semibold pb-1">By Company</span>
                         <span className="text-[10px] uppercase tracking-wide text-violet-700 font-semibold text-right pb-1">Investment</span>
                         <span className="text-[10px] uppercase tracking-wide text-violet-700 font-semibold text-right pb-1">Stake Value</span>
@@ -989,11 +1020,13 @@ export default function IRRValuation({ data, user, selectedYear: selectedYearPro
                         <span className="text-right text-base font-bold tabular-nums text-violet-900 pt-2 mt-1 border-t-2 border-violet-300/60">{fmt(totalAll)}</span>
                         <span className="text-right text-[10px] text-muted-foreground pt-2 mt-1 border-t-2 border-violet-300/60">100%</span>
                       </div>
+                      )}
                     </div>
                   </div>
                 );
               })()}
-              {lookThrough.map(lt => (
+              {/* Per-portco detail cards — only in 'by-company' view */}
+              {lookThroughView === 'by-company' && lookThrough.map(lt => (
                 <div key={lt.portcoName} className="rounded-lg border border-violet-200/70 bg-white/70 overflow-hidden">
                   <div className="px-4 py-2 border-b border-violet-100">
                     <div className="flex items-baseline justify-between gap-2 flex-wrap mb-2">
@@ -1078,8 +1111,14 @@ export default function IRRValuation({ data, user, selectedYear: selectedYearPro
         );
       })()}
 
-      {/* Vehicles */}
-      {visibleVehicles.map(v => {
+      {/* Vehicles — per-vehicle detail sections (My Performance, Companies
+          Invested In, LP roster, etc). For LP users this is gated by the
+          view-mode toggle: shown in 'by-source' view; hidden in
+          'by-company' view (the per-portco detail cards inside the
+          Look-Through card replace this slot). Admin users (no lpName)
+          always see vehicles since they don't get the toggle and need
+          the full data. */}
+      {(!lpName || lookThroughView === 'by-source') && visibleVehicles.map(v => {
         const ownership = v.ownershipValue?.[yearIdx] ?? 0;
         const investment = v.investment?.[yearIdx] ?? 0;
         const irrPct = v.irr?.[yearIdx];
