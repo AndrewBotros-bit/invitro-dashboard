@@ -893,16 +893,14 @@ export default function IRRValuation({ data, user, selectedYear: selectedYearPro
                       </div>
                       <span className="text-[10px] text-violet-700">{lt.totalPct.toFixed(2)}% effective ownership</span>
                     </div>
-                    {/* Per-portco metrics strip — Investment (cost basis),
-                        Value (current stake FMV), MOIC, IRR (CAGR over
-                        earliest investment year). Null-safe display
-                        for portcos where the LP has only exposure but
-                        no cost basis. */}
-                    <div className="grid grid-cols-4 gap-2 text-center">
-                      <div>
-                        <p className="text-[10px] text-violet-600 uppercase tracking-wide">Investment</p>
-                        <p className="text-sm font-bold tabular-nums text-violet-900">{lt.totalInvestment > 0 ? fmt(lt.totalInvestment) : '—'}</p>
-                      </div>
+                    {/* Per-portco metrics strip — Stake Value, MOIC, IRR.
+                        Investment removed per CFO direction: per-portco
+                        Investment allocation is kept only in the
+                        Consolidated card's top-strip aggregate ($ across
+                        all portcos). MOIC and IRR remain computed from
+                        the underlying per-portco Investment, just not
+                        displayed here. */}
+                    <div className="grid grid-cols-3 gap-2 text-center">
                       <div>
                         <p className="text-[10px] text-violet-600 uppercase tracking-wide">Stake Value</p>
                         <p className="text-sm font-bold tabular-nums text-violet-900">{fmt(lt.totalValue)}</p>
