@@ -680,15 +680,20 @@ export default function IRRValuation({ data, user, selectedYear: selectedYearPro
         });
       }
     }
-    // Attach cash/recycled split totals for the Consolidated card.
-    // Direct investments are always cash (LP wrote a check); the cash
-    // and recycled splits from vehicles come from the phase-buckets
-    // computed above.
+    // Attach cash/recycled split totals + per-vehicle Maps for the
+    // Consolidated card. Direct investments are always cash (LP wrote
+    // a check); the cash and recycled splits from vehicles come from
+    // the phase-buckets computed above.
     let totalLpCash = 0, totalLpRecycled = 0;
     for (const lp of results) totalLpCash += lp.directCash;     // direct is all cash
     for (const v of lpInitialByVehicle.values()) totalLpCash += v;
     for (const v of lpRecycledByVehicle.values()) totalLpRecycled += v;
     results._cashTotals = { totalLpCash, totalLpRecycled };
+    // Per-vehicle splits — used by the Consolidated body's Investment
+    // column to render a "$X cash · $Y recycled" sub-line under each
+    // vehicle row.
+    results._cashByVehicle = lpInitialByVehicle;
+    results._recycledByVehicle = lpRecycledByVehicle;
     return results;
   }
 
@@ -899,15 +904,32 @@ export default function IRRValuation({ data, user, selectedYear: selectedYearPro
                             <span className="text-right tabular-nums text-[10px] text-muted-foreground">{totalAll > 0 ? ((totalDirect / totalAll) * 100).toFixed(1) : '0.0'}%</span>
                           </>
                         )}
-                        {/* Per-vehicle rows — sorted by Stake Value desc */}
+                        {/* Per-vehicle rows — sorted by Stake Value desc.
+                            Investment cell stacks the total $ with a small
+                            "cash · recycled" sub-line so the LP sees both
+                            the path total AND the capital composition for
+                            each vehicle in one row. */}
                         {[...byVehicle.entries()]
                           .sort((a, b) => b[1] - a[1])
                           .map(([vehicle, val]) => {
                             const inv = byVehicleInvestment.get(vehicle) ?? 0;
+                            const cash = lookThrough._cashByVehicle?.get(vehicle) ?? 0;
+                            const recycled = lookThrough._recycledByVehicle?.get(vehicle) ?? 0;
+                            const hasRecycled = recycled > 0;
                             return (
                               <Fragment key={vehicle}>
                                 <span className="text-foreground">via <span className="font-medium text-violet-800">{vehicle}</span></span>
-                                <span className="text-right tabular-nums">{inv > 0 ? fmt(inv) : '—'}</span>
+                                <span className="text-right tabular-nums">
+                                  <span className="block">{inv > 0 ? fmt(inv) : '—'}</span>
+                                  {(inv > 0) && (
+                                    <span className="block text-[9px] text-muted-foreground font-normal mt-0.5">
+                                      <span className="text-violet-700">{fmt(cash)}</span> cash
+                                      {hasRecycled && (
+                                        <> · <span className="text-violet-700">{fmt(recycled)}</span> recyc.</>
+                                      )}
+                                    </span>
+                                  )}
+                                </span>
                                 <span className="text-right tabular-nums font-medium">{fmt(val)}</span>
                                 <span className="text-right tabular-nums text-[10px] text-muted-foreground">{totalAll > 0 ? ((val / totalAll) * 100).toFixed(1) : '0.0'}%</span>
                               </Fragment>
