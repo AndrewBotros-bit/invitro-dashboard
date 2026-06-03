@@ -670,11 +670,18 @@ export default function IRRValuation({ data, user, selectedYear: selectedYearPro
       }
 
       if (totalValue > 0 || totalPct > 0 || directCash > 0) {
+        // Cash vs recycled split for THIS portco:
+        //   cash = direct contributions + Σ initAttribution from each vehicle
+        //   recycled = Σ recAttribution from each vehicle (GP redeployed)
+        // These reconcile to totalInvestment per row (cash + recycled).
+        const totalCashInvestment = directCash + indirect.reduce((s, ind) => s + (ind.initAttribution ?? 0), 0);
+        const totalRecycledInvestment = indirect.reduce((s, ind) => s + (ind.recAttribution ?? 0), 0);
         results.push({
           portcoName: co.name, valuation,
           directOwnPct, directValue, directCash,
           indirect, totalIndirectPct, totalIndirectValue, totalIndirectInvestment,
           totalPct, totalValue, totalInvestment,
+          totalCashInvestment, totalRecycledInvestment,
           moic, irr: lookThruIrr,
           earliestYearIdx,
         });
@@ -937,6 +944,46 @@ export default function IRRValuation({ data, user, selectedYear: selectedYearPro
                           })}
                         {/* Grand total row — Investment column sums to the
                             top-strip Investment ($totalInvestmentAll). */}
+                        <span className="text-sm font-bold text-violet-900 pt-2 mt-1 border-t-2 border-violet-300/60">Total</span>
+                        <span className="text-right text-sm font-bold tabular-nums text-violet-900 pt-2 mt-1 border-t-2 border-violet-300/60">{fmt(totalInvestmentAll)}</span>
+                        <span className="text-right text-base font-bold tabular-nums text-violet-900 pt-2 mt-1 border-t-2 border-violet-300/60">{fmt(totalAll)}</span>
+                        <span className="text-right text-[10px] text-muted-foreground pt-2 mt-1 border-t-2 border-violet-300/60">100%</span>
+                      </div>
+
+                      {/* Per-company breakdown — same dollars as the per-
+                          vehicle table above, just decomposed by destination
+                          (portco) instead of by path (vehicle). Both totals
+                          reconcile to the top-strip Investment + Total Value.
+                          Useful for the LP's "where did my money end up?"
+                          question vs "how did it get there?" (vehicle table). */}
+                      <div className="grid grid-cols-[1fr_auto_auto_auto] gap-x-4 gap-y-1 text-xs items-baseline mt-4 pt-4 border-t border-violet-200/70">
+                        <span className="text-[10px] uppercase tracking-wide text-violet-700 font-semibold pb-1">By Company</span>
+                        <span className="text-[10px] uppercase tracking-wide text-violet-700 font-semibold text-right pb-1">Investment</span>
+                        <span className="text-[10px] uppercase tracking-wide text-violet-700 font-semibold text-right pb-1">Stake Value</span>
+                        <span className="text-[10px] uppercase tracking-wide text-violet-700 font-semibold text-right pb-1">% of value</span>
+                        {[...lookThrough]
+                          .sort((a, b) => b.totalValue - a.totalValue)
+                          .map(lt => {
+                            const hasRec = (lt.totalRecycledInvestment ?? 0) > 0;
+                            return (
+                              <Fragment key={`co-${lt.portcoName}`}>
+                                <span className="text-foreground"><span className="font-medium text-violet-800">{lt.portcoName}</span></span>
+                                <span className="text-right tabular-nums">
+                                  <span className="block">{lt.totalInvestment > 0 ? fmt(lt.totalInvestment) : '—'}</span>
+                                  {lt.totalInvestment > 0 && (
+                                    <span className="block text-[9px] text-muted-foreground font-normal mt-0.5">
+                                      <span className="text-violet-700">{fmt(lt.totalCashInvestment ?? 0)}</span> cash
+                                      {hasRec && (
+                                        <> · <span className="text-violet-700">{fmt(lt.totalRecycledInvestment)}</span> recyc.</>
+                                      )}
+                                    </span>
+                                  )}
+                                </span>
+                                <span className="text-right tabular-nums font-medium">{fmt(lt.totalValue)}</span>
+                                <span className="text-right tabular-nums text-[10px] text-muted-foreground">{totalAll > 0 ? ((lt.totalValue / totalAll) * 100).toFixed(1) : '0.0'}%</span>
+                              </Fragment>
+                            );
+                          })}
                         <span className="text-sm font-bold text-violet-900 pt-2 mt-1 border-t-2 border-violet-300/60">Total</span>
                         <span className="text-right text-sm font-bold tabular-nums text-violet-900 pt-2 mt-1 border-t-2 border-violet-300/60">{fmt(totalInvestmentAll)}</span>
                         <span className="text-right text-base font-bold tabular-nums text-violet-900 pt-2 mt-1 border-t-2 border-violet-300/60">{fmt(totalAll)}</span>
