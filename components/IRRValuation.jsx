@@ -680,6 +680,15 @@ export default function IRRValuation({ data, user, selectedYear: selectedYearPro
         });
       }
     }
+    // Attach cash/recycled split totals for the Consolidated card.
+    // Direct investments are always cash (LP wrote a check); the cash
+    // and recycled splits from vehicles come from the phase-buckets
+    // computed above.
+    let totalLpCash = 0, totalLpRecycled = 0;
+    for (const lp of results) totalLpCash += lp.directCash;     // direct is all cash
+    for (const v of lpInitialByVehicle.values()) totalLpCash += v;
+    for (const v of lpRecycledByVehicle.values()) totalLpRecycled += v;
+    results._cashTotals = { totalLpCash, totalLpRecycled };
     return results;
   }
 
@@ -819,6 +828,23 @@ export default function IRRValuation({ data, user, selectedYear: selectedYearPro
                         <div>
                           <p className="text-[10px] text-violet-700 uppercase tracking-wide">Investment</p>
                           <p className="text-base font-bold tabular-nums text-violet-900">{totalInvestmentAll > 0 ? fmt(totalInvestmentAll) : '—'}</p>
+                          {/* Cash vs recycled split — direct contributions + initial-
+                              phase vehicle contributions are "cash you put in"; the
+                              recycled-phase contributions are GP-redeployed profits
+                              (still attributable to the LP economically but not new
+                              cash). Showing both makes the cost basis composition
+                              transparent. */}
+                          {lookThrough._cashTotals && (lookThrough._cashTotals.totalLpCash > 0 || lookThrough._cashTotals.totalLpRecycled > 0) && (
+                            <p className="text-[9px] text-violet-700/80 mt-0.5 leading-snug">
+                              <span className="font-semibold">{fmt(lookThrough._cashTotals.totalLpCash)}</span> cash
+                              {lookThrough._cashTotals.totalLpRecycled > 0 && (
+                                <>
+                                  <span className="mx-0.5">·</span>
+                                  <span className="font-semibold">{fmt(lookThrough._cashTotals.totalLpRecycled)}</span> recycled
+                                </>
+                              )}
+                            </p>
+                          )}
                         </div>
                         <div>
                           <p className="text-[10px] text-violet-700 uppercase tracking-wide">Total Value</p>
