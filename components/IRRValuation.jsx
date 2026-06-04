@@ -483,7 +483,7 @@ function computeLpReturns(lp, vehicle, yearIdx, years) {
  *  - lpName set → only show vehicles where this LP appears, highlight LP's row.
  *  - lpName unset → show all 4 vehicles (admin / general viewer).
  */
-export default function IRRValuation({ data, user, selectedYear: selectedYearProp, compareYear, viewMode }) {
+export default function IRRValuation({ data, user, selectedYear: selectedYearProp, compareYear, viewMode, onNavigateToCompany }) {
   const irr = data?.irrValuation;
 
   // No IRR data available — could be missing tab access or sheet load failure
@@ -1096,10 +1096,23 @@ export default function IRRValuation({ data, user, selectedYear: selectedYearPro
                 return (
                 <div key={lt.portcoName} className="rounded-xl border-2 bg-white shadow-sm overflow-hidden" style={{ borderColor: color }}>
                   {/* Color ribbon — same visual treatment as the by-source
-                      vehicle sections, but using portco brand color. */}
+                      vehicle sections, but using portco brand color.
+                      Portco name is a button that jumps to the company's
+                      Portfolio Performance Overview when provided. */}
                   <div className="px-5 py-3 text-white" style={{ backgroundColor: color }}>
                     <p className="text-[10px] font-semibold uppercase tracking-widest opacity-90 leading-tight">Portfolio Company</p>
-                    <p className="text-xl font-bold leading-tight">{lt.portcoName}</p>
+                    {onNavigateToCompany ? (
+                      <button
+                        type="button"
+                        onClick={() => onNavigateToCompany(lt.portcoName)}
+                        className="text-xl font-bold leading-tight hover:underline focus:outline-none focus:underline text-left cursor-pointer"
+                        title={`Open ${lt.portcoName} Overview`}
+                      >
+                        {lt.portcoName} <span className="text-[12px] font-normal opacity-80">→</span>
+                      </button>
+                    ) : (
+                      <p className="text-xl font-bold leading-tight">{lt.portcoName}</p>
+                    )}
                   </div>
                   {/* Portco-level KPI strip — describes the portco itself,
                       not the LP's slice. Same numbers all shareholders see. */}
@@ -1406,9 +1419,28 @@ export default function IRRValuation({ data, user, selectedYear: selectedYearPro
                         const isParentStudio = co.name === 'InVitro Studio';
                         const stakeValue = (own / 100) * valuation;
                         const multiple = co.financials?.multiple?.[yearIdx];
+                        // Clickable company name — navigates to the
+                        // company's Portfolio Performance Overview when
+                        // the parent provides onNavigateToCompany.
+                        // InVitro Studio is parent venture studio
+                        // (no per-company portfolio page); not linked.
+                        const canLink = !!onNavigateToCompany && !isParentStudio;
                         return (
                           <TableRow key={co.name}>
-                            <TableCell className="font-medium">{co.name}</TableCell>
+                            <TableCell className="font-medium">
+                              {canLink ? (
+                                <button
+                                  type="button"
+                                  onClick={() => onNavigateToCompany(co.name)}
+                                  className="text-primary hover:underline focus:outline-none focus:underline cursor-pointer text-left"
+                                  title={`Open ${co.name} Overview`}
+                                >
+                                  {co.name}
+                                </button>
+                              ) : (
+                                co.name
+                              )}
+                            </TableCell>
                             <TableCell className="text-right tabular-nums">{fmt(inv)}</TableCell>
                             <TableCell className="text-right tabular-nums font-medium">{fmt(cumInv)}</TableCell>
                             <TableCell className="text-right tabular-nums">{own.toFixed(1)}%</TableCell>

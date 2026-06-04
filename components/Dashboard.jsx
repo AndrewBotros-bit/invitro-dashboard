@@ -3005,6 +3005,18 @@ export default function InVitroDashboard({ data: rawData, user }) {
               selectedYear={irrYear}
               compareYear={irrCompareEnabled ? irrCompYear : null}
               viewMode={irrView}
+              /* Cross-section navigation: clicking a company name in
+                 the IRR view jumps to that company's Overview in the
+                 Portfolio Performance section. The callback maps the
+                 IRR sheet's "AllCare + Curenta" combined block back
+                 to the sidebar's "AllCare" portfolio key. */
+              onNavigateToCompany={(portcoName) => {
+                const target = portcoName === 'AllCare + Curenta' ? 'AllCare' : portcoName;
+                if (!DISPLAY_COMPANIES.includes(target)) return;
+                setSelectedCompany(target);
+                setActiveSection('overview');
+                setExpenseDrilldown(null);
+              }}
             />
           )}
 
