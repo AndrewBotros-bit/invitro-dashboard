@@ -1054,6 +1054,34 @@ export default function InVitroDashboard({ data: rawData, user }) {
     .filter(c => c.value > 0)
     .sort((a, b) => b.value - a.value) : [];
 
+  // AllCare product-mix data for the comparison range (when compareEnabled
+  // and the user is drilled into AllCare). Mirrors revenuePieData's
+  // selectAllCareProductMixPie gate so the compare pie also swaps to the
+  // product-mix decomposition.
+  const compAllCareProductMixPieData = (() => {
+    if (!compareEnabled) return [];
+    const slArr = data.revenueDetails?.AllCare?.serviceLines || [];
+    if (slArr.length === 0) return [];
+    const stripSuffix = (s) => String(s || '').replace(/\s*\(.*?\)\s*$/, '').trim();
+    const inComp = inWindowFn(compRange.from, compRange.to);
+    const ALLCARE_PRODUCT_GROUPS_COMP = [
+      { name: 'Primary Care + CCM', members: ['Primary Care', 'CCM'], color: '#16a34a' },
+      { name: 'Podiatry + PCM',     members: ['Podiatry', 'PCM'],     color: '#0ea5e9' },
+      { name: 'Psych',              members: ['Psych'],               color: '#f59e0b' },
+      { name: 'Diagnostics',        members: ['Diagnostics'],         color: '#8b5cf6' },
+      { name: 'RPM',                members: ['RPM'],                 color: '#ef4444' },
+    ];
+    return ALLCARE_PRODUCT_GROUPS_COMP.map(group => {
+      let total = 0;
+      for (const sl of slArr) {
+        if (group.members.includes(stripSuffix(sl.name))) {
+          total += (sl.metrics?.['Revenues'] ?? []).filter(inComp).reduce((s, v) => s + (v.value ?? 0), 0);
+        }
+      }
+      return { name: group.name, value: total, color: group.color };
+    }).filter(g => g.value > 0);
+  })();
+
   const compExpensePieData = compareEnabled ? data.pnl
     .filter(c => !dynExcludeEbitda.includes(c.name))
     .map(c => {
@@ -1105,15 +1133,61 @@ export default function InVitroDashboard({ data: rawData, user }) {
     }).sort((a, b) => b.value - a.value);
 
   // Revenue pie (excl. InVitro Studio)
-  const revenuePieData = data.pnl
-    .filter(c => !dynExcludeRevenue.includes(c.name))
-    .map(c => {
-      const vals = (c.metrics['Revenues'] ?? []).filter(inRange);
-      const total = vals.reduce((s, v) => s + (v.value ?? 0), 0);
-      return { name: c.name, value: total, color: colorMap[c.name] };
-    })
-    .filter(c => c.value > 0)
-    .sort((a, b) => b.value - a.value);
+  // AllCare product-mix pie. Per CFO direction, AllCare's 7 service
+  // lines collapse into 5 groupings that make business sense (paired
+  // visit + care-management lines as one product family):
+  //   1. Primary Care + CCM
+  //   2. Podiatry + PCM
+  //   3. Psych
+  //   4. Diagnostics
+  //   5. RPM
+  // Sourced from data.revenueDetails.AllCare.serviceLines (the
+  // separate "AllCare" sheet tab, granular by service line). Each
+  // group sums its members' 'Revenues' metric over the in-range months.
+  const ALLCARE_PRODUCT_GROUPS = [
+    { name: 'Primary Care + CCM',  members: ['Primary Care', 'CCM'],  color: '#16a34a' /* emerald-600 */ },
+    { name: 'Podiatry + PCM',      members: ['Podiatry', 'PCM'],      color: '#0ea5e9' /* sky-500 */ },
+    { name: 'Psych',               members: ['Psych'],                color: '#f59e0b' /* amber-500 */ },
+    { name: 'Diagnostics',         members: ['Diagnostics'],          color: '#8b5cf6' /* violet-500 */ },
+    { name: 'RPM',                 members: ['RPM'],                  color: '#ef4444' /* red-500 */ },
+  ];
+  const allCareProductMixPieData = (() => {
+    const slArr = data.revenueDetails?.AllCare?.serviceLines || [];
+    if (slArr.length === 0) return [];
+    // Match the service line's name prefix against a group member. The
+    // sheet labels service lines as e.g. "Primary Care (Visits)" or
+    // "CCM (CM-Based SU)" — we strip the parenthetical suffix when
+    // matching so future label tweaks (e.g. "Visit" vs "Visits") don't
+    // silently drop revenue from the chart.
+    const stripSuffix = (s) => String(s || '').replace(/\s*\(.*?\)\s*$/, '').trim();
+    return ALLCARE_PRODUCT_GROUPS.map(group => {
+      let total = 0;
+      for (const sl of slArr) {
+        const slName = stripSuffix(sl.name);
+        if (group.members.includes(slName)) {
+          total += (sl.metrics?.['Revenues'] ?? []).filter(inRange).reduce((s, v) => s + (v.value ?? 0), 0);
+        }
+      }
+      return { name: group.name, value: total, color: group.color };
+    }).filter(g => g.value > 0);
+  })();
+
+  // Decide which pie to show. When the user is drilled into AllCare,
+  // showing "AllCare = 100%" of a portfolio-by-company pie tells them
+  // nothing — replace with the product-mix breakdown. For Consolidated
+  // and other companies, keep the by-company pie.
+  const showAllCareProductMixPie = selectedCompany === 'AllCare' && allCareProductMixPieData.length > 0;
+  const revenuePieData = showAllCareProductMixPie
+    ? allCareProductMixPieData
+    : data.pnl
+        .filter(c => !dynExcludeRevenue.includes(c.name))
+        .map(c => {
+          const vals = (c.metrics['Revenues'] ?? []).filter(inRange);
+          const total = vals.reduce((s, v) => s + (v.value ?? 0), 0);
+          return { name: c.name, value: total, color: colorMap[c.name] };
+        })
+        .filter(c => c.value > 0)
+        .sort((a, b) => b.value - a.value);
 
   // Company performance table rows (EBITDA scope — includes InVitro Studio)
   // Uses range filter so table respects the selected date range
@@ -1847,7 +1921,8 @@ export default function InVitroDashboard({ data: rawData, user }) {
             <Card>
               <CardHeader>
                 <CardTitle className="text-sm">
-                  Revenue Mix {compareEnabled ? `— ${rangeLabel} vs ${compLabel}` : `(${rangeLabel})`} &mdash; excl. Holdings
+                  {showAllCareProductMixPie ? 'AllCare Product Mix' : 'Revenue Mix'} {compareEnabled ? `— ${rangeLabel} vs ${compLabel}` : `(${rangeLabel})`}
+                  {!showAllCareProductMixPie && <> &mdash; excl. Holdings</>}
                 </CardTitle>
               </CardHeader>
               <CardContent>
@@ -1873,10 +1948,10 @@ export default function InVitroDashboard({ data: rawData, user }) {
                       <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground text-center mb-1">{compLabel}</p>
                       <ResponsiveContainer width="100%" height={220}>
                         <PieChart>
-                          <Pie data={compRevenuePieData} cx="50%" cy="50%" outerRadius={70} innerRadius={38} dataKey="value"
+                          <Pie data={showAllCareProductMixPie ? compAllCareProductMixPieData : compRevenuePieData} cx="50%" cy="50%" outerRadius={70} innerRadius={38} dataKey="value"
                             label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
                             labelLine={{ stroke: '#cbd5e1', strokeWidth: 0.8 }}>
-                            {compRevenuePieData.map((e, i) => <Cell key={i} fill={e.color} />)}
+                            {(showAllCareProductMixPie ? compAllCareProductMixPieData : compRevenuePieData).map((e, i) => <Cell key={i} fill={e.color} />)}
                           </Pie>
                           <Tooltip content={<CustomTooltip />} />
                         </PieChart>
