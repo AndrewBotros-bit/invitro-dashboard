@@ -1763,18 +1763,22 @@ export default function IRRValuation({ data, user, selectedYear: selectedYearPro
                             });
                           }
                           if (events.length === 0) continue; // pre-investment year
-                          // Attach year-end metrics to LAST event row.
-                          // For pre-conversion years (Curenta Enterprise pre-2024),
-                          // the LP was a creditor, not a shareholder — no equity
-                          // ownership, no FMV stake. We leave ownPctYr / stakeFmv /
-                          // moicYr off so the renderer naturally shows '—' for
-                          // those columns. The cumulative cost still accumulates
-                          // (loan principal carries to equity at conversion).
+                          // Attach year-end metrics. For pre-conversion years
+                          // (Curenta Enterprise pre-2024), the LP was a creditor,
+                          // not a shareholder — no equity ownership, no FMV stake.
+                          // We leave ownPctYr / stakeFmv / moicYr unset so the
+                          // renderer naturally shows '—'. For post-conversion
+                          // years, attach to EVERY event in the year (interest
+                          // accrual, recycled, etc.) so every row shows the
+                          // year-end ownership consistently — not only the last
+                          // row of the year.
                           const isPreConversionYear = conversionYear != null && year < conversionYear;
                           if (!isPreConversionYear) {
-                            events[events.length - 1].ownPctYr = ownPctYr;
-                            events[events.length - 1].stakeFmv = stakeFmv;
-                            events[events.length - 1].moicYr = moicYr;
+                            for (const e of events) {
+                              e.ownPctYr = ownPctYr;
+                              e.stakeFmv = stakeFmv;
+                              e.moicYr = moicYr;
+                            }
                           }
                           events[events.length - 1].isYearEnd = true;
                           events[events.length - 1].isSelectedYear = idx === yearIdx;
@@ -1848,13 +1852,13 @@ export default function IRRValuation({ data, user, selectedYear: selectedYearPro
                                     {r.cumShares != null && r.cumShares > 0 ? Math.round(r.cumShares).toLocaleString() : '—'}
                                   </TableCell>
                                 )}
-                                <TableCell className="text-right text-xs tabular-nums">{r.isYearEnd && r.ownPctYr > 0 ? `${r.ownPctYr.toFixed(1)}%` : '—'}</TableCell>
-                                <TableCell className="text-right text-xs tabular-nums">{r.isYearEnd && r.stakeFmv != null && r.stakeFmv > 0 ? fmt(r.stakeFmv) : '—'}</TableCell>
+                                <TableCell className="text-right text-xs tabular-nums">{r.ownPctYr > 0 ? `${r.ownPctYr.toFixed(1)}%` : '—'}</TableCell>
+                                <TableCell className="text-right text-xs tabular-nums">{r.stakeFmv != null && r.stakeFmv > 0 ? fmt(r.stakeFmv) : '—'}</TableCell>
                                 <TableCell className={cn(
                                   "text-right text-xs tabular-nums",
-                                  r.isYearEnd && r.moicYr != null && r.moicYr >= 1 && "text-emerald-700",
-                                  r.isYearEnd && r.moicYr != null && r.moicYr < 1 && "text-red-600",
-                                )}>{r.isYearEnd && r.moicYr != null ? `${r.moicYr.toFixed(2)}x` : '—'}</TableCell>
+                                  r.moicYr != null && r.moicYr >= 1 && "text-emerald-700",
+                                  r.moicYr != null && r.moicYr < 1 && "text-red-600",
+                                )}>{r.moicYr != null ? `${r.moicYr.toFixed(2)}x` : '—'}</TableCell>
                               </TableRow>
                             );
                           })}
