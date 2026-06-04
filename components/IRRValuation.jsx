@@ -516,6 +516,17 @@ export default function IRRValuation({ data, user, selectedYear: selectedYearPro
 
   // LP scoping
   const lpName = user?.permissions?.lpName || null;
+  // Per-portco "Investors" table visibility — gated by the
+  // shareholderSplit breakdown permission. By default (false/unset),
+  // LPs DO NOT see the full cap-table of who else invested in each
+  // portco. Admin can grant this to specific users (e.g. Amir Barsoum,
+  // who acts more like an insider) via User Management → Other Access.
+  const canSeeShareholderSplit = (() => {
+    const perms = user?.permissions;
+    if (!perms) return false;
+    if (perms.breakdowns === '*') return true;
+    return perms.breakdowns?.shareholderSplit === true;
+  })();
   // Look-Through view mode — lifted to Dashboard so the sidebar drives
   // it via IRR & Valuation sub-nav. Defaults to by-company when
   // not provided. Values: 'by-company' (portco-centric, default) or
@@ -1114,11 +1125,12 @@ export default function IRRValuation({ data, user, selectedYear: selectedYearPro
                     </div>
                   </div>
                   {/* Investors table — who owns this portco and how much
-                      cash they've put in. Shown to all viewers (admin or
-                      LP — same data, since portco-level transparency is
-                      symmetric to the per-vehicle "Companies Invested In"
-                      table). */}
-                  {investors.length > 0 && (
+                      cash they've put in. Gated by canSeeShareholderSplit
+                      (shareholderSplit breakdown permission) — by default
+                      LPs don't see other shareholders' contributions or
+                      ownership. Admin grants explicitly per user via
+                      User Management → Other Access → Shareholder Split. */}
+                  {canSeeShareholderSplit && investors.length > 0 && (
                     <div className="px-5 py-3 border-b border-border">
                       <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground mb-2">Investors</p>
                       <Table>

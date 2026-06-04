@@ -22,7 +22,7 @@ const ALL_COMPANIES = ['AllRx', 'AllCare', 'Osta', 'Needles', 'InVitro Studio'];
 // permission arrays.
 const COMPANIES_INCLUDING_CONSOLIDATED = [...ALL_COMPANIES, 'Consolidated', 'AllRx External'];
 const ALL_TABS = ['overview', 'revenue', 'expenses', 'profitability', 'cashflow', 'irr', 'insights'];
-const BREAKDOWN_KEYS = ['revenueDrilldown', 'expenseDrilldown', 'auditConsole', 'hcDetails'];
+const BREAKDOWN_KEYS = ['revenueDrilldown', 'expenseDrilldown', 'auditConsole', 'hcDetails', 'shareholderSplit'];
 
 function requireAdmin() {
   const cookieStore = cookies();

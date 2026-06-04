@@ -67,7 +67,7 @@ const ROLE_PRESETS = {
     tabs_mode: 'all', tabs_list: [],
     bd_revenue_mode: 'all', bd_revenue_list: [],
     bd_expense_mode: 'all', bd_expense_list: [],
-    bd_audit: true, bd_hc: true,
+    bd_audit: true, bd_hc: true, bd_shareholder: true,
     lpName: '',
   },
   'Board Member (read-only consolidated)': {
@@ -76,7 +76,7 @@ const ROLE_PRESETS = {
     tabs_mode: 'subset', tabs_list: ['overview', 'irr', 'insights'],
     bd_revenue_mode: 'none', bd_revenue_list: [],
     bd_expense_mode: 'none', bd_expense_list: [],
-    bd_audit: false, bd_hc: false,
+    bd_audit: false, bd_hc: false, bd_shareholder: false,
     lpName: '',
   },
   'LP (IRR only — set lpName after)': {
@@ -85,7 +85,7 @@ const ROLE_PRESETS = {
     tabs_mode: 'subset', tabs_list: ['irr'],
     bd_revenue_mode: 'none', bd_revenue_list: [],
     bd_expense_mode: 'none', bd_expense_list: [],
-    bd_audit: false, bd_hc: false,
+    bd_audit: false, bd_hc: false, bd_shareholder: false,
     lpName: '',
   },
   'Operator (single company — set companies after)': {
@@ -94,7 +94,7 @@ const ROLE_PRESETS = {
     tabs_mode: 'all', tabs_list: [],
     bd_revenue_mode: 'all', bd_revenue_list: [],
     bd_expense_mode: 'all', bd_expense_list: [],
-    bd_audit: false, bd_hc: true,
+    bd_audit: false, bd_hc: true, bd_shareholder: false,
     lpName: '',
   },
   // Hybrid case: someone who operates a portfolio company AND has a stake
@@ -108,7 +108,7 @@ const ROLE_PRESETS = {
     tabs_mode: 'all', tabs_list: [],
     bd_revenue_mode: 'all', bd_revenue_list: [],
     bd_expense_mode: 'all', bd_expense_list: [],
-    bd_audit: false, bd_hc: true,
+    bd_audit: false, bd_hc: true, bd_shareholder: false,
     lpName: '',
   },
 };
@@ -119,7 +119,7 @@ const EMPTY_FORM = {
   tabs_mode: 'all', tabs_list: [],
   bd_revenue_mode: 'all', bd_revenue_list: [],
   bd_expense_mode: 'all', bd_expense_list: [],
-  bd_audit: false, bd_hc: false,
+  bd_audit: false, bd_hc: false, bd_shareholder: false,
   lpName: '',
 };
 
@@ -134,7 +134,7 @@ function userToFormState(u) {
   else if (Array.isArray(p.tabs)) { form.tabs_mode = 'subset'; form.tabs_list = p.tabs; }
   if (p.breakdowns === '*') {
     form.bd_revenue_mode = 'all'; form.bd_expense_mode = 'all';
-    form.bd_audit = true; form.bd_hc = true;
+    form.bd_audit = true; form.bd_hc = true; form.bd_shareholder = true;
   } else if (p.breakdowns) {
     const rv = p.breakdowns.revenueDrilldown;
     if (rv === true) form.bd_revenue_mode = 'all';
@@ -146,6 +146,7 @@ function userToFormState(u) {
     else if (Array.isArray(ex)) { form.bd_expense_mode = 'subset'; form.bd_expense_list = ex; }
     form.bd_audit = p.breakdowns.auditConsole === true;
     form.bd_hc = p.breakdowns.hcDetails === true;
+    form.bd_shareholder = p.breakdowns.shareholderSplit === true;
   }
   form.lpName = p.lpName || '';
   return form;
@@ -160,6 +161,7 @@ function formStateToPayload(form, isEdit) {
       expenseDrilldown: form.bd_expense_mode === 'all' ? true : form.bd_expense_mode === 'none' ? false : form.bd_expense_list,
       auditConsole: form.bd_audit,
       hcDetails: form.bd_hc,
+      shareholderSplit: form.bd_shareholder,
     },
     lpName: form.lpName || null,
   };
@@ -196,11 +198,11 @@ function permissionBadges(u) {
     badges.push({ key: 'bd', text: 'All breakdowns', tone: 'neutral' });
   } else if (p.breakdowns) {
     const bd = p.breakdowns;
-    const granted = ['revenueDrilldown', 'expenseDrilldown', 'auditConsole', 'hcDetails'].filter(k => {
+    const granted = ['revenueDrilldown', 'expenseDrilldown', 'auditConsole', 'hcDetails', 'shareholderSplit'].filter(k => {
       const v = bd[k];
       return v === true || (Array.isArray(v) && v.length > 0);
     });
-    if (granted.length > 0) badges.push({ key: 'bd', text: `${granted.length}/4 breakdowns`, tone: 'neutral' });
+    if (granted.length > 0) badges.push({ key: 'bd', text: `${granted.length}/5 breakdowns`, tone: 'neutral' });
   }
 
   // LP
@@ -494,7 +496,7 @@ export default function UserAdmin({ currentUser, lpNames = [] }) {
         let bd = '';
         if (p.breakdowns === '*') bd = 'All';
         else if (p.breakdowns) {
-          bd = ['revenueDrilldown', 'expenseDrilldown', 'auditConsole', 'hcDetails']
+          bd = ['revenueDrilldown', 'expenseDrilldown', 'auditConsole', 'hcDetails', 'shareholderSplit']
             .filter(k => {
               const v = p.breakdowns[k];
               return v === true || (Array.isArray(v) && v.length > 0);
@@ -944,6 +946,11 @@ export default function UserAdmin({ currentUser, lpNames = [] }) {
                     <label className="flex items-center gap-2 text-sm cursor-pointer">
                       <input type="checkbox" checked={form.bd_hc} onChange={e => setForm({ ...form, bd_hc: e.target.checked })} />
                       HC Salary Details
+                    </label>
+                    <label className="flex items-center gap-2 text-sm cursor-pointer">
+                      <input type="checkbox" checked={form.bd_shareholder} onChange={e => setForm({ ...form, bd_shareholder: e.target.checked })} />
+                      Shareholder Split (IRR &amp; Valuation)
+                      <span className="text-[10px] text-muted-foreground font-normal ml-1">(per-portco Investors table)</span>
                     </label>
                   </div>
                 </fieldset>
