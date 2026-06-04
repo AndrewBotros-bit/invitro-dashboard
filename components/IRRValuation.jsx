@@ -5,6 +5,23 @@ import { Table, TableHeader, TableBody, TableHead, TableRow, TableCell } from "@
 import { fmt, pct } from "@/lib/formatters";
 import { cn } from "@/lib/utils";
 
+// Portco brand colors — mirrors lib/chartHelpers.js COMPANY_COLORS so
+// the by-company portco sections use the same color identity as the
+// charts elsewhere in the dashboard. Fallback violet for any
+// uncategorized portco (Curenta is folded into "AllCare + Curenta",
+// which gets AllCare's color).
+const PORTCO_COLORS = {
+  'AllRx':              '#00AEEF',
+  'AllRX':              '#00AEEF',
+  'AllRx External':     '#0089BC',
+  'AllCare':            '#00A651',
+  'AllCare + Curenta':  '#00A651',
+  'Osta':               '#F7941D',
+  'Needles':            '#ef4444',
+  'InVitro Studio':     '#003087',
+};
+const portcoColor = (name) => PORTCO_COLORS[name] || '#7c3aed';
+
 /**
  * Per-vehicle recycling configuration.
  *
@@ -1004,87 +1021,222 @@ export default function IRRValuation({ data, user, selectedYear: selectedYearPro
                   </div>
                 );
               })()}
-              {/* Per-portco detail cards — only in 'by-company' view */}
-              {lookThroughView === 'by-company' && lookThrough.map(lt => (
-                <div key={lt.portcoName} className="rounded-lg border border-violet-200/70 bg-white/70 overflow-hidden">
-                  <div className="px-4 py-2 border-b border-violet-100">
-                    <div className="flex items-baseline justify-between gap-2 flex-wrap mb-2">
-                      <div className="flex items-baseline gap-2 min-w-0">
-                        <span className="text-sm font-bold text-violet-900 truncate">{lt.portcoName}</span>
-                        <span className="text-[10px] text-violet-600">Portco valuation: {fmt(lt.valuation)}</span>
-                      </div>
-                      <span className="text-[10px] text-violet-700">{lt.totalPct.toFixed(2)}% effective ownership</span>
-                    </div>
-                    {/* Per-portco metrics strip — Stake Value, MOIC, IRR.
-                        Investment removed per CFO direction: per-portco
-                        Investment allocation is kept only in the
-                        Consolidated card's top-strip aggregate ($ across
-                        all portcos). MOIC and IRR remain computed from
-                        the underlying per-portco Investment, just not
-                        displayed here. */}
-                    <div className="grid grid-cols-3 gap-2 text-center">
+              {/* Per-portco detail sections — only in 'by-company' view.
+                  Mirrors the by-source vehicle-section structure:
+                    1. Color-ribbon header (portco name + tagline)
+                    2. Portco-level KPI strip (Valuation, Multiple, FY
+                       Revenue, Total Investment from all sources)
+                    3. Investors table (who owns this portco)
+                    4. My Performance card (LP's slice) */}
+              {lookThroughView === 'by-company' && lookThrough.map(lt => {
+                // Pull the parsed company record for portco-level financials
+                const co = irr.companies.find(c => c.name === lt.portcoName);
+                const fin = co?.financials || {};
+                const portcoValuation = fin.valuation?.[yearIdx];
+                const portcoMultiple = fin.multiple?.[yearIdx];
+                const portcoRevenue = fin.revenue?.[yearIdx];
+                const portcoGM = fin.grossMargin?.[yearIdx];
+                // Total cumulative investment INTO this portco across all
+                // sources (every vehicle + every direct shareholder).
+                // Through the selected year only.
+                let totalInvestedInCo = 0;
+                if (co) {
+                  for (const v of (irr.vehicles || [])) {
+                    totalInvestedInCo += (co.investments?.[v.name] ?? [])
+                      .slice(0, yearIdx + 1).reduce((s, x) => s + (x ?? 0), 0);
+                  }
+                  for (const ds of Object.values(co.directShareholders || {})) {
+                    totalInvestedInCo += (ds.investment ?? [])
+                      .slice(0, yearIdx + 1).reduce((s, x) => s + (x ?? 0), 0);
+                  }
+                }
+                const color = portcoColor(lt.portcoName);
+                // Investors of this portco (every vehicle + direct holder
+                // with non-zero contribution or ownership at selected year)
+                const investors = [];
+                if (co) {
+                  for (const v of (irr.vehicles || [])) {
+                    const cumInv = (co.investments?.[v.name] ?? [])
+                      .slice(0, yearIdx + 1).reduce((s, x) => s + (x ?? 0), 0);
+                    const ownPct = co.ownership?.[v.name]?.[yearIdx] ?? 0;
+                    if (cumInv > 0 || ownPct > 0) {
+                      investors.push({ name: v.name, kind: 'vehicle', investment: cumInv, ownership: ownPct });
+                    }
+                  }
+                  for (const [name, ds] of Object.entries(co.directShareholders || {})) {
+                    const cumInv = (ds.investment ?? [])
+                      .slice(0, yearIdx + 1).reduce((s, x) => s + (x ?? 0), 0);
+                    const ownPct = ds.ownership?.[yearIdx] ?? 0;
+                    if (cumInv > 0 || ownPct > 0) {
+                      investors.push({ name, kind: 'direct', investment: cumInv, ownership: ownPct });
+                    }
+                  }
+                  investors.sort((a, b) => b.ownership - a.ownership);
+                }
+                return (
+                <div key={lt.portcoName} className="rounded-xl border-2 bg-white shadow-sm overflow-hidden" style={{ borderColor: color }}>
+                  {/* Color ribbon — same visual treatment as the by-source
+                      vehicle sections, but using portco brand color. */}
+                  <div className="px-5 py-3 text-white" style={{ backgroundColor: color }}>
+                    <p className="text-[10px] font-semibold uppercase tracking-widest opacity-90 leading-tight">Portfolio Company</p>
+                    <p className="text-xl font-bold leading-tight">{lt.portcoName}</p>
+                  </div>
+                  {/* Portco-level KPI strip — describes the portco itself,
+                      not the LP's slice. Same numbers all shareholders see. */}
+                  <div className="px-5 py-3 border-b border-border bg-muted/30">
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-center">
                       <div>
-                        <p className="text-[10px] text-violet-600 uppercase tracking-wide">Stake Value</p>
-                        <p className="text-sm font-bold tabular-nums text-violet-900">{fmt(lt.totalValue)}</p>
+                        <p className="text-[10px] uppercase tracking-wide text-muted-foreground">Valuation</p>
+                        <p className="text-sm font-bold tabular-nums text-foreground mt-0.5">{portcoValuation != null ? fmt(portcoValuation) : '—'}</p>
                       </div>
                       <div>
-                        <p className="text-[10px] text-violet-600 uppercase tracking-wide">MOIC</p>
-                        <p className={cn(
-                          "text-sm font-bold tabular-nums",
-                          lt.moic == null ? "text-violet-900" :
-                          lt.moic >= 1 ? "text-emerald-700" : "text-red-600"
-                        )}>{lt.moic != null ? `${lt.moic.toFixed(2)}×` : '—'}</p>
+                        <p className="text-[10px] uppercase tracking-wide text-muted-foreground">Multiple</p>
+                        <p className="text-sm font-bold tabular-nums text-foreground mt-0.5">{portcoMultiple != null ? `${portcoMultiple.toFixed(1)}×` : '—'}</p>
                       </div>
                       <div>
-                        <p className="text-[10px] text-violet-600 uppercase tracking-wide">IRR</p>
-                        <p className={cn(
-                          "text-sm font-bold tabular-nums",
-                          lt.irr == null ? "text-violet-900" :
-                          lt.irr >= 0 ? "text-emerald-700" : "text-red-600"
-                        )}>{lt.irr != null ? `${lt.irr.toFixed(1)}%` : '—'}</p>
+                        <p className="text-[10px] uppercase tracking-wide text-muted-foreground">FY Revenue</p>
+                        <p className="text-sm font-bold tabular-nums text-foreground mt-0.5">{portcoRevenue != null ? fmt(portcoRevenue) : '—'}</p>
+                        {portcoGM != null && (
+                          <p className="text-[9px] text-muted-foreground">{portcoGM.toFixed(0)}% gross margin</p>
+                        )}
+                      </div>
+                      <div>
+                        <p className="text-[10px] uppercase tracking-wide text-muted-foreground">Total Invested</p>
+                        <p className="text-sm font-bold tabular-nums text-foreground mt-0.5">{totalInvestedInCo > 0 ? fmt(totalInvestedInCo) : '—'}</p>
+                        <p className="text-[9px] text-muted-foreground">across all investors</p>
                       </div>
                     </div>
                   </div>
-                  <div className="px-4 py-2 space-y-1.5">
-                    {/* Direct row */}
-                    {(lt.directOwnPct > 0 || lt.directCash > 0) && (
-                      <div className="flex items-baseline justify-between gap-3 py-1">
-                        <div className="text-xs">
-                          <span className="font-semibold text-fuchsia-800">Direct</span>
-                          <span className="text-muted-foreground ml-2">your name on the cap table</span>
-                        </div>
-                        <div className="text-right tabular-nums">
-                          <span className="text-xs font-bold text-fuchsia-800">{fmt(lt.directValue)}</span>
-                          <span className="text-[10px] text-muted-foreground ml-2">{lt.directOwnPct.toFixed(2)}%</span>
+                  {/* Investors table — who owns this portco and how much
+                      cash they've put in. Shown to all viewers (admin or
+                      LP — same data, since portco-level transparency is
+                      symmetric to the per-vehicle "Companies Invested In"
+                      table). */}
+                  {investors.length > 0 && (
+                    <div className="px-5 py-3 border-b border-border">
+                      <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground mb-2">Investors</p>
+                      <Table>
+                        <TableHeader>
+                          <TableRow>
+                            <TableHead>Source</TableHead>
+                            <TableHead className="text-right">Cumulative Investment</TableHead>
+                            <TableHead className="text-right">Ownership %</TableHead>
+                            <TableHead className="text-right">Stake Value</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {investors.map(inv => {
+                            const stakeVal = portcoValuation != null ? portcoValuation * (inv.ownership / 100) : null;
+                            const isMineDirect = inv.kind === 'direct' && inv.name === lpName;
+                            return (
+                              <TableRow key={`${inv.kind}-${inv.name}`} className={cn(isMineDirect && 'bg-fuchsia-50')}>
+                                <TableCell className={cn('font-medium', inv.kind === 'direct' ? 'text-fuchsia-800' : 'text-foreground')}>
+                                  {inv.name}
+                                  {inv.kind === 'direct' && <span className="ml-2 text-[10px] uppercase tracking-wide text-fuchsia-700">Direct</span>}
+                                  {isMineDirect && <span className="ml-2 text-[10px] uppercase tracking-wide text-fuchsia-900 font-bold">You</span>}
+                                </TableCell>
+                                <TableCell className="text-right tabular-nums">{fmt(inv.investment)}</TableCell>
+                                <TableCell className="text-right tabular-nums">{inv.ownership.toFixed(2)}%</TableCell>
+                                <TableCell className="text-right tabular-nums">{stakeVal != null ? fmt(stakeVal) : '—'}</TableCell>
+                              </TableRow>
+                            );
+                          })}
+                        </TableBody>
+                      </Table>
+                    </div>
+                  )}
+                  {/* "My Performance" card — LP's specific slice of this
+                      portco, mirroring the vehicle-section My Performance
+                      structure (ribbon + KPI strip + per-source decomp). */}
+                  <div className="p-4">
+                    <div className="rounded-xl border-2 border-primary bg-gradient-to-br from-primary/15 via-primary/8 to-primary/5 shadow-md overflow-hidden">
+                      <div className="bg-primary text-primary-foreground px-5 py-3">
+                        <div className="flex items-center justify-between gap-3">
+                          <div className="flex items-center gap-3 min-w-0">
+                            <span className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-white/20 text-xs font-bold shrink-0">
+                              {(lpName || 'Me').split(/\s+/).filter(Boolean).slice(0, 2).map(w => w[0]?.toUpperCase() ?? '').join('') || 'ME'}
+                            </span>
+                            <div className="min-w-0">
+                              <p className="text-[10px] font-semibold uppercase tracking-widest opacity-80 leading-tight">My Performance</p>
+                              <p className="text-base font-bold leading-tight truncate">{lpName}</p>
+                              <p className="text-[11px] opacity-80 leading-tight">in <strong>{lt.portcoName}</strong></p>
+                            </div>
+                          </div>
+                          <div className="text-right shrink-0">
+                            <p className="text-2xl font-bold tabular-nums leading-none">{lt.totalPct.toFixed(2)}%</p>
+                            <p className="text-[10px] opacity-80 uppercase tracking-wide mt-0.5">Effective stake</p>
+                          </div>
                         </div>
                       </div>
-                    )}
-                    {/* Vehicle rows */}
-                    {lt.indirect.map(ind => (
-                      <div key={ind.vehicle} className="flex items-baseline justify-between gap-3 py-1">
-                        <div className="text-xs">
-                          <span className="text-foreground">via <span className="font-medium text-violet-800">{ind.vehicle}</span></span>
-                          <span className="text-muted-foreground ml-2">
-                            ({ind.lpInVehiclePct.toFixed(1)}% × {ind.vehicleOwnsCoPct.toFixed(1)}%)
-                          </span>
+                      <div className="p-4">
+                        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                          <div className="rounded-lg border border-border bg-background p-3">
+                            <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">Stake Value</p>
+                            <p className="text-base font-bold tabular-nums text-foreground mt-0.5">{fmt(lt.totalValue)}</p>
+                          </div>
+                          <div className="rounded-lg border border-border bg-background p-3">
+                            <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">Cost Basis</p>
+                            <p className="text-base font-bold tabular-nums text-foreground mt-0.5">{lt.totalInvestment > 0 ? fmt(lt.totalInvestment) : '—'}</p>
+                            {lt.totalRecycledInvestment > 0 && (
+                              <p className="text-[9px] text-muted-foreground mt-0.5">
+                                <span className="text-violet-700 font-semibold">{fmt(lt.totalCashInvestment)}</span> cash · <span className="text-violet-700 font-semibold">{fmt(lt.totalRecycledInvestment)}</span> recyc.
+                              </p>
+                            )}
+                          </div>
+                          <div className="rounded-lg border border-border bg-background p-3">
+                            <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">MOIC</p>
+                            <p className={cn(
+                              "text-base font-bold tabular-nums mt-0.5",
+                              lt.moic == null ? "text-foreground" :
+                              lt.moic >= 1 ? "text-emerald-700" : "text-red-600"
+                            )}>{lt.moic != null ? `${lt.moic.toFixed(2)}×` : '—'}</p>
+                          </div>
+                          <div className="rounded-lg border border-border bg-background p-3">
+                            <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">IRR</p>
+                            <p className={cn(
+                              "text-base font-bold tabular-nums mt-0.5",
+                              lt.irr == null ? "text-foreground" :
+                              lt.irr >= 0 ? "text-emerald-700" : "text-red-600"
+                            )}>{lt.irr != null ? `${lt.irr.toFixed(1)}%` : '—'}</p>
+                          </div>
                         </div>
-                        <div className="text-right tabular-nums">
-                          <span className="text-xs font-medium text-foreground">{fmt(ind.effectiveValue)}</span>
-                          <span className="text-[10px] text-muted-foreground ml-2">{ind.effectivePct.toFixed(2)}%</span>
+                        {/* Per-source decomposition — direct + each vehicle
+                            with effective ownership and stake value. */}
+                        <div className="mt-4 pt-3 border-t border-primary/20">
+                          <p className="text-[11px] font-semibold uppercase tracking-wide text-primary mb-2">Your exposure breakdown</p>
+                          <div className="space-y-1.5">
+                            {(lt.directOwnPct > 0 || lt.directCash > 0) && (
+                              <div className="flex items-baseline justify-between gap-3 py-1">
+                                <div className="text-xs">
+                                  <span className="font-semibold text-fuchsia-800">Direct</span>
+                                  <span className="text-muted-foreground ml-2">your name on the cap table</span>
+                                </div>
+                                <div className="text-right tabular-nums">
+                                  <span className="text-xs font-bold text-fuchsia-800">{fmt(lt.directValue)}</span>
+                                  <span className="text-[10px] text-muted-foreground ml-2">{lt.directOwnPct.toFixed(2)}%</span>
+                                </div>
+                              </div>
+                            )}
+                            {lt.indirect.map(ind => (
+                              <div key={ind.vehicle} className="flex items-baseline justify-between gap-3 py-1">
+                                <div className="text-xs">
+                                  <span className="text-foreground">via <span className="font-medium text-violet-800">{ind.vehicle}</span></span>
+                                  <span className="text-muted-foreground ml-2">({ind.lpInVehiclePct.toFixed(1)}% × {ind.vehicleOwnsCoPct.toFixed(1)}%)</span>
+                                </div>
+                                <div className="text-right tabular-nums">
+                                  <span className="text-xs font-medium text-foreground">{fmt(ind.effectiveValue)}</span>
+                                  <span className="text-[10px] text-muted-foreground ml-2">{ind.effectivePct.toFixed(2)}%</span>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
                         </div>
-                      </div>
-                    ))}
-                    {/* Total row */}
-                    <div className="flex items-baseline justify-between gap-3 pt-2 mt-1 border-t border-violet-100">
-                      <span className="text-xs font-semibold text-violet-900">Total economic exposure</span>
-                      <div className="text-right tabular-nums">
-                        <span className="text-sm font-bold text-violet-900">{fmt(lt.totalValue)}</span>
-                        <span className="text-[10px] font-medium text-violet-700 ml-2">{lt.totalPct.toFixed(2)}%</span>
                       </div>
                     </div>
                   </div>
                 </div>
-              ))}
+                );
+              })}
             </div>
           </div>
         );
