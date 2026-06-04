@@ -5,22 +5,21 @@ import { Table, TableHeader, TableBody, TableHead, TableRow, TableCell } from "@
 import { fmt, pct } from "@/lib/formatters";
 import { cn } from "@/lib/utils";
 
-// Portco brand colors — mirrors lib/chartHelpers.js COMPANY_COLORS so
-// the by-company portco sections use the same color identity as the
-// charts elsewhere in the dashboard. Fallback violet for any
-// uncategorized portco (Curenta is folded into "AllCare + Curenta",
-// which gets AllCare's color).
-const PORTCO_COLORS = {
-  'AllRx':              '#00AEEF',
-  'AllRX':              '#00AEEF',
-  'AllRx External':     '#0089BC',
-  'AllCare':            '#00A651',
-  'AllCare + Curenta':  '#00A651',
-  'Osta':               '#F7941D',
-  'Needles':            '#ef4444',
-  'InVitro Studio':     '#003087',
-};
-const portcoColor = (name) => PORTCO_COLORS[name] || '#7c3aed';
+// By-Company view uses a deliberately small color palette — three
+// structural identities that map to the three section types:
+//
+//   1. Violet  → the Consolidated rollup card at the top
+//   2. Slate   → every Portfolio Company section header (single
+//                color across all portcos, instead of per-company
+//                brand colors — reduces visual noise on a page that
+//                already shows many sections)
+//   3. Primary → the LP-facing "My Performance" card inside each
+//                portco section
+//
+// Semantic colors (emerald/red for MOIC, IRR) are kept as accents
+// within numbers because they convey information, not branding.
+const PORTCO_SECTION_COLOR = '#475569'; // tailwind slate-600
+const portcoColor = () => PORTCO_SECTION_COLOR;
 
 /**
  * Per-vehicle recycling configuration.
@@ -804,7 +803,7 @@ export default function IRRValuation({ data, user, selectedYear: selectedYearPro
         if (lookThrough.length === 0) return null;
         const hasAnyDirectExposure = lookThrough.some(lt => lt.directOwnPct > 0 || lt.directCash > 0);
         return (
-          <div className="rounded-xl border-2 border-violet-300 bg-gradient-to-br from-violet-50 via-violet-50/60 to-fuchsia-50/40 shadow-sm overflow-hidden">
+          <div className="rounded-xl border-2 border-violet-300 bg-gradient-to-br from-violet-50 via-violet-50/60 to-violet-50/30 shadow-sm overflow-hidden">
             <div className="px-5 py-3 border-b border-violet-200/60 bg-violet-100/40">
               <p className="text-[10px] font-semibold uppercase tracking-widest text-violet-700">Your Look-Through Exposure</p>
               <p className="text-sm text-violet-900 mt-0.5">
@@ -940,9 +939,9 @@ export default function IRRValuation({ data, user, selectedYear: selectedYearPro
                             stake value is current FMV of cap-table stake. */}
                         {(totalDirect > 0 || totalDirectCash > 0) && (
                           <>
-                            <span className="font-semibold text-fuchsia-800">Direct holdings <span className="text-[10px] text-muted-foreground font-normal">(your cap-table stake)</span></span>
-                            <span className="text-right tabular-nums font-medium text-fuchsia-800">{fmt(totalDirectCash)}</span>
-                            <span className="text-right tabular-nums font-medium text-fuchsia-800">{fmt(totalDirect)}</span>
+                            <span className="font-semibold text-violet-900">Direct holdings <span className="text-[10px] text-muted-foreground font-normal">(your cap-table stake)</span></span>
+                            <span className="text-right tabular-nums font-medium text-violet-900">{fmt(totalDirectCash)}</span>
+                            <span className="text-right tabular-nums font-medium text-violet-900">{fmt(totalDirect)}</span>
                             <span className="text-right tabular-nums text-[10px] text-muted-foreground">{totalAll > 0 ? ((totalDirect / totalAll) * 100).toFixed(1) : '0.0'}%</span>
                           </>
                         )}
@@ -1147,11 +1146,11 @@ export default function IRRValuation({ data, user, selectedYear: selectedYearPro
                             const stakeVal = portcoValuation != null ? portcoValuation * (inv.ownership / 100) : null;
                             const isMineDirect = inv.kind === 'direct' && inv.name === lpName;
                             return (
-                              <TableRow key={`${inv.kind}-${inv.name}`} className={cn(isMineDirect && 'bg-fuchsia-50')}>
-                                <TableCell className={cn('font-medium', inv.kind === 'direct' ? 'text-fuchsia-800' : 'text-foreground')}>
+                              <TableRow key={`${inv.kind}-${inv.name}`} className={cn(isMineDirect && 'bg-primary/5')}>
+                                <TableCell className={cn('font-medium', isMineDirect ? 'text-primary' : 'text-foreground')}>
                                   {inv.name}
-                                  {inv.kind === 'direct' && <span className="ml-2 text-[10px] uppercase tracking-wide text-fuchsia-700">Direct</span>}
-                                  {isMineDirect && <span className="ml-2 text-[10px] uppercase tracking-wide text-fuchsia-900 font-bold">You</span>}
+                                  {inv.kind === 'direct' && <span className="ml-2 text-[10px] uppercase tracking-wide text-muted-foreground">Direct</span>}
+                                  {isMineDirect && <span className="ml-2 text-[10px] uppercase tracking-wide text-primary font-bold">You</span>}
                                 </TableCell>
                                 <TableCell className="text-right tabular-nums">{fmt(inv.investment)}</TableCell>
                                 <TableCell className="text-right tabular-nums">{inv.ownership.toFixed(2)}%</TableCell>
@@ -1226,11 +1225,11 @@ export default function IRRValuation({ data, user, selectedYear: selectedYearPro
                             {(lt.directOwnPct > 0 || lt.directCash > 0) && (
                               <div className="flex items-baseline justify-between gap-3 py-1">
                                 <div className="text-xs">
-                                  <span className="font-semibold text-fuchsia-800">Direct</span>
+                                  <span className="font-semibold text-primary">Direct</span>
                                   <span className="text-muted-foreground ml-2">your name on the cap table</span>
                                 </div>
                                 <div className="text-right tabular-nums">
-                                  <span className="text-xs font-bold text-fuchsia-800">{fmt(lt.directValue)}</span>
+                                  <span className="text-xs font-bold text-primary">{fmt(lt.directValue)}</span>
                                   <span className="text-[10px] text-muted-foreground ml-2">{lt.directOwnPct.toFixed(2)}%</span>
                                 </div>
                               </div>
@@ -1238,7 +1237,7 @@ export default function IRRValuation({ data, user, selectedYear: selectedYearPro
                             {lt.indirect.map(ind => (
                               <div key={ind.vehicle} className="flex items-baseline justify-between gap-3 py-1">
                                 <div className="text-xs">
-                                  <span className="text-foreground">via <span className="font-medium text-violet-800">{ind.vehicle}</span></span>
+                                  <span className="text-foreground">via <span className="font-medium text-foreground">{ind.vehicle}</span></span>
                                   <span className="text-muted-foreground ml-2">({ind.lpInVehiclePct.toFixed(1)}% × {ind.vehicleOwnsCoPct.toFixed(1)}%)</span>
                                 </div>
                                 <div className="text-right tabular-nums">
