@@ -1709,9 +1709,25 @@ export default function IRRValuation({ data, user, selectedYear: selectedYearPro
                           // config (no Phase 2 data yet), this falls through to 0.
                           const cashShares = (initialThisYear > 0 && sharePrice > 0) ? initialThisYear / sharePrice : 0;
 
-                          // Build per-year event list (chronological): cash/recycled
-                          // first, then non-cash events.
+                          // Build per-year event list. Order: non-cash events
+                          // FIRST (interest accrual, redistribution, founder
+                          // grant), then the cash/recycled/convertibleLoan
+                          // event. Reflects temporal sequence — e.g., for CE
+                          // 2024: interest accrued through conversion, then
+                          // recycled allocations began after.
                           const events = [];
+                          for (const ev of yearNonCash) {
+                            runningShares += ev.shares;
+                            events.push({
+                              kind: 'nonCash',
+                              year, label: ev.label, description: ev.description,
+                              initial: 0, recycled: 0,
+                              cumInitial: runningInitial,
+                              cumRecycled: runningRecycled,
+                              sharesDelta: ev.shares,
+                              cumShares: runningShares,
+                            });
+                          }
                           if (investmentVal > 0) {
                             runningShares += cashShares;
                             // Three kinds of contribution rows:
@@ -1730,18 +1746,6 @@ export default function IRRValuation({ data, user, selectedYear: selectedYearPro
                               cumInitial: runningInitial,
                               cumRecycled: runningRecycled,
                               sharesDelta: cashShares,
-                              cumShares: runningShares,
-                            });
-                          }
-                          for (const ev of yearNonCash) {
-                            runningShares += ev.shares;
-                            events.push({
-                              kind: 'nonCash',
-                              year, label: ev.label, description: ev.description,
-                              initial: 0, recycled: 0,
-                              cumInitial: runningInitial,
-                              cumRecycled: runningRecycled,
-                              sharesDelta: ev.shares,
                               cumShares: runningShares,
                             });
                           }
