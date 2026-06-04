@@ -1729,36 +1729,43 @@ export default function InVitroDashboard({ data: rawData, user }) {
                 // Revenue KPI badges for AllRx/AllCare from revenueDetails
                 const rd = data.revenueDetails;
                 let kpiBadge = null;
+                // KPI badges — each metric (RX/SUs, ARPU, ARR) gets its own
+                // pill so the eye can pick them up independently. Separator
+                // "|" removed; whitespace + rounded backgrounds carry the
+                // visual separation now.
+                const badgePill = (color, label, value) => (
+                  <span className={cn(
+                    "inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium",
+                    color === 'blue' && "bg-blue-50 text-blue-700 border border-blue-200/70",
+                    color === 'emerald' && "bg-emerald-50 text-emerald-700 border border-emerald-200/70",
+                    color === 'neutral' && "bg-muted text-foreground/70 border border-border",
+                  )}>
+                    <span className="opacity-70">{label}</span>
+                    <span className="font-semibold tabular-nums">{value}</span>
+                  </span>
+                );
                 if (rd && name === 'AllRx' && rd.AllRx?.segments) {
                   const totalRx = rd.AllRx.segments.reduce((s, seg) => s + (seg.metrics['RX Count'] ?? []).filter(inRange).reduce((a, v) => a + (v.value ?? 0), 0), 0);
                   const totalSegRev = rd.AllRx.segments.reduce((s, seg) => s + (seg.metrics['Total Revenues'] ?? seg.metrics['Revenues'] ?? []).filter(inRange).reduce((a, v) => a + (v.value ?? 0), 0), 0);
                   const arpu = totalRx > 0 ? totalSegRev / totalRx : 0;
-                  kpiBadge = <div className="flex flex-wrap gap-x-2 gap-y-0.5 mt-1">
-                    <span className="text-[10px] text-blue-600 font-medium">RX: {totalRx.toLocaleString()}</span>
-                    <span className="text-[10px] text-muted-foreground">|</span>
-                    <span className="text-[10px] text-blue-600 font-medium">ARPU: ${arpu.toFixed(2)}</span>
-                    {arr > 0 && <>
-                      <span className="text-[10px] text-muted-foreground">|</span>
-                      <span className="text-[10px] text-blue-600 font-medium">ARR: {fmt(arr)}</span>
-                    </>}
+                  kpiBadge = <div className="flex flex-wrap gap-1.5 mt-1.5">
+                    {badgePill('blue', 'RX', totalRx.toLocaleString())}
+                    {badgePill('blue', 'ARPU', `$${arpu.toFixed(2)}`)}
+                    {arr > 0 && badgePill('blue', 'ARR', fmt(arr))}
                   </div>;
                 } else if (rd && name === 'AllCare' && rd.AllCare?.serviceLines) {
                   const totalSUs = rd.AllCare.serviceLines.reduce((s, sl) => s + (sl.metrics['SUs'] ?? []).filter(inRange).reduce((a, v) => a + (v.value ?? 0), 0), 0);
                   const totalSlRev = rd.AllCare.serviceLines.reduce((s, sl) => s + (sl.metrics['Revenues'] ?? []).filter(inRange).reduce((a, v) => a + (v.value ?? 0), 0), 0);
                   const arpu = totalSUs > 0 ? totalSlRev / totalSUs : 0;
-                  kpiBadge = <div className="flex flex-wrap gap-x-2 gap-y-0.5 mt-1">
-                    <span className="text-[10px] text-emerald-600 font-medium">SUs: {totalSUs.toLocaleString()}</span>
-                    <span className="text-[10px] text-muted-foreground">|</span>
-                    <span className="text-[10px] text-emerald-600 font-medium">ARPU: ${arpu.toFixed(2)}</span>
-                    {arr > 0 && <>
-                      <span className="text-[10px] text-muted-foreground">|</span>
-                      <span className="text-[10px] text-emerald-600 font-medium">ARR: {fmt(arr)}</span>
-                    </>}
+                  kpiBadge = <div className="flex flex-wrap gap-1.5 mt-1.5">
+                    {badgePill('emerald', 'SUs', totalSUs.toLocaleString())}
+                    {badgePill('emerald', 'ARPU', `$${arpu.toFixed(2)}`)}
+                    {arr > 0 && badgePill('emerald', 'ARR', fmt(arr))}
                   </div>;
                 } else if (arr > 0) {
                   // Other companies (Osta, Needles, InVitro Studio) — just show ARR
-                  kpiBadge = <div className="flex gap-2 mt-1">
-                    <span className="text-[10px] text-foreground/70 font-medium">ARR: {fmt(arr)}</span>
+                  kpiBadge = <div className="flex flex-wrap gap-1.5 mt-1.5">
+                    {badgePill('neutral', 'ARR', fmt(arr))}
                   </div>;
                 }
                 return (
