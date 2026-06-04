@@ -44,6 +44,16 @@ const NAV_BUTTON_BASE =
 const SUB_NAV_BUTTON =
   "w-full flex items-center gap-2.5 px-3 rounded-md text-[13px] font-medium transition-colors min-h-[40px] md:min-h-0 md:py-1.5 py-2";
 
+// IRR & Valuation sub-views (only shown for LP users — they're a
+// look-through decomposition toggle). When showIrrSubNav is true and
+// IRR is the active section, these render as nested buttons beneath
+// IRR & Valuation, mirroring how the portfolio companies expand into
+// their operating tabs.
+const IRR_SUB_VIEWS = [
+  { id: 'by-company', label: 'By Company',         icon: '🏢' },
+  { id: 'by-source',  label: 'By Source (Vehicle)', icon: '🪙' },
+];
+
 export default function DashboardSidebar({
   activeSection,
   setActiveSection,
@@ -59,6 +69,9 @@ export default function DashboardSidebar({
   canBreakdown = () => true,
   userName,
   userRole,
+  irrView = 'by-company',
+  setIrrView,
+  showIrrSubNav = false,
 }) {
   const visibleInvestmentTabs = INVESTMENT_TABS.filter(s => canSeeTab(s.id));
   const visiblePortfolioTabs = PORTFOLIO_TABS.filter(s => canSeeTab(s.id));
@@ -162,21 +175,48 @@ export default function DashboardSidebar({
                 Investment Performance
               </p>
               <nav className="space-y-0.5">
-                {visibleInvestmentTabs.map(s => (
-                  <button
-                    key={s.id}
-                    onClick={() => handleTabClick(s.id)}
-                    className={cn(
-                      NAV_BUTTON_BASE,
-                      activeSection === s.id
-                        ? "bg-primary/10 text-primary"
-                        : "text-muted-foreground hover:bg-muted hover:text-foreground"
-                    )}
-                  >
-                    <span className="text-base leading-none">{s.icon}</span>
-                    <span>{s.label}</span>
-                  </button>
-                ))}
+                {visibleInvestmentTabs.map(s => {
+                  const isActive = activeSection === s.id;
+                  // IRR & Valuation gets nested sub-views for LP users
+                  // (showIrrSubNav). When the section is active, expand
+                  // to show the "By Company" / "By Source" sub-buttons.
+                  const showSubViews = s.id === 'irr' && showIrrSubNav && isActive;
+                  return (
+                    <div key={s.id}>
+                      <button
+                        onClick={() => handleTabClick(s.id)}
+                        className={cn(
+                          NAV_BUTTON_BASE,
+                          isActive
+                            ? "bg-primary/10 text-primary"
+                            : "text-muted-foreground hover:bg-muted hover:text-foreground"
+                        )}
+                      >
+                        <span className="text-base leading-none">{s.icon}</span>
+                        <span>{s.label}</span>
+                      </button>
+                      {showSubViews && (
+                        <div className="ml-3 mt-1 mb-2 border-l border-border/50 pl-2 space-y-0.5">
+                          {IRR_SUB_VIEWS.map(sv => (
+                            <button
+                              key={sv.id}
+                              onClick={() => setIrrView?.(sv.id)}
+                              className={cn(
+                                SUB_NAV_BUTTON,
+                                irrView === sv.id
+                                  ? "bg-primary/10 text-primary"
+                                  : "text-muted-foreground hover:bg-muted hover:text-foreground"
+                              )}
+                            >
+                              <span className="text-sm leading-none">{sv.icon}</span>
+                              <span>{sv.label}</span>
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
               </nav>
             </div>
           )}

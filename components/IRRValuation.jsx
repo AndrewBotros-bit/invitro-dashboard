@@ -467,7 +467,7 @@ function computeLpReturns(lp, vehicle, yearIdx, years) {
  *  - lpName set → only show vehicles where this LP appears, highlight LP's row.
  *  - lpName unset → show all 4 vehicles (admin / general viewer).
  */
-export default function IRRValuation({ data, user, selectedYear: selectedYearProp, compareYear }) {
+export default function IRRValuation({ data, user, selectedYear: selectedYearProp, compareYear, viewMode }) {
   const irr = data?.irrValuation;
 
   // No IRR data available — could be missing tab access or sheet load failure
@@ -499,14 +499,11 @@ export default function IRRValuation({ data, user, selectedYear: selectedYearPro
 
   // LP scoping
   const lpName = user?.permissions?.lpName || null;
-  // Look-Through view mode toggle — "by-company" shows the portco-centric
-  // decomposition (Consolidated per-company table + per-portco detail
-  // cards); "by-source" shows the vehicle-centric decomposition
-  // (Consolidated per-vehicle table + per-vehicle detail sections like
-  // My Performance). Defaults to by-company since most LPs care first
-  // about "what am I exposed to", then drill into "how did it get
-  // structured". The toggle is the dropdown at the top of the IRR tab.
-  const [lookThroughView, setLookThroughView] = useState('by-company');
+  // Look-Through view mode — lifted to Dashboard so the sidebar drives
+  // it via IRR & Valuation sub-nav. Defaults to by-company when
+  // not provided. Values: 'by-company' (portco-centric, default) or
+  // 'by-source' (vehicle-centric).
+  const lookThroughView = viewMode || 'by-company';
   const visibleVehicles = lpName
     ? irr.vehicles.filter(v => v.lps.some(lp => lp.name === lpName))
     : irr.vehicles;
@@ -733,34 +730,16 @@ export default function IRRValuation({ data, user, selectedYear: selectedYearPro
 
   return (
     <div className="space-y-6">
-      {/* Title / LP scope label + view-mode toggle. The dropdown switches
-          the entire below content between two decompositions of the same
-          data: by company (portco-centric) or by source (vehicle-centric).
-          Only LP users get the toggle; admin/non-LP keeps the original
-          vehicle-centric layout (no look-through view exists for them). */}
-      <div className="flex items-start justify-between gap-3 flex-wrap">
-        <div>
-          <h2 className="text-xl font-semibold tracking-tight">
-            IRR &amp; Valuation — {selectedYear}{compEnabled ? ` vs ${compareYear}` : ''}
-          </h2>
-          <p className="text-sm text-muted-foreground">
-            {lpName ? <>Viewing your stakes as <strong>{lpName}</strong></> : <>All investment vehicles</>}
-          </p>
-        </div>
-        {lpName && (
-          <div className="flex items-center gap-2">
-            <label htmlFor="lt-view" className="text-[11px] uppercase tracking-wide text-muted-foreground font-semibold">View by</label>
-            <select
-              id="lt-view"
-              value={lookThroughView}
-              onChange={(e) => setLookThroughView(e.target.value)}
-              className="text-sm font-medium border border-border rounded-md px-2.5 py-1.5 bg-background hover:bg-muted focus:outline-none focus:ring-2 focus:ring-primary/40"
-            >
-              <option value="by-company">Company</option>
-              <option value="by-source">Source (Vehicle)</option>
-            </select>
-          </div>
-        )}
+      {/* Title / LP scope label. View-mode toggle lives in the sidebar
+          (under IRR & Valuation) for LP users — no in-page dropdown
+          needed. Admin/non-LP users see the original layout. */}
+      <div>
+        <h2 className="text-xl font-semibold tracking-tight">
+          IRR &amp; Valuation — {selectedYear}{compEnabled ? ` vs ${compareYear}` : ''}
+        </h2>
+        <p className="text-sm text-muted-foreground">
+          {lpName ? <>Viewing your stakes as <strong>{lpName}</strong></> : <>All investment vehicles</>}
+        </p>
       </div>
 
       {/* LP-scoped wayfinding banner — tells the LP up-front how many

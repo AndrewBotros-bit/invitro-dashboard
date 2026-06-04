@@ -541,6 +541,11 @@ export default function InVitroDashboard({ data: rawData, user }) {
   const [compareEnabled, setCompareEnabled] = useState(false);
   const [compareFromKey, setCompareFromKey] = useState(null); // null = auto-compute
   const [compareToKey, setCompareToKey] = useState(null);
+  // IRR Look-Through view mode — lifted from IRRValuation to Dashboard so
+  // the sidebar can drive it via the IRR & Valuation sub-nav. Values:
+  // 'by-company' (default) | 'by-source'. Only applies for LP users; admin
+  // sees the original per-vehicle layout regardless.
+  const [irrView, setIrrView] = useState('by-company');
   const availableMonths = getAvailableMonths(data.pnl);
   // Available years (unique, sorted)
   const availableYears = [...new Set(availableMonths.map(m => m.year))].sort();
@@ -1262,6 +1267,9 @@ export default function InVitroDashboard({ data: rawData, user }) {
         canBreakdown={canBreakdown}
         userName={user?.name}
         userRole={user?.role}
+        irrView={irrView}
+        setIrrView={setIrrView}
+        showIrrSubNav={!!perms.lpName}
       />
 
       {/* Main content area — offset by sidebar width */}
@@ -2996,6 +3004,7 @@ export default function InVitroDashboard({ data: rawData, user }) {
               user={user}
               selectedYear={irrYear}
               compareYear={irrCompareEnabled ? irrCompYear : null}
+              viewMode={irrView}
             />
           )}
 
