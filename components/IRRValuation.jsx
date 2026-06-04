@@ -1035,7 +1035,28 @@ export default function IRRValuation({ data, user, selectedYear: selectedYearPro
                 const portcoValuation = fin.valuation?.[yearIdx];
                 const portcoMultiple = fin.multiple?.[yearIdx];
                 const portcoRevenue = fin.revenue?.[yearIdx];
-                const portcoGM = fin.grossMargin?.[yearIdx];
+                // Gross margin source: IRR sheet by default. For AllRx
+                // specifically, override with the External tab's annual
+                // GM (data.pnl['AllRx External']) — the "public-target"
+                // view the CFO wants LPs to see. The override is
+                // intentionally silent: no "external" label, just shows
+                // up as the AllRx margin. Falls back to IRR sheet's GM
+                // if External data isn't available.
+                const computeAnnualGmFromPnL = (pnlCompanyName, year) => {
+                  const c = data?.pnl?.find(p => p.name === pnlCompanyName);
+                  if (!c) return null;
+                  const rev = c.metrics?.['Revenues'] ?? [];
+                  const gp = c.metrics?.['Gross Profit'] ?? [];
+                  const annRev = rev.filter(mv => mv.year === year).reduce((s, mv) => s + (mv.value ?? 0), 0);
+                  const annGp = gp.filter(mv => mv.year === year).reduce((s, mv) => s + (mv.value ?? 0), 0);
+                  if (annRev <= 0) return null;
+                  return (annGp / annRev) * 100;  // percent units to match IRR convention
+                };
+                let portcoGM = fin.grossMargin?.[yearIdx];
+                if (lt.portcoName === 'AllRx') {
+                  const externalGm = computeAnnualGmFromPnL('AllRx External', selectedYear);
+                  if (externalGm != null) portcoGM = externalGm;
+                }
                 // Total cumulative investment INTO this portco across all
                 // sources (every vehicle + every direct shareholder).
                 // Through the selected year only.
