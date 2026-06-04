@@ -824,11 +824,15 @@ export default function IRRValuation({ data, user, selectedYear: selectedYearPro
                 const byVehicleInvestment = new Map(); // vehicleName → cumulative attributable investment
                 let totalAll = 0;
                 let totalInvestmentAll = 0;
+                // Sum of full portco valuations across all companies the LP has exposure to
+                // — the "total pie" the LP is a slice of.
+                let totalPortcoValuation = 0;
                 let earliestYearIdxAll = Infinity;
                 for (const lt of lookThrough) {
                   totalDirect += lt.directValue;
                   totalDirectCash += lt.directCash;
                   totalInvestmentAll += lt.totalInvestment;
+                  totalPortcoValuation += (lt.valuation ?? 0);
                   for (const ind of lt.indirect) {
                     byVehicle.set(ind.vehicle, (byVehicle.get(ind.vehicle) ?? 0) + ind.effectiveValue);
                     byVehicleInvestment.set(ind.vehicle, (byVehicleInvestment.get(ind.vehicle) ?? 0) + ind.lpAttributableInvestment);
@@ -856,7 +860,12 @@ export default function IRRValuation({ data, user, selectedYear: selectedYearPro
                       <div className="flex items-baseline justify-between gap-2 flex-wrap mb-2">
                         <div className="flex items-baseline gap-2 min-w-0">
                           <span className="text-xs font-bold uppercase tracking-wide text-violet-900">Consolidated</span>
-                          <span className="text-[10px] text-violet-700">total across all portcos · {lookThrough.length} {lookThrough.length === 1 ? 'company' : 'companies'}</span>
+                          <span className="text-[10px] text-violet-700">
+                            total across all portcos · {lookThrough.length} {lookThrough.length === 1 ? 'company' : 'companies'}
+                            {totalPortcoValuation > 0 && (
+                              <> · <span className="font-semibold">{fmt(totalPortcoValuation)}</span> total valuation</>
+                            )}
+                          </span>
                         </div>
                       </div>
                       {/* Consolidated metrics strip — same shape as the
@@ -865,7 +874,7 @@ export default function IRRValuation({ data, user, selectedYear: selectedYearPro
                           the column totals below. */}
                       <div className="grid grid-cols-4 gap-2 text-center">
                         <div>
-                          <p className="text-[10px] text-violet-700 uppercase tracking-wide">Investment</p>
+                          <p className="text-[10px] text-violet-700 uppercase tracking-wide">Your Investment</p>
                           <p className="text-base font-bold tabular-nums text-violet-900">{totalInvestmentAll > 0 ? fmt(totalInvestmentAll) : '—'}</p>
                           {/* Cash vs recycled split — direct contributions + initial-
                               phase vehicle contributions are "cash you put in"; the
@@ -886,7 +895,7 @@ export default function IRRValuation({ data, user, selectedYear: selectedYearPro
                           )}
                         </div>
                         <div>
-                          <p className="text-[10px] text-violet-700 uppercase tracking-wide">Total Value</p>
+                          <p className="text-[10px] text-violet-700 uppercase tracking-wide">Your Total Stake Value</p>
                           <p className="text-base font-bold tabular-nums text-violet-900">{fmt(totalAll)}</p>
                         </div>
                         <div>
