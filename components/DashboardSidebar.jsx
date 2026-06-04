@@ -181,10 +181,15 @@ export default function DashboardSidebar({
                   // (showIrrSubNav). When the section is active, expand
                   // to show the "By Company" / "By Source" sub-buttons.
                   const showSubViews = s.id === 'irr' && showIrrSubNav && isActive;
+                  // Only IRR & Valuation (when LP can see sub-views)
+                  // is expandable; other Investment Performance tabs
+                  // remain flat buttons without a chevron.
+                  const isExpandable = s.id === 'irr' && showIrrSubNav;
                   return (
                     <div key={s.id}>
                       <button
                         onClick={() => handleTabClick(s.id)}
+                        aria-expanded={isExpandable ? showSubViews : undefined}
                         className={cn(
                           NAV_BUTTON_BASE,
                           isActive
@@ -194,6 +199,7 @@ export default function DashboardSidebar({
                       >
                         <span className="text-base leading-none">{s.icon}</span>
                         <span>{s.label}</span>
+                        {isExpandable && <Chevron expanded={showSubViews} />}
                       </button>
                       {showSubViews && (
                         <div className="ml-3 mt-1 mb-2 border-l border-border/50 pl-2 space-y-0.5">
