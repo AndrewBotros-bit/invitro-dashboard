@@ -471,8 +471,19 @@ export default function InVitroDashboard({ data: rawData, user }) {
   const [deploying, setDeploying] = useState(false);
   const [deployMsg, setDeployMsg] = useState(null);
 
-  // Sidebar & navigation state
-  const [activeSection, setActiveSection] = useState('overview');
+  // Sidebar & navigation state.
+  // Default landing page depends on user role:
+  //   - LP / shareholder (lpName set): IRR & Valuation tab. Their
+  //     primary view is the look-through across vehicles/portcos.
+  //   - Everyone else (admin, board members, operators): Portfolio
+  //     Performance → Overview. Their primary view is operating
+  //     financials of the portfolio companies.
+  // Honors permissions: an LP without IRR tab access falls back to
+  // 'overview' so they don't land on a forbidden section.
+  const [activeSection, setActiveSection] = useState(() => {
+    if (perms.lpName && canSeeTab('irr')) return 'irr';
+    return 'overview';
+  });
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
   // Company selector state. 'AllRx External' is a parallel sidebar entry
@@ -543,9 +554,10 @@ export default function InVitroDashboard({ data: rawData, user }) {
   const [compareToKey, setCompareToKey] = useState(null);
   // IRR Look-Through view mode — lifted from IRRValuation to Dashboard so
   // the sidebar can drive it via the IRR & Valuation sub-nav. Values:
-  // 'by-company' (default) | 'by-source'. Only applies for LP users; admin
-  // sees the original per-vehicle layout regardless.
-  const [irrView, setIrrView] = useState('by-company');
+  // 'by-company' | 'by-source'. LP users land on 'by-source' (their
+  // primary view); non-LP users default to 'by-company' (the cleaner
+  // look-through summary). User can switch via sidebar sub-nav.
+  const [irrView, setIrrView] = useState(() => perms.lpName ? 'by-source' : 'by-company');
   const availableMonths = getAvailableMonths(data.pnl);
   // Available years (unique, sorted)
   const availableYears = [...new Set(availableMonths.map(m => m.year))].sort();
