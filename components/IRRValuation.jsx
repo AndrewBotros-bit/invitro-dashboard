@@ -801,19 +801,14 @@ export default function IRRValuation({ data, user, selectedYear: selectedYearPro
       {lpName && (() => {
         const lookThrough = computeLookThrough(lpName);
         if (lookThrough.length === 0) return null;
-        const hasAnyDirectExposure = lookThrough.some(lt => lt.directOwnPct > 0 || lt.directCash > 0);
+        // Wrapper flattened — the Consolidated card and per-portco
+        // sections now sit as top-level siblings in the page flow,
+        // mirroring the by-source view's per-vehicle sections. The
+        // outer violet "Your Look-Through Exposure" frame was added
+        // visual weight without information; removing it gives each
+        // card its own breathing room and consistent treatment.
         return (
-          <div className="rounded-xl border-2 border-violet-300 bg-gradient-to-br from-violet-50 via-violet-50/60 to-violet-50/30 shadow-sm overflow-hidden">
-            <div className="px-5 py-3 border-b border-violet-200/60 bg-violet-100/40">
-              <p className="text-[10px] font-semibold uppercase tracking-widest text-violet-700">Your Look-Through Exposure</p>
-              <p className="text-sm text-violet-900 mt-0.5">
-                {hasAnyDirectExposure
-                  ? <>Total economic interest in each portfolio company — your direct stake plus your pro-rata slice through every vehicle.</>
-                  : <>Total economic interest in each portfolio company — your pro-rata slice through every vehicle you&apos;re invested in.</>
-                }
-              </p>
-            </div>
-            <div className="p-4 space-y-4">
+          <>
               {/* Consolidated summary — rolls the per-portco cards up
                   into a single "total exposure across the whole
                   portfolio" view, broken down by source (direct + each
@@ -1254,8 +1249,7 @@ export default function IRRValuation({ data, user, selectedYear: selectedYearPro
                 </div>
                 );
               })}
-            </div>
-          </div>
+          </>
         );
       })()}
 
