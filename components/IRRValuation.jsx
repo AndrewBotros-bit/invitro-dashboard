@@ -1759,10 +1759,19 @@ export default function IRRValuation({ data, user, selectedYear: selectedYearPro
                             });
                           }
                           if (events.length === 0) continue; // pre-investment year
-                          // Attach year-end metrics to LAST event row
-                          events[events.length - 1].ownPctYr = ownPctYr;
-                          events[events.length - 1].stakeFmv = stakeFmv;
-                          events[events.length - 1].moicYr = moicYr;
+                          // Attach year-end metrics to LAST event row.
+                          // For pre-conversion years (Curenta Enterprise pre-2024),
+                          // the LP was a creditor, not a shareholder — no equity
+                          // ownership, no FMV stake. We leave ownPctYr / stakeFmv /
+                          // moicYr off so the renderer naturally shows '—' for
+                          // those columns. The cumulative cost still accumulates
+                          // (loan principal carries to equity at conversion).
+                          const isPreConversionYear = conversionYear != null && year < conversionYear;
+                          if (!isPreConversionYear) {
+                            events[events.length - 1].ownPctYr = ownPctYr;
+                            events[events.length - 1].stakeFmv = stakeFmv;
+                            events[events.length - 1].moicYr = moicYr;
+                          }
                           events[events.length - 1].isYearEnd = true;
                           events[events.length - 1].isSelectedYear = idx === yearIdx;
                           if (idx === yearIdx) events.forEach(e => e.isSelectedYear = true);
