@@ -56,6 +56,22 @@ const VEHICLE_RECYCLING_START_YEAR = {
 };
 
 /**
+ * Convertible-loan vehicles: contributions BEFORE the conversion year
+ * were structured as convertible loan agreements (debt). They converted
+ * to equity at `conversionYear`. Cost-basis math is unchanged — the
+ * loan principal becomes the equity cost basis at conversion — but the
+ * Year-by-Year row for pre-conversion contributions renders with a
+ * distinct "Convertible Loan" label and color so the LP understands
+ * the historical context (they weren't shareholders during those years;
+ * they were creditors).
+ */
+const VEHICLE_CONVERSION_YEAR = {
+  'Curenta Enterprise': 2024,
+  // Add other vehicles here when their initial capital was structured
+  // as a convertible loan that later converted to equity.
+};
+
+/**
  * Fund commitments — distinguishes "investment vehicles" (direct holdings,
  * no commitment concept) from "funds" (committed-capital structure with
  * multi-year capital calls).
@@ -1659,10 +1675,18 @@ export default function IRRValuation({ data, user, selectedYear: selectedYearPro
                         let runningShares = 0;
                         let runningInitial = 0;  // cumulative initial cash (= cost basis)
                         let runningRecycled = 0; // cumulative GP-recycled allocations
+                        // Convertible-loan period: for vehicles that started
+                        // as convertible-loan agreements (Curenta Enterprise),
+                        // pre-conversion contributions are debt — not equity.
+                        // They still count as cost basis (the loan principal
+                        // becomes equity basis at conversion) but render with
+                        // a distinct "Convertible Loan" label and color.
+                        const conversionYear = VEHICLE_CONVERSION_YEAR[v.name];
                         for (let idx = 0; idx < years.length; idx++) {
                           const year = years[idx];
                           const investmentVal = myLp.investment?.[idx] ?? 0;
                           const isRecycled = hasRecyclingCol && year >= recyclingStartYear;
+                          const isConvertibleLoan = conversionYear != null && year < conversionYear && investmentVal > 0;
                           const initialThisYear = isRecycled ? 0 : investmentVal;
                           const recycledThisYear = isRecycled ? investmentVal : 0;
                           runningInitial += initialThisYear;
@@ -1690,8 +1714,16 @@ export default function IRRValuation({ data, user, selectedYear: selectedYearPro
                           const events = [];
                           if (investmentVal > 0) {
                             runningShares += cashShares;
+                            // Three kinds of contribution rows:
+                            //   - 'convertibleLoan': pre-conversion years for
+                            //     vehicles structured as convertible loans
+                            //     (CE pre-2024). Still counted as initial
+                            //     cost basis but labeled distinctly.
+                            //   - 'recycled': post-recyclingStartYear (vehicle
+                            //     redeploying its own profits, not new LP cash).
+                            //   - 'cash': default — straight equity contribution.
                             events.push({
-                              kind: isRecycled ? 'recycled' : 'cash',
+                              kind: isConvertibleLoan ? 'convertibleLoan' : (isRecycled ? 'recycled' : 'cash'),
                               year,
                               initial: initialThisYear,
                               recycled: recycledThisYear,
@@ -1763,6 +1795,7 @@ export default function IRRValuation({ data, user, selectedYear: selectedYearPro
                               r.isSelectedYear && r.isYearEnd && 'font-medium',
                               r.kind === 'nonCash' && !r.isSelectedYear && 'bg-amber-50/50',
                               r.kind === 'recycled' && !r.isSelectedYear && 'bg-sky-50/50',
+                              r.kind === 'convertibleLoan' && !r.isSelectedYear && 'bg-indigo-50/50',
                             );
                             return (
                               <TableRow key={`${r.year}-${r.kind}-${ri}`} className={rowCls}>
@@ -1775,6 +1808,10 @@ export default function IRRValuation({ data, user, selectedYear: selectedYearPro
                                   ) : r.kind === 'recycled' ? (
                                     <span className="text-sky-800" title="GP recycled profits into a new investment on your behalf — no new cash from you">
                                       {r.year} <em className="not-italic text-[10px] font-medium">↻ Recycled</em>
+                                    </span>
+                                  ) : r.kind === 'convertibleLoan' ? (
+                                    <span className="text-indigo-800" title="Contribution was a convertible loan agreement at the time; converted to equity at the conversion year">
+                                      {r.year} <em className="not-italic text-[10px] font-medium">📜 Convertible Loan</em>
                                     </span>
                                   ) : (
                                     <span>{r.year}</span>
@@ -1816,6 +1853,11 @@ export default function IRRValuation({ data, user, selectedYear: selectedYearPro
                       <p className="text-[10px] text-muted-foreground mt-3 italic">
                         <strong className="text-foreground">Initial Cash</strong> = cash you actually contributed to the vehicle.
                         <strong className="text-sky-800"> Recycled (GP)</strong> = GP redeploying vehicle profits into new investments on your behalf — these are NOT new cash from you and are excluded from Cost Basis and MOIC math.
+                        {VEHICLE_CONVERSION_YEAR[v.name] != null && (
+                          <>
+                            <span className="text-indigo-700"> Indigo rows</span> are pre-conversion <strong className="text-indigo-800">Convertible Loan</strong> contributions — debt at the time, converted to equity in {VEHICLE_CONVERSION_YEAR[v.name]}. The principal is included in Cumulative Cost.
+                          </>
+                        )}
                         <strong className="text-foreground"> Cumulative Cost</strong> = your running cost basis (initial cash only).
                         <span className="text-amber-700"> Amber rows</span> are non-cash share events (redistribution, bonus, etc.) — hover for details.
                         <strong className="text-foreground"> Stake FMV</strong> = your ownership % × the vehicle&apos;s mark-to-market value at year-end.
