@@ -44,7 +44,8 @@
         "revenueDrilldown": true,
         "expenseDrilldown": true,
         "auditConsole": false,
-        "hcDetails": true
+        "hcDetails": true,
+        "shareholderSplit": true
       },
       "lpName": "Amir Barsoum"
     },
