@@ -2933,18 +2933,40 @@ export default function InVitroDashboard({ data: rawData, user }) {
                             const totalVal = item.key === 'balance'
                               ? (chartData[chartData.length - 1]?.balance ?? 0)
                               : (totalStmt[item.key] ?? 0);
+                            // Studio CF drilldown: month cells for Investing/Financing
+                            // rows are clickable when Studio is selected + monthly view
+                            // + user has permission. Clicking opens the same drawer the
+                            // chart bars open — single state, two entry points.
+                            const drillKind = item.key === 'invCF' ? 'investing'
+                              : item.key === 'finCF' ? 'financing'
+                              : null;
+                            const cellDrillable = drillKind
+                              && selectedCompany === 'InVitro Studio'
+                              && viewMode === 'monthly'
+                              && canBreakdown('studioCashflowDrilldown', selectedCompany);
                             return (
                               <TableRow key={item.key} className={item.bold ? 'bg-muted/30' : ''}>
                                 <TableCell
                                   className={`sticky left-0 bg-card z-10 ${item.bold ? 'font-bold' : ''}`}
                                   style={{ paddingLeft: `${1 + item.indent}rem` }}
+                                  title={cellDrillable ? 'Click a month value to see breakdown' : undefined}
                                 >
                                   {item.label}
+                                  {cellDrillable && (
+                                    <span className="ml-2 text-[10px] font-medium text-primary uppercase tracking-wide">click ↗</span>
+                                  )}
                                 </TableCell>
-                                {monthsInRange.map(({ label }, i) => {
+                                {monthsInRange.map(({ label, year, month }, i) => {
                                   const val = chartData[i]?.[item.key] ?? 0;
+                                  const onClick = cellDrillable
+                                    ? () => setStudioCfDrilldown({ kind: drillKind, year, month })
+                                    : undefined;
                                   return (
-                                    <TableCell key={label} className={`text-right tabular-nums whitespace-nowrap ${item.bold ? 'font-bold' : ''} ${cashColor(val)}`}>
+                                    <TableCell
+                                      key={label}
+                                      onClick={onClick}
+                                      className={`text-right tabular-nums whitespace-nowrap ${item.bold ? 'font-bold' : ''} ${cashColor(val)} ${cellDrillable ? 'cursor-pointer hover:bg-primary/10 hover:underline underline-offset-2 transition-colors' : ''}`}
+                                    >
                                       {fmt(val)}
                                     </TableCell>
                                   );
