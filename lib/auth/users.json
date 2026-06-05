@@ -43,6 +43,9 @@
       "breakdowns": {
         "revenueDrilldown": true,
         "expenseDrilldown": true,
+        "expenseGLDetail": true,
+        "gpDrilldown": true,
+        "studioCashflowDrilldown": true,
         "auditConsole": false,
         "hcDetails": true,
         "shareholderSplit": true
