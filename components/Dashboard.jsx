@@ -2584,6 +2584,71 @@ export default function InVitroDashboard({ data: rawData, user }) {
               })()}
             </div>
 
+            {/* When Compare is on: swap the monthly trend chart for two
+                side-by-side ComparisonBarChart panels (per-company OpCF +
+                per-company NetCF current vs comp). Same pattern used in
+                Revenue/Expenses/Profitability tabs — KPI cards above show
+                the period totals as ComparisonBadges; these bars show the
+                per-company breakdown so the user can spot which entity
+                drove the period change. */}
+            {compareEnabled ? (
+              <div className="mb-5 space-y-4">
+                {(() => {
+                  // Routing helper: Studio uses 'Direct Operational Cash
+                  // Flow' (its 'Operational Cash Flow' double-counts portco
+                  // rollups). Same convention as elsewhere in this file.
+                  const opsKeyFor = (name) => name === 'InVitro Studio' ? 'Direct Operational Cash Flow' : 'Operational Cash Flow';
+                  // Which companies appear as bars. When a single company is
+                  // selected, only that one (so the chart shows ONE company
+                  // with two bars — current vs comp). When Consolidated,
+                  // all portcos minus the always-hidden pseudo entities.
+                  const cfCompanies = selectedCompany
+                    ? [selectedCompany]
+                    : DISPLAY_COMPANIES.filter(n => !EXCLUDE_ALWAYS.includes(n));
+                  // Sum a company's metric over a range predicate.
+                  const sumCF = (name, metricKey, predicate) => {
+                    const co = data.cashflow?.find(c => c.name === name);
+                    if (!co) return 0;
+                    const arr = co.metrics?.[metricKey] ?? [];
+                    return arr.filter(predicate).reduce((s, v) => s + (v.value ?? 0), 0);
+                  };
+                  const inCurrent = (v) => {
+                    const vi = v.year * 100 + v.month;
+                    return vi >= rangeFrom.year * 100 + rangeFrom.month
+                        && vi <= rangeTo.year * 100 + rangeTo.month;
+                  };
+                  const inComp = (v) => {
+                    const vi = v.year * 100 + v.month;
+                    return vi >= compRange.from.year * 100 + compRange.from.month
+                        && vi <= compRange.to.year * 100 + compRange.to.month;
+                  };
+                  return (
+                    <>
+                      <ComparisonBarChart
+                        title={`Operating Cash Flow Comparison — ${rangeLabel} vs ${compLabel}`}
+                        companies={cfCompanies}
+                        currentData={cfCompanies.map(name => ({ name, value: sumCF(name, opsKeyFor(name), inCurrent) }))}
+                        currentLabel={rangeLabel}
+                        compData={cfCompanies.map(name => ({ name, value: sumCF(name, opsKeyFor(name), inComp) }))}
+                        compLabel={compLabel}
+                        colorMap={colorMap}
+                        compIsOlder={compIsOlder}
+                      />
+                      <ComparisonBarChart
+                        title={`Net Cash Flow Comparison — ${rangeLabel} vs ${compLabel}`}
+                        companies={cfCompanies}
+                        currentData={cfCompanies.map(name => ({ name, value: sumCF(name, 'Net Cash Flow', inCurrent) }))}
+                        currentLabel={rangeLabel}
+                        compData={cfCompanies.map(name => ({ name, value: sumCF(name, 'Net Cash Flow', inComp) }))}
+                        compLabel={compLabel}
+                        colorMap={colorMap}
+                        compIsOlder={compIsOlder}
+                      />
+                    </>
+                  );
+                })()}
+              </div>
+            ) : (
             <Card className="mb-5">
               <CardHeader><CardTitle className="text-sm">Monthly Cash Flows &amp; Operational CF</CardTitle></CardHeader>
               <CardContent>
@@ -2603,6 +2668,7 @@ export default function InVitroDashboard({ data: rawData, user }) {
                 </ResponsiveContainer>
               </CardContent>
             </Card>
+            )}
 
             {/* Combined: Normal Cash Burn (bars) + Cash Runway (line) — consolidated only shows burn */}
             {(() => {
