@@ -30,9 +30,14 @@ const ALL_TABS = [
   { id: 'irr', label: 'IRR & Valuation' },
   { id: 'insights', label: 'Insights' },
 ];
+// Per-company drilldown permissions — each gates a click-to-drill drawer
+// somewhere in the dashboard. Same shape as boolean OR array of companies.
+// Field names (modeField/listField) are colocated so the render loop can
+// look them up directly instead of branching on key.
 const DRILL_BREAKDOWNS = [
-  { key: 'revenueDrilldown', label: 'Revenue drill-down' },
-  { key: 'expenseDrilldown', label: 'Expense drill-down' },
+  { key: 'revenueDrilldown', label: 'Revenue drill-down', modeField: 'bd_revenue_mode', listField: 'bd_revenue_list' },
+  { key: 'expenseDrilldown', label: 'Expense drill-down', modeField: 'bd_expense_mode', listField: 'bd_expense_list' },
+  { key: 'gpDrilldown',      label: 'Gross Profit drill-down', modeField: 'bd_gp_mode', listField: 'bd_gp_list' },
 ];
 
 // Avatar palette — deterministic color per username based on a string hash.
@@ -67,6 +72,7 @@ const ROLE_PRESETS = {
     tabs_mode: 'all', tabs_list: [],
     bd_revenue_mode: 'all', bd_revenue_list: [],
     bd_expense_mode: 'all', bd_expense_list: [],
+    bd_gp_mode: 'all', bd_gp_list: [],
     bd_audit: true, bd_hc: true, bd_shareholder: true, bd_expenseGL: true,
     lpName: '',
   },
@@ -76,6 +82,7 @@ const ROLE_PRESETS = {
     tabs_mode: 'subset', tabs_list: ['overview', 'irr', 'insights'],
     bd_revenue_mode: 'none', bd_revenue_list: [],
     bd_expense_mode: 'none', bd_expense_list: [],
+    bd_gp_mode: 'none', bd_gp_list: [],
     bd_audit: false, bd_hc: false, bd_shareholder: false, bd_expenseGL: false,
     lpName: '',
   },
@@ -85,6 +92,7 @@ const ROLE_PRESETS = {
     tabs_mode: 'subset', tabs_list: ['irr'],
     bd_revenue_mode: 'none', bd_revenue_list: [],
     bd_expense_mode: 'none', bd_expense_list: [],
+    bd_gp_mode: 'none', bd_gp_list: [],
     bd_audit: false, bd_hc: false, bd_shareholder: false, bd_expenseGL: false,
     lpName: '',
   },
@@ -94,6 +102,7 @@ const ROLE_PRESETS = {
     tabs_mode: 'all', tabs_list: [],
     bd_revenue_mode: 'all', bd_revenue_list: [],
     bd_expense_mode: 'all', bd_expense_list: [],
+    bd_gp_mode: 'all', bd_gp_list: [],
     bd_audit: false, bd_hc: true, bd_shareholder: false, bd_expenseGL: true,
     lpName: '',
   },
@@ -108,6 +117,7 @@ const ROLE_PRESETS = {
     tabs_mode: 'all', tabs_list: [],
     bd_revenue_mode: 'all', bd_revenue_list: [],
     bd_expense_mode: 'all', bd_expense_list: [],
+    bd_gp_mode: 'all', bd_gp_list: [],
     bd_audit: false, bd_hc: true, bd_shareholder: false, bd_expenseGL: true,
     lpName: '',
   },
@@ -119,6 +129,7 @@ const EMPTY_FORM = {
   tabs_mode: 'all', tabs_list: [],
   bd_revenue_mode: 'all', bd_revenue_list: [],
   bd_expense_mode: 'all', bd_expense_list: [],
+  bd_gp_mode: 'all', bd_gp_list: [],
   // bd_expenseGL gates Layer 2 of the expense drilldown (GL detail).
   // Default false — admins explicitly opt-in (privacy-by-default).
   bd_audit: false, bd_hc: false, bd_shareholder: false, bd_expenseGL: false,
@@ -135,7 +146,7 @@ function userToFormState(u) {
   if (p.tabs === '*') form.tabs_mode = 'all';
   else if (Array.isArray(p.tabs)) { form.tabs_mode = 'subset'; form.tabs_list = p.tabs; }
   if (p.breakdowns === '*') {
-    form.bd_revenue_mode = 'all'; form.bd_expense_mode = 'all';
+    form.bd_revenue_mode = 'all'; form.bd_expense_mode = 'all'; form.bd_gp_mode = 'all';
     form.bd_audit = true; form.bd_hc = true; form.bd_shareholder = true; form.bd_expenseGL = true;
   } else if (p.breakdowns) {
     const rv = p.breakdowns.revenueDrilldown;
@@ -146,6 +157,10 @@ function userToFormState(u) {
     if (ex === true) form.bd_expense_mode = 'all';
     else if (ex === false || ex == null) form.bd_expense_mode = 'none';
     else if (Array.isArray(ex)) { form.bd_expense_mode = 'subset'; form.bd_expense_list = ex; }
+    const gp = p.breakdowns.gpDrilldown;
+    if (gp === true) form.bd_gp_mode = 'all';
+    else if (gp === false || gp == null) form.bd_gp_mode = 'none';
+    else if (Array.isArray(gp)) { form.bd_gp_mode = 'subset'; form.bd_gp_list = gp; }
     form.bd_audit = p.breakdowns.auditConsole === true;
     form.bd_hc = p.breakdowns.hcDetails === true;
     form.bd_shareholder = p.breakdowns.shareholderSplit === true;
@@ -163,6 +178,7 @@ function formStateToPayload(form, isEdit) {
       revenueDrilldown: form.bd_revenue_mode === 'all' ? true : form.bd_revenue_mode === 'none' ? false : form.bd_revenue_list,
       expenseDrilldown: form.bd_expense_mode === 'all' ? true : form.bd_expense_mode === 'none' ? false : form.bd_expense_list,
       expenseGLDetail: form.bd_expenseGL,
+      gpDrilldown: form.bd_gp_mode === 'all' ? true : form.bd_gp_mode === 'none' ? false : form.bd_gp_list,
       auditConsole: form.bd_audit,
       hcDetails: form.bd_hc,
       shareholderSplit: form.bd_shareholder,
@@ -202,11 +218,11 @@ function permissionBadges(u) {
     badges.push({ key: 'bd', text: 'All breakdowns', tone: 'neutral' });
   } else if (p.breakdowns) {
     const bd = p.breakdowns;
-    const granted = ['revenueDrilldown', 'expenseDrilldown', 'expenseGLDetail', 'auditConsole', 'hcDetails', 'shareholderSplit'].filter(k => {
+    const granted = ['revenueDrilldown', 'expenseDrilldown', 'expenseGLDetail', 'gpDrilldown', 'auditConsole', 'hcDetails', 'shareholderSplit'].filter(k => {
       const v = bd[k];
       return v === true || (Array.isArray(v) && v.length > 0);
     });
-    if (granted.length > 0) badges.push({ key: 'bd', text: `${granted.length}/6 breakdowns`, tone: 'neutral' });
+    if (granted.length > 0) badges.push({ key: 'bd', text: `${granted.length}/7 breakdowns`, tone: 'neutral' });
   }
 
   // LP
@@ -500,7 +516,7 @@ export default function UserAdmin({ currentUser, lpNames = [] }) {
         let bd = '';
         if (p.breakdowns === '*') bd = 'All';
         else if (p.breakdowns) {
-          bd = ['revenueDrilldown', 'expenseDrilldown', 'expenseGLDetail', 'auditConsole', 'hcDetails', 'shareholderSplit']
+          bd = ['revenueDrilldown', 'expenseDrilldown', 'expenseGLDetail', 'gpDrilldown', 'auditConsole', 'hcDetails', 'shareholderSplit']
             .filter(k => {
               const v = p.breakdowns[k];
               return v === true || (Array.isArray(v) && v.length > 0);
@@ -906,9 +922,7 @@ export default function UserAdmin({ currentUser, lpNames = [] }) {
                 </fieldset>
 
                 {/* Per-company drilldowns */}
-                {DRILL_BREAKDOWNS.map(({ key, label }) => {
-                  const modeField = key === 'revenueDrilldown' ? 'bd_revenue_mode' : 'bd_expense_mode';
-                  const listField = key === 'revenueDrilldown' ? 'bd_revenue_list' : 'bd_expense_list';
+                {DRILL_BREAKDOWNS.map(({ key, label, modeField, listField }) => {
                   return (
                     <fieldset key={key} className="border border-border rounded-lg p-3">
                       <legend className="text-xs font-medium text-foreground uppercase tracking-wide px-1">{label}</legend>

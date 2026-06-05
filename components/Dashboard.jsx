@@ -2301,7 +2301,7 @@ export default function InVitroDashboard({ data: rawData, user }) {
                 Gross Profit line in its P&L). */}
             {gmCompanies.length > 0 && (
             <Card className="mb-5">
-              <CardHeader><CardTitle className="text-sm">Gross Profit & Margin ({rangeLabel}){(selectedCompany === 'AllCare' || selectedCompany === 'AllRx' || selectedCompany === 'AllRx External') && viewMode === 'monthly' ? ' — click a bar for breakdown' : ''}</CardTitle></CardHeader>
+              <CardHeader><CardTitle className="text-sm">Gross Profit & Margin ({rangeLabel}){(selectedCompany === 'AllCare' || selectedCompany === 'AllRx' || selectedCompany === 'AllRx External') && viewMode === 'monthly' && canBreakdown('gpDrilldown', selectedCompany) ? ' — click a bar for breakdown' : ''}</CardTitle></CardHeader>
               <CardContent>
                 {(() => {
                   // Combine GP dollar values (bars) + margin % (lines) into one dataset
@@ -2314,13 +2314,17 @@ export default function InVitroDashboard({ data: rawData, user }) {
                     }
                     return point;
                   });
-                  // Drill-down click: enabled for companies that publish
-                  // a granular sub-product / segment tab in the revenue
-                  // details sheet — AllCare (service lines) and AllRx
-                  // (customer segments). AllRx External shares the same
-                  // segment tab as AllRx so it's included. Monthly view
-                  // only — yearly drill semantics aren't defined yet.
-                  const canDrill = (selectedCompany === 'AllCare' || selectedCompany === 'AllRx' || selectedCompany === 'AllRx External') && viewMode === 'monthly';
+                  // Drill-down click: enabled when ALL THREE pass:
+                  //   1. Data exists for the selected company (AllCare
+                  //      service lines OR AllRx segments — AllRx External
+                  //      shares the AllRx segment tab).
+                  //   2. We're in monthly view (yearly drill TBD).
+                  //   3. User has 'gpDrilldown' permission for this
+                  //      company. Admin can grant per-company, e.g. an
+                  //      operator who runs AllRx can drill into AllRx
+                  //      but not AllCare.
+                  const hasGranularData = selectedCompany === 'AllCare' || selectedCompany === 'AllRx' || selectedCompany === 'AllRx External';
+                  const canDrill = hasGranularData && viewMode === 'monthly' && canBreakdown('gpDrilldown', selectedCompany);
                   const handleBarClick = canDrill ? (e) => {
                     if (!e?.activePayload?.[0]) return;
                     const label = e.activePayload[0].payload.month;
@@ -2405,9 +2409,9 @@ export default function InVitroDashboard({ data: rawData, user }) {
                 Same row shape, same color thresholds, same totals math
                 (sum_rev − sum_cos). Only the per-row grouping rule and
                 the first column label change between sources. */}
-            <Drawer open={!!gpDrilldown} onOpenChange={(open) => { if (!open) setGpDrilldown(null); }}>
+            <Drawer open={!!gpDrilldown && canBreakdown('gpDrilldown', selectedCompany)} onOpenChange={(open) => { if (!open) setGpDrilldown(null); }}>
               <DrawerContent>
-                {gpDrilldown && (() => {
+                {gpDrilldown && canBreakdown('gpDrilldown', selectedCompany) && (() => {
                   const ML = ['','Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
                   const drillLabel = `${ML[gpDrilldown.month]} ${gpDrilldown.year}`;
                   const inDrillMonth = (v) => v.year === gpDrilldown.year && v.month === gpDrilldown.month;

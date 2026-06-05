@@ -25,7 +25,10 @@ const ALL_TABS = ['overview', 'revenue', 'expenses', 'profitability', 'cashflow'
 // 'expenseGLDetail' gates Layer 2 of the expense breakdown drawer — the
 // GL-level sub-cards (Non-HC + Adhocks). Layer 1 (dept totals) is gated
 // by 'expenseDrilldown'; Layer 3 (HC headcount roster) by 'hcDetails'.
-const BREAKDOWN_KEYS = ['revenueDrilldown', 'expenseDrilldown', 'expenseGLDetail', 'auditConsole', 'hcDetails', 'shareholderSplit'];
+// 'gpDrilldown' gates the Profitability GP & Margin chart click-to-drill
+// (service-line or customer-segment breakdown drawer). Per-company,
+// same shape as revenue/expense drilldowns.
+const BREAKDOWN_KEYS = ['revenueDrilldown', 'expenseDrilldown', 'expenseGLDetail', 'gpDrilldown', 'auditConsole', 'hcDetails', 'shareholderSplit'];
 
 function requireAdmin() {
   const cookieStore = cookies();
