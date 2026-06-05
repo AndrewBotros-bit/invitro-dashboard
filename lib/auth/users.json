@@ -158,8 +158,13 @@
         "expenseDrilldown": [
           "InVitro Studio"
         ],
+        "expenseGLDetail": false,
+        "gpDrilldown": [
+          "AllCare"
+        ],
         "auditConsole": false,
-        "hcDetails": false
+        "hcDetails": false,
+        "shareholderSplit": false
       },
       "lpName": "Ayman Ismail"
     },
