@@ -2847,13 +2847,35 @@ export default function InVitroDashboard({ data: rawData, user }) {
                 return { month: label, year, m: month, ebitda, wcDelta, opCF, invCF, finCF, netCash, balance };
               });
 
-              // Per-company stmts for Layer 3 (Consolidated comparison).
-              // Always summed across the FULL selected range.
-              const buildCompanyStmt = (name) => {
+              // Comp-range months (when Compare is on). Empty otherwise.
+              const monthsInCompRange = (() => {
+                if (!compareEnabled) return [];
+                const result = [];
+                if (viewMode === 'yearly') {
+                  for (let y = compRange.from.year; y <= compRange.to.year; y++) {
+                    result.push({ year: y, month: 0 });
+                  }
+                } else {
+                  const start = compRange.from.year * 12 + compRange.from.month;
+                  const end = compRange.to.year * 12 + compRange.to.month;
+                  for (let mi = start; mi <= end; mi++) {
+                    const y = Math.floor((mi - 1) / 12);
+                    const m = ((mi - 1) % 12) + 1;
+                    result.push({ year: y, month: m });
+                  }
+                }
+                return result;
+              })();
+
+              // Per-company stmts for a given period (list of months).
+              // Parameterized so the same reducer powers both the CURRENT
+              // range (totalStmt / perCompanyStmts) and the COMP range
+              // (compStmt) when Compare is on.
+              const buildCompanyStmt = (name, months) => {
                 const pnl = data.pnl?.find(c => c.name === name);
                 const cf  = data.cashflow?.find(c => c.name === name);
                 let ebitda = 0, opCF = 0, invCF = 0, finCF = 0;
-                for (const { year, month } of monthsInRange) {
+                for (const { year, month } of months) {
                   if (viewMode === 'yearly') {
                     ebitda += sumYearMetric(pnl, 'EBITDA', year);
                     opCF   += sumYearMetric(cf, opCFKey(name), year);
@@ -2867,15 +2889,20 @@ export default function InVitroDashboard({ data: rawData, user }) {
                   }
                 }
                 // End balance is point-in-time — use the LAST period's value.
-                const last = monthsInRange[monthsInRange.length - 1];
-                const endBalance = viewMode === 'yearly'
+                const last = months[months.length - 1];
+                const endBalance = !last ? 0 : (viewMode === 'yearly'
                   ? getYearEndBalance(cf, last.year)
-                  : getValue(cf, balanceKey, last.year, last.month);
+                  : getValue(cf, balanceKey, last.year, last.month));
                 const wcDelta = opCF - ebitda;
                 const netCash = opCF + invCF + finCF;
                 return { name, ebitda, wcDelta, opCF, invCF, finCF, netCash, endBalance };
               };
-              const perCompanyStmts = companies.map(buildCompanyStmt);
+              const perCompanyStmts = companies.map(name => buildCompanyStmt(name, monthsInRange));
+              // Comp totals only computed when Compare is on. Used to
+              // render the 4-column Build-up comparison table below.
+              const compPerCompanyStmts = compareEnabled
+                ? companies.map(name => buildCompanyStmt(name, monthsInCompRange))
+                : [];
               const totalStmt = perCompanyStmts.reduce(
                 (acc, s) => ({
                   ebitda: acc.ebitda + s.ebitda,
@@ -2888,6 +2915,22 @@ export default function InVitroDashboard({ data: rawData, user }) {
                 }),
                 { ebitda: 0, wcDelta: 0, opCF: 0, invCF: 0, finCF: 0, netCash: 0, endBalance: 0 }
               );
+              // Compute the comparable totals for compRange (Compare ON).
+              // Same reducer shape as totalStmt — fed by compPerCompanyStmts.
+              const compStmt = compareEnabled
+                ? compPerCompanyStmts.reduce(
+                    (acc, s) => ({
+                      ebitda: acc.ebitda + s.ebitda,
+                      wcDelta: acc.wcDelta + s.wcDelta,
+                      opCF: acc.opCF + s.opCF,
+                      invCF: acc.invCF + s.invCF,
+                      finCF: acc.finCF + s.finCF,
+                      netCash: acc.netCash + s.netCash,
+                      endBalance: acc.endBalance + s.endBalance,
+                    }),
+                    { ebitda: 0, wcDelta: 0, opCF: 0, invCF: 0, finCF: 0, netCash: 0, endBalance: 0 }
+                  )
+                : null;
 
               // Skip entirely if there's no data at all
               if (chartData.length === 0) return null;
@@ -2979,12 +3022,73 @@ export default function InVitroDashboard({ data: rawData, user }) {
                     );
                   })()}
 
-                  {/* Layer 2 — Build-up table: rows = line items, columns = months + Total */}
+                  {/* Layer 2 — Build-up table.
+                      Compare OFF: rows = line items, columns = months + Total.
+                      Compare ON:  rows = line items, 4 columns —
+                                   Comp Total · Current Total · Δ $ · Δ %.
+                      Swapping to 4 columns in compare mode keeps the table
+                      scannable instead of doubling the width. KPI cards
+                      above show period totals via ComparisonBadge; this
+                      table shows the line-by-line delta. */}
                   <Card className="mb-5 overflow-hidden">
                     <CardHeader>
-                      <CardTitle className="text-sm">Build-up by {viewMode === 'yearly' ? 'Year' : 'Month'} ({selectedCompany || 'Consolidated'})</CardTitle>
+                      <CardTitle className="text-sm">
+                        {compareEnabled
+                          ? `Build-up Comparison — ${rangeLabel} vs ${compLabel} (${selectedCompany || 'Consolidated'})`
+                          : `Build-up by ${viewMode === 'yearly' ? 'Year' : 'Month'} (${selectedCompany || 'Consolidated'})`}
+                      </CardTitle>
                     </CardHeader>
                     <CardContent className="overflow-auto px-0">
+                      {compareEnabled ? (
+                        <Table>
+                          <TableHeader>
+                            <TableRow>
+                              <TableHead>Line Item</TableHead>
+                              <TableHead className="text-right whitespace-nowrap">{compLabel}</TableHead>
+                              <TableHead className="text-right whitespace-nowrap">{rangeLabel}</TableHead>
+                              <TableHead className="text-right whitespace-nowrap">Δ $</TableHead>
+                              <TableHead className="text-right whitespace-nowrap">Δ %</TableHead>
+                            </TableRow>
+                          </TableHeader>
+                          <TableBody>
+                            {LINE_ITEMS.map(item => {
+                              const curVal = item.key === 'balance'
+                                ? (chartData[chartData.length - 1]?.balance ?? 0)
+                                : (totalStmt[item.key] ?? 0);
+                              const cmpVal = item.key === 'balance'
+                                ? (compPerCompanyStmts.reduce((s, x) => s + x.endBalance, 0))
+                                : (compStmt?.[item.key] ?? 0);
+                              const delta = curVal - cmpVal;
+                              // % change: only meaningful when cmpVal != 0;
+                              // sign is direction of CURRENT vs COMP.
+                              const pctChg = cmpVal !== 0 ? (delta / Math.abs(cmpVal) * 100) : null;
+                              // For directionally-good metrics (EBITDA, Op CF,
+                              // Net Cash, Balance), up is green. For neutral
+                              // mods (WC Δ, Inv CF, Fin CF), let the cashColor
+                              // rule (sign-based) do the work on raw values.
+                              const deltaColor = delta === 0 ? 'text-muted-foreground' : delta > 0 ? 'text-emerald-600' : 'text-red-500';
+                              return (
+                                <TableRow key={item.key} className={item.bold ? 'bg-muted/30' : ''}>
+                                  <TableCell
+                                    className={`${item.bold ? 'font-bold' : ''}`}
+                                    style={{ paddingLeft: `${1 + item.indent}rem` }}
+                                  >
+                                    {item.label}
+                                  </TableCell>
+                                  <TableCell className={`text-right tabular-nums whitespace-nowrap ${item.bold ? 'font-bold' : ''} ${cashColor(cmpVal)}`}>{fmt(cmpVal)}</TableCell>
+                                  <TableCell className={`text-right tabular-nums whitespace-nowrap ${item.bold ? 'font-bold' : ''} ${cashColor(curVal)}`}>{fmt(curVal)}</TableCell>
+                                  <TableCell className={`text-right tabular-nums whitespace-nowrap font-medium ${deltaColor}`}>
+                                    {delta > 0 ? '+' : ''}{fmt(delta)}
+                                  </TableCell>
+                                  <TableCell className={`text-right tabular-nums whitespace-nowrap font-medium ${deltaColor}`}>
+                                    {pctChg === null ? '—' : `${pctChg > 0 ? '+' : ''}${pctChg.toFixed(1)}%`}
+                                  </TableCell>
+                                </TableRow>
+                              );
+                            })}
+                          </TableBody>
+                        </Table>
+                      ) : (
                       <Table>
                         <TableHeader>
                           <TableRow>
@@ -3056,6 +3160,7 @@ export default function InVitroDashboard({ data: rawData, user }) {
                           })}
                         </TableBody>
                       </Table>
+                      )}
                     </CardContent>
                   </Card>
 
