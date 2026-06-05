@@ -136,11 +136,11 @@
     "role": "viewer",
     "permissions": {
       "companies": [
-        "AllCare",
-        "Osta",
         "InVitro Studio",
-        "Needles",
-        "AllRx External"
+        "AllCare",
+        "AllRx External",
+        "Osta",
+        "Needles"
       ],
       "tabs": [
         "irr",

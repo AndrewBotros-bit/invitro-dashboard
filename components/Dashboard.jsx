@@ -491,7 +491,15 @@ export default function InVitroDashboard({ data: rawData, user }) {
   // variants (admin/superuser); external-only users have already had the
   // entry renamed to "AllRx" upstream (applyExternalAllRxView).
   const ALL_COMPANIES = ['AllRx', 'AllRx External', 'AllCare', 'Osta', 'Needles', 'InVitro Studio'];
-  const DISPLAY_COMPANIES = ALL_COMPANIES.filter(canSeeCompany);
+  // DISPLAY_COMPANIES drives sidebar order. Two rules:
+  //   - Admin (companies === '*'): use the canonical ALL_COMPANIES order.
+  //   - Viewer with an explicit array: use that array's order verbatim,
+  //     filtered to companies that actually exist in ALL_COMPANIES.
+  // This lets admins personalize the sidebar for individual users (e.g.
+  // surface their primary portco first) just by reordering the array.
+  const DISPLAY_COMPANIES = perms.companies === '*'
+    ? ALL_COMPANIES.filter(canSeeCompany)
+    : (Array.isArray(perms.companies) ? perms.companies : []).filter(c => ALL_COMPANIES.includes(c));
   // Initial selectedCompany: AllCare is the default landing target for
   // Portfolio Performance (per CFO direction — AllCare is the headline
   // portfolio company most users are interested in by default).
