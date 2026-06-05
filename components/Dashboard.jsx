@@ -525,7 +525,7 @@ export default function InVitroDashboard({ data: rawData, user }) {
   const [expenseDrilldown, setExpenseDrilldown] = useState(null); // { year, month } or null
   const [revenueDrilldown, setRevenueDrilldown] = useState(null); // { year, month } or null
   const [gpDrilldown, setGpDrilldown] = useState(null); // { year, month } or null — AllCare service-line GP drilldown
-  const [studioCfDrilldown, setStudioCfDrilldown] = useState(null); // { kind: 'investing'|'financing', year, month } or null — Studio Indirect CF drill
+  const [cfDrilldown, setCfDrilldown] = useState(null); // { kind: 'investing'|'financing', year, month } or null — Studio Indirect CF drill
   const [expandedDept, setExpandedDept] = useState(null); // 'G&A' | 'GTM' | etc. or null
   const [expandedGL, setExpandedGL] = useState(null); // GL name string or null
   const [expandedHCDivision, setExpandedHCDivision] = useState(null); // 'G&A:Executive' (dept:division) or null
@@ -2860,27 +2860,30 @@ export default function InVitroDashboard({ data: rawData, user }) {
                   </div>
 
                   {/* Layer 1 — Monthly chart: components stacked, balance line overlay.
-                      For InVitro Studio (and only Studio — Investing/Financing
-                      CF only have per-line detail on the Studio's tab), the
-                      Investing CF and Financing CF bars are click-to-drill
-                      when the user has 'studioCashflowDrilldown' permission. */}
+                      Investing/Financing CF bars are click-to-drill for ANY
+                      selected company when the user has 'cashflowDrilldown'
+                      permission. The breakdown lines are detected dynamically
+                      from each company's metrics (see detectCashflowBreakdown
+                      below) — no per-company hardcoded lists. */}
                   {(() => {
-                    // Drill gate: only enabled for InVitro Studio in monthly
-                    // view, AND the user has the studioCashflowDrilldown
-                    // permission. Otherwise bars are static.
-                    const canDrillStudioCf = selectedCompany === 'InVitro Studio'
+                    // Drill gate: any selected portco in monthly view, AND
+                    // user has the cashflowDrilldown permission. Otherwise
+                    // bars are static. Consolidated (no selectedCompany)
+                    // can't drill — aggregation across companies has no
+                    // single sheet block to read line-level detail from.
+                    const canDrillCf = !!selectedCompany
                       && viewMode === 'monthly'
-                      && canBreakdown('studioCashflowDrilldown', selectedCompany);
-                    const handleInvClick = canDrillStudioCf
-                      ? (data) => setStudioCfDrilldown({ kind: 'investing', year: data.year, month: data.m })
+                      && canBreakdown('cashflowDrilldown', selectedCompany);
+                    const handleInvClick = canDrillCf
+                      ? (data) => setCfDrilldown({ kind: 'investing', scope: 'month', year: data.year, month: data.m })
                       : undefined;
-                    const handleFinClick = canDrillStudioCf
-                      ? (data) => setStudioCfDrilldown({ kind: 'financing', year: data.year, month: data.m })
+                    const handleFinClick = canDrillCf
+                      ? (data) => setCfDrilldown({ kind: 'financing', scope: 'month', year: data.year, month: data.m })
                       : undefined;
                     return (
                       <Card className="mb-5">
                         <CardHeader>
-                          <CardTitle className="text-sm">Cash Flow Components ({rangeLabel}){canDrillStudioCf ? ' — click Investing or Financing bar for breakdown' : ''}</CardTitle>
+                          <CardTitle className="text-sm">Cash Flow Components ({rangeLabel}){canDrillCf ? ' — click Investing or Financing bar for breakdown' : ''}</CardTitle>
                         </CardHeader>
                         <CardContent>
                           <ResponsiveContainer width="100%" height={320}>
@@ -2896,10 +2899,10 @@ export default function InVitroDashboard({ data: rawData, user }) {
                               <Bar yAxisId="bars" dataKey="wcDelta" stackId="cf" fill="#f59e0b" name="WC Δ" />
                               <Bar yAxisId="bars" dataKey="invCF"   stackId="cf" fill="#8b5cf6" name="Investing CF"
                                 onClick={handleInvClick}
-                                style={canDrillStudioCf ? { cursor: 'pointer' } : undefined} />
+                                style={canDrillCf ? { cursor: 'pointer' } : undefined} />
                               <Bar yAxisId="bars" dataKey="finCF"   stackId="cf" fill="#3b82f6" name="Financing CF"
                                 onClick={handleFinClick}
-                                style={canDrillStudioCf ? { cursor: 'pointer' } : undefined} />
+                                style={canDrillCf ? { cursor: 'pointer' } : undefined} />
                               <Line yAxisId="balance" type="monotone" dataKey="balance" stroke="#1e40af" strokeWidth={2.5}
                                 dot={{ r: 3, fill: '#1e40af' }} name="Cash Balance" />
                               <Legend />
@@ -2933,23 +2936,27 @@ export default function InVitroDashboard({ data: rawData, user }) {
                             const totalVal = item.key === 'balance'
                               ? (chartData[chartData.length - 1]?.balance ?? 0)
                               : (totalStmt[item.key] ?? 0);
-                            // Studio CF drilldown: month cells for Investing/Financing
-                            // rows are clickable when Studio is selected + monthly view
-                            // + user has permission. Clicking opens the same drawer the
-                            // chart bars open — single state, two entry points.
+                            // Cashflow drilldown: month cells AND the Total cell
+                            // on Investing/Financing rows are clickable for ANY
+                            // selected company when user has cashflowDrilldown
+                            // permission. Clicking dispatches the same setCfDrilldown
+                            // state the chart bars use — single state, multiple
+                            // entry points. Month cells use scope='month';
+                            // Total cell uses scope='range' (aggregates over
+                            // the full date range).
                             const drillKind = item.key === 'invCF' ? 'investing'
                               : item.key === 'finCF' ? 'financing'
                               : null;
                             const cellDrillable = drillKind
-                              && selectedCompany === 'InVitro Studio'
+                              && !!selectedCompany
                               && viewMode === 'monthly'
-                              && canBreakdown('studioCashflowDrilldown', selectedCompany);
+                              && canBreakdown('cashflowDrilldown', selectedCompany);
                             return (
                               <TableRow key={item.key} className={item.bold ? 'bg-muted/30' : ''}>
                                 <TableCell
                                   className={`sticky left-0 bg-card z-10 ${item.bold ? 'font-bold' : ''}`}
                                   style={{ paddingLeft: `${1 + item.indent}rem` }}
-                                  title={cellDrillable ? 'Click a month value to see breakdown' : undefined}
+                                  title={cellDrillable ? 'Click any month or the Total cell to see breakdown' : undefined}
                                 >
                                   {item.label}
                                   {cellDrillable && (
@@ -2959,7 +2966,7 @@ export default function InVitroDashboard({ data: rawData, user }) {
                                 {monthsInRange.map(({ label, year, month }, i) => {
                                   const val = chartData[i]?.[item.key] ?? 0;
                                   const onClick = cellDrillable
-                                    ? () => setStudioCfDrilldown({ kind: drillKind, year, month })
+                                    ? () => setCfDrilldown({ kind: drillKind, scope: 'month', year, month })
                                     : undefined;
                                   return (
                                     <TableCell
@@ -2971,7 +2978,11 @@ export default function InVitroDashboard({ data: rawData, user }) {
                                     </TableCell>
                                   );
                                 })}
-                                <TableCell className={`text-right tabular-nums font-bold whitespace-nowrap ${cashColor(totalVal)}`}>
+                                <TableCell
+                                  onClick={cellDrillable ? () => setCfDrilldown({ kind: drillKind, scope: 'range' }) : undefined}
+                                  className={`text-right tabular-nums font-bold whitespace-nowrap ${cashColor(totalVal)} ${cellDrillable ? 'cursor-pointer hover:bg-primary/10 hover:underline underline-offset-2 transition-colors' : ''}`}
+                                  title={cellDrillable ? 'Click for range-total breakdown' : undefined}
+                                >
                                   {fmt(totalVal)}
                                 </TableCell>
                               </TableRow>
@@ -3039,66 +3050,104 @@ export default function InVitroDashboard({ data: rawData, user }) {
               );
             })()}
 
-            {/* Studio Cashflow Drill-Down Drawer — opens when a user
-                clicks the Investing CF or Financing CF bar in the
-                Layer 1 chart (InVitro Studio selected + monthly view +
-                'studioCashflowDrilldown' permission). Two modes:
-                  kind='investing': per-portco investment outflows
-                                    (Osta, AllCare, Needles, ...)
-                  kind='financing': per-LP financing inflows
-                                    (Amir, Ayman, Ramy, Fund, ...)
-                The line lists are sourced from the same InVitro Studio
-                block in the Cashflow tab (rows 47-58 in the sheet).
-                If the sheet adds new entries, extend the arrays below. */}
+            {/* Cashflow Drill-Down Drawer — opens when a user clicks an
+                Investing/Financing CF entry point (chart bar, table month
+                cell, or table Total cell) for ANY selected company. The
+                breakdown lines are detected dynamically from each company's
+                metrics — no hardcoded company-specific lists. Two scopes:
+                  scope='month': single-month breakdown (year+month required)
+                  scope='range': aggregate over the full rangeFrom..rangeTo
+                Two kinds:
+                  kind='investing' → recipients of investment outflows
+                  kind='financing' → sources of financing inflows
+                If sheet author adds new line items to any company's block,
+                they appear automatically because of the dynamic detection. */}
             {(() => {
-              // Per-portco lines that aggregate into Investment Cash Flow
-              // for InVitro Studio. From sheet rows 47-51.
-              const STUDIO_INVESTING_LINES = ['Osta', 'AllCare', 'Needles', 'Confider', 'Jessica'];
-              // Per-LP lines that aggregate into Financing Cash Flow for
-              // InVitro Studio. From sheet rows 54-58.
-              const STUDIO_FINANCING_LINES = ['Amir', 'Ayman', 'Ramy', 'Fund', 'Ambrish'];
-              const studio = data.cashflow?.find(c => c.name === 'InVitro Studio');
-              const open = !!studioCfDrilldown && canBreakdown('studioCashflowDrilldown', selectedCompany);
+              // Dynamically detect each company's Investing + Financing
+              // breakdown lines by walking metric keys in sheet order.
+              // Lines BETWEEN known aggregate names (Cash Inflow, Operational
+              // Cash Flow, Investment Cash Flow, etc.) get bucketed by which
+              // aggregate they precede. Returns { investing: [...], financing: [...] }.
+              const AGGREGATE_KEYS = new Set([
+                'Cash Inflow', 'Cash Outflow',
+                'Direct Operational Cash Flow', 'Direct Operational Cash flow',
+                'Operational Cash Flow', 'Operational Cash Flow (Internal budget)',
+                'Studio Cashout',
+                'Investment Cash Flow', 'Financing Cash Flow',
+                'Net Cash Flow', 'Cash Balance',
+              ]);
+              const KPI_PATTERNS = [/% of collection/i, /Collection %/i];
+              const detectCashflowBreakdown = (companyName) => {
+                const company = data.cashflow?.find(c => c.name === companyName);
+                if (!company) return { investing: [], financing: [] };
+                const investing = [];
+                const financing = [];
+                let buffer = [];
+                for (const key of Object.keys(company.metrics)) {
+                  if (KPI_PATTERNS.some(p => p.test(key))) continue;
+                  if (key === 'Investment Cash Flow') {
+                    investing.push(...buffer); buffer = [];
+                  } else if (key === 'Financing Cash Flow') {
+                    financing.push(...buffer); buffer = [];
+                  } else if (AGGREGATE_KEYS.has(key)) {
+                    buffer = []; // reset on any other aggregate
+                  } else {
+                    buffer.push(key);
+                  }
+                }
+                return { investing, financing };
+              };
+              const company = selectedCompany ? data.cashflow?.find(c => c.name === selectedCompany) : null;
+              const open = !!cfDrilldown && canBreakdown('cashflowDrilldown', selectedCompany);
               return (
-                <Drawer open={open} onOpenChange={(o) => { if (!o) setStudioCfDrilldown(null); }}>
+                <Drawer open={open} onOpenChange={(o) => { if (!o) setCfDrilldown(null); }}>
                   <DrawerContent>
-                    {studioCfDrilldown && studio && canBreakdown('studioCashflowDrilldown', selectedCompany) && (() => {
+                    {cfDrilldown && company && canBreakdown('cashflowDrilldown', selectedCompany) && (() => {
                       const ML = ['','Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-                      const drillLabel = `${ML[studioCfDrilldown.month]} ${studioCfDrilldown.year}`;
-                      const isInvesting = studioCfDrilldown.kind === 'investing';
-                      const lines = isInvesting ? STUDIO_INVESTING_LINES : STUDIO_FINANCING_LINES;
+                      const isInvesting = cfDrilldown.kind === 'investing';
+                      const isRange = cfDrilldown.scope === 'range';
+                      const drillLabel = isRange
+                        ? rangeLabel
+                        : `${ML[cfDrilldown.month]} ${cfDrilldown.year}`;
                       const aggKey = isInvesting ? 'Investment Cash Flow' : 'Financing Cash Flow';
-                      const subjectLabel = isInvesting ? 'Per-portco investment outflows' : 'Per-LP financing inflows';
-                      const firstColHeader = isInvesting ? 'Portfolio Company' : 'Investor';
-                      // Resolve each line's value for the clicked month.
-                      const getMonthVal = (metricName) => {
-                        const arr = studio.metrics?.[metricName] || [];
-                        const match = arr.find(v => v.year === studioCfDrilldown.year && v.month === studioCfDrilldown.month);
-                        return match?.value ?? 0;
+                      const subjectLabel = isInvesting ? 'Per-line investment outflows' : 'Per-line financing inflows';
+                      const firstColHeader = isInvesting ? 'Investment Target' : 'Funding Source';
+                      const { investing, financing } = detectCashflowBreakdown(selectedCompany);
+                      const lines = isInvesting ? investing : financing;
+                      // Value lookup: single month vs range aggregation. The
+                      // scope flag (set at click time) controls which path runs.
+                      const matchesScope = (v) => {
+                        if (isRange) {
+                          const vi = v.year * 100 + v.month;
+                          return vi >= rangeFrom.year * 100 + rangeFrom.month
+                              && vi <= rangeTo.year * 100 + rangeTo.month;
+                        }
+                        return v.year === cfDrilldown.year && v.month === cfDrilldown.month;
                       };
-                      const rows = lines.map(name => ({ name, value: getMonthVal(name) }))
+                      const getVal = (metricName) => {
+                        const arr = company.metrics?.[metricName] || [];
+                        return arr.filter(matchesScope).reduce((s, v) => s + (v.value ?? 0), 0);
+                      };
+                      const rows = lines.map(name => ({ name, value: getVal(name) }))
                         .filter(r => r.value !== 0);
                       const directTotal = rows.reduce((s, r) => s + r.value, 0);
-                      // Canonical total from the aggregate row in the sheet
-                      // (Investment Cash Flow / Financing Cash Flow). If the
-                      // per-line sum doesn't match, surface a reconciliation
-                      // delta so the user sees the gap.
-                      const canonicalTotal = getMonthVal(aggKey);
+                      // Canonical total from the aggregate row. If per-line
+                      // sum diverges, surface the gap as Other/Unallocated.
+                      const canonicalTotal = getVal(aggKey);
                       const unallocated = canonicalTotal - directTotal;
                       const hasUnallocated = Math.abs(unallocated) >= 1;
-                      // Cashflow color: negative is RED (cash out for investing),
-                      // positive is EMERALD (cash in for financing). Same rule
-                      // applies regardless of kind — sign carries direction.
+                      // Cashflow color: positive = emerald (inflow), negative
+                      // = red (outflow). Sign carries direction.
                       const cashColor = (v) => v === 0 ? 'text-muted-foreground' : v > 0 ? 'text-emerald-600' : 'text-red-500';
                       return (
                         <>
                           <DrawerHeader>
                             <DrawerTitle>{isInvesting ? 'Investing' : 'Financing'} Cash Flow — {drillLabel}</DrawerTitle>
-                            <DrawerDescription>InVitro Studio · {subjectLabel}</DrawerDescription>
+                            <DrawerDescription>{selectedCompany} · {subjectLabel}{isRange ? ' (range total)' : ''}</DrawerDescription>
                           </DrawerHeader>
                           <div className="px-4 pb-6 overflow-auto">
-                            {rows.length === 0 ? (
-                              <p className="text-sm text-muted-foreground">No {isInvesting ? 'investment' : 'financing'} activity recorded for this month.</p>
+                            {rows.length === 0 && !hasUnallocated ? (
+                              <p className="text-sm text-muted-foreground">No {isInvesting ? 'investment' : 'financing'} activity recorded for this {isRange ? 'range' : 'month'}.</p>
                             ) : (
                               <Table>
                                 <TableHeader>

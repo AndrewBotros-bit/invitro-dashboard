@@ -45,7 +45,7 @@
         "expenseDrilldown": true,
         "expenseGLDetail": true,
         "gpDrilldown": true,
-        "studioCashflowDrilldown": true,
+        "cashflowDrilldown": true,
         "auditConsole": false,
         "hcDetails": true,
         "shareholderSplit": true
@@ -165,7 +165,7 @@
         "gpDrilldown": [
           "AllCare"
         ],
-        "studioCashflowDrilldown": true,
+        "cashflowDrilldown": true,
         "auditConsole": false,
         "hcDetails": false,
         "shareholderSplit": false
