@@ -28,7 +28,12 @@ const ALL_TABS = ['overview', 'revenue', 'expenses', 'profitability', 'cashflow'
 // 'gpDrilldown' gates the Profitability GP & Margin chart click-to-drill
 // (service-line or customer-segment breakdown drawer). Per-company,
 // same shape as revenue/expense drilldowns.
-const BREAKDOWN_KEYS = ['revenueDrilldown', 'expenseDrilldown', 'expenseGLDetail', 'gpDrilldown', 'auditConsole', 'hcDetails', 'shareholderSplit'];
+// 'studioCashflowDrilldown' gates the InVitro Studio Indirect CF chart
+// click-to-drill — clicking Investing CF reveals per-portco investment
+// outflows (Osta, AllCare, ...); clicking Financing CF reveals per-LP
+// inflows (Amir, Ayman, Ramy, Fund, ...). Boolean — sensitive identity-
+// level data that only specific roles should see.
+const BREAKDOWN_KEYS = ['revenueDrilldown', 'expenseDrilldown', 'expenseGLDetail', 'gpDrilldown', 'studioCashflowDrilldown', 'auditConsole', 'hcDetails', 'shareholderSplit'];
 
 function requireAdmin() {
   const cookieStore = cookies();

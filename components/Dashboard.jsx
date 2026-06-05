@@ -525,6 +525,7 @@ export default function InVitroDashboard({ data: rawData, user }) {
   const [expenseDrilldown, setExpenseDrilldown] = useState(null); // { year, month } or null
   const [revenueDrilldown, setRevenueDrilldown] = useState(null); // { year, month } or null
   const [gpDrilldown, setGpDrilldown] = useState(null); // { year, month } or null — AllCare service-line GP drilldown
+  const [studioCfDrilldown, setStudioCfDrilldown] = useState(null); // { kind: 'investing'|'financing', year, month } or null — Studio Indirect CF drill
   const [expandedDept, setExpandedDept] = useState(null); // 'G&A' | 'GTM' | etc. or null
   const [expandedGL, setExpandedGL] = useState(null); // GL name string or null
   const [expandedHCDivision, setExpandedHCDivision] = useState(null); // 'G&A:Executive' (dept:division) or null
@@ -2858,32 +2859,56 @@ export default function InVitroDashboard({ data: rawData, user }) {
                     </p>
                   </div>
 
-                  {/* Layer 1 — Monthly chart: components stacked, balance line overlay */}
-                  <Card className="mb-5">
-                    <CardHeader>
-                      <CardTitle className="text-sm">Cash Flow Components ({rangeLabel})</CardTitle>
-                    </CardHeader>
-                    <CardContent>
-                      <ResponsiveContainer width="100%" height={320}>
-                        <ComposedChart data={chartData}>
-                          <CartesianGrid strokeDasharray="3 3" stroke={CHART_STYLE.border} />
-                          <XAxis dataKey="month" tick={{ fill: CHART_STYLE.muted, fontSize: 11 }} />
-                          <YAxis yAxisId="bars" tick={{ fill: CHART_STYLE.muted, fontSize: 11 }} tickFormatter={fmtShort} />
-                          <YAxis yAxisId="balance" orientation="right" tick={{ fill: '#1e40af', fontSize: 11 }} tickFormatter={fmtShort} />
-                          <Tooltip content={<CustomTooltip />} />
-                          {forecastOverlay(chartData, 'bars')}
-                          {/* Stacked bars: components that sum to Net Cash Change */}
-                          <Bar yAxisId="bars" dataKey="ebitda"  stackId="cf" fill="#10b981" name="EBITDA" />
-                          <Bar yAxisId="bars" dataKey="wcDelta" stackId="cf" fill="#f59e0b" name="WC Δ" />
-                          <Bar yAxisId="bars" dataKey="invCF"   stackId="cf" fill="#8b5cf6" name="Investing CF" />
-                          <Bar yAxisId="bars" dataKey="finCF"   stackId="cf" fill="#3b82f6" name="Financing CF" />
-                          <Line yAxisId="balance" type="monotone" dataKey="balance" stroke="#1e40af" strokeWidth={2.5}
-                            dot={{ r: 3, fill: '#1e40af' }} name="Cash Balance" />
-                          <Legend />
-                        </ComposedChart>
-                      </ResponsiveContainer>
-                    </CardContent>
-                  </Card>
+                  {/* Layer 1 — Monthly chart: components stacked, balance line overlay.
+                      For InVitro Studio (and only Studio — Investing/Financing
+                      CF only have per-line detail on the Studio's tab), the
+                      Investing CF and Financing CF bars are click-to-drill
+                      when the user has 'studioCashflowDrilldown' permission. */}
+                  {(() => {
+                    // Drill gate: only enabled for InVitro Studio in monthly
+                    // view, AND the user has the studioCashflowDrilldown
+                    // permission. Otherwise bars are static.
+                    const canDrillStudioCf = selectedCompany === 'InVitro Studio'
+                      && viewMode === 'monthly'
+                      && canBreakdown('studioCashflowDrilldown', selectedCompany);
+                    const handleInvClick = canDrillStudioCf
+                      ? (data) => setStudioCfDrilldown({ kind: 'investing', year: data.year, month: data.m })
+                      : undefined;
+                    const handleFinClick = canDrillStudioCf
+                      ? (data) => setStudioCfDrilldown({ kind: 'financing', year: data.year, month: data.m })
+                      : undefined;
+                    return (
+                      <Card className="mb-5">
+                        <CardHeader>
+                          <CardTitle className="text-sm">Cash Flow Components ({rangeLabel}){canDrillStudioCf ? ' — click Investing or Financing bar for breakdown' : ''}</CardTitle>
+                        </CardHeader>
+                        <CardContent>
+                          <ResponsiveContainer width="100%" height={320}>
+                            <ComposedChart data={chartData}>
+                              <CartesianGrid strokeDasharray="3 3" stroke={CHART_STYLE.border} />
+                              <XAxis dataKey="month" tick={{ fill: CHART_STYLE.muted, fontSize: 11 }} />
+                              <YAxis yAxisId="bars" tick={{ fill: CHART_STYLE.muted, fontSize: 11 }} tickFormatter={fmtShort} />
+                              <YAxis yAxisId="balance" orientation="right" tick={{ fill: '#1e40af', fontSize: 11 }} tickFormatter={fmtShort} />
+                              <Tooltip content={<CustomTooltip />} />
+                              {forecastOverlay(chartData, 'bars')}
+                              {/* Stacked bars: components that sum to Net Cash Change */}
+                              <Bar yAxisId="bars" dataKey="ebitda"  stackId="cf" fill="#10b981" name="EBITDA" />
+                              <Bar yAxisId="bars" dataKey="wcDelta" stackId="cf" fill="#f59e0b" name="WC Δ" />
+                              <Bar yAxisId="bars" dataKey="invCF"   stackId="cf" fill="#8b5cf6" name="Investing CF"
+                                onClick={handleInvClick}
+                                style={canDrillStudioCf ? { cursor: 'pointer' } : undefined} />
+                              <Bar yAxisId="bars" dataKey="finCF"   stackId="cf" fill="#3b82f6" name="Financing CF"
+                                onClick={handleFinClick}
+                                style={canDrillStudioCf ? { cursor: 'pointer' } : undefined} />
+                              <Line yAxisId="balance" type="monotone" dataKey="balance" stroke="#1e40af" strokeWidth={2.5}
+                                dot={{ r: 3, fill: '#1e40af' }} name="Cash Balance" />
+                              <Legend />
+                            </ComposedChart>
+                          </ResponsiveContainer>
+                        </CardContent>
+                      </Card>
+                    );
+                  })()}
 
                   {/* Layer 2 — Build-up table: rows = line items, columns = months + Total */}
                   <Card className="mb-5 overflow-hidden">
@@ -2989,6 +3014,107 @@ export default function InVitroDashboard({ data: rawData, user }) {
                     </Card>
                   )}
                 </>
+              );
+            })()}
+
+            {/* Studio Cashflow Drill-Down Drawer — opens when a user
+                clicks the Investing CF or Financing CF bar in the
+                Layer 1 chart (InVitro Studio selected + monthly view +
+                'studioCashflowDrilldown' permission). Two modes:
+                  kind='investing': per-portco investment outflows
+                                    (Osta, AllCare, Needles, ...)
+                  kind='financing': per-LP financing inflows
+                                    (Amir, Ayman, Ramy, Fund, ...)
+                The line lists are sourced from the same InVitro Studio
+                block in the Cashflow tab (rows 47-58 in the sheet).
+                If the sheet adds new entries, extend the arrays below. */}
+            {(() => {
+              // Per-portco lines that aggregate into Investment Cash Flow
+              // for InVitro Studio. From sheet rows 47-51.
+              const STUDIO_INVESTING_LINES = ['Osta', 'AllCare', 'Needles', 'Confider', 'Jessica'];
+              // Per-LP lines that aggregate into Financing Cash Flow for
+              // InVitro Studio. From sheet rows 54-58.
+              const STUDIO_FINANCING_LINES = ['Amir', 'Ayman', 'Ramy', 'Fund', 'Ambrish'];
+              const studio = data.cashflow?.find(c => c.name === 'InVitro Studio');
+              const open = !!studioCfDrilldown && canBreakdown('studioCashflowDrilldown', selectedCompany);
+              return (
+                <Drawer open={open} onOpenChange={(o) => { if (!o) setStudioCfDrilldown(null); }}>
+                  <DrawerContent>
+                    {studioCfDrilldown && studio && canBreakdown('studioCashflowDrilldown', selectedCompany) && (() => {
+                      const ML = ['','Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+                      const drillLabel = `${ML[studioCfDrilldown.month]} ${studioCfDrilldown.year}`;
+                      const isInvesting = studioCfDrilldown.kind === 'investing';
+                      const lines = isInvesting ? STUDIO_INVESTING_LINES : STUDIO_FINANCING_LINES;
+                      const aggKey = isInvesting ? 'Investment Cash Flow' : 'Financing Cash Flow';
+                      const subjectLabel = isInvesting ? 'Per-portco investment outflows' : 'Per-LP financing inflows';
+                      const firstColHeader = isInvesting ? 'Portfolio Company' : 'Investor';
+                      // Resolve each line's value for the clicked month.
+                      const getMonthVal = (metricName) => {
+                        const arr = studio.metrics?.[metricName] || [];
+                        const match = arr.find(v => v.year === studioCfDrilldown.year && v.month === studioCfDrilldown.month);
+                        return match?.value ?? 0;
+                      };
+                      const rows = lines.map(name => ({ name, value: getMonthVal(name) }))
+                        .filter(r => r.value !== 0);
+                      const directTotal = rows.reduce((s, r) => s + r.value, 0);
+                      // Canonical total from the aggregate row in the sheet
+                      // (Investment Cash Flow / Financing Cash Flow). If the
+                      // per-line sum doesn't match, surface a reconciliation
+                      // delta so the user sees the gap.
+                      const canonicalTotal = getMonthVal(aggKey);
+                      const unallocated = canonicalTotal - directTotal;
+                      const hasUnallocated = Math.abs(unallocated) >= 1;
+                      // Cashflow color: negative is RED (cash out for investing),
+                      // positive is EMERALD (cash in for financing). Same rule
+                      // applies regardless of kind — sign carries direction.
+                      const cashColor = (v) => v === 0 ? 'text-muted-foreground' : v > 0 ? 'text-emerald-600' : 'text-red-500';
+                      return (
+                        <>
+                          <DrawerHeader>
+                            <DrawerTitle>{isInvesting ? 'Investing' : 'Financing'} Cash Flow — {drillLabel}</DrawerTitle>
+                            <DrawerDescription>InVitro Studio · {subjectLabel}</DrawerDescription>
+                          </DrawerHeader>
+                          <div className="px-4 pb-6 overflow-auto">
+                            {rows.length === 0 ? (
+                              <p className="text-sm text-muted-foreground">No {isInvesting ? 'investment' : 'financing'} activity recorded for this month.</p>
+                            ) : (
+                              <Table>
+                                <TableHeader>
+                                  <TableRow>
+                                    <TableHead>{firstColHeader}</TableHead>
+                                    <TableHead className="text-right">Amount</TableHead>
+                                  </TableRow>
+                                </TableHeader>
+                                <TableBody>
+                                  {rows.map(r => (
+                                    <TableRow key={r.name}>
+                                      <TableCell className="font-medium">{r.name}</TableCell>
+                                      <TableCell className={`text-right tabular-nums font-semibold ${cashColor(r.value)}`}>{fmt(r.value)}</TableCell>
+                                    </TableRow>
+                                  ))}
+                                  {hasUnallocated && (
+                                    <TableRow className="bg-muted/40">
+                                      <TableCell className="font-medium text-muted-foreground italic" title="Activity in the consolidated total not attributed to a specific line in the granular block.">
+                                        Other / Unallocated
+                                      </TableCell>
+                                      <TableCell className={`text-right tabular-nums ${cashColor(unallocated)}`}>{fmt(unallocated)}</TableCell>
+                                    </TableRow>
+                                  )}
+                                </TableBody>
+                                <TableFooter>
+                                  <TableRow>
+                                    <TableCell className="font-bold">Total {aggKey}</TableCell>
+                                    <TableCell className={`text-right font-bold tabular-nums ${cashColor(canonicalTotal)}`}>{fmt(canonicalTotal)}</TableCell>
+                                  </TableRow>
+                                </TableFooter>
+                              </Table>
+                            )}
+                          </div>
+                        </>
+                      );
+                    })()}
+                  </DrawerContent>
+                </Drawer>
               );
             })()}
           </>)}
