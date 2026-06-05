@@ -156,7 +156,8 @@
           "AllCare"
         ],
         "expenseDrilldown": [
-          "InVitro Studio"
+          "InVitro Studio",
+          "AllCare"
         ],
         "expenseGLDetail": false,
         "gpDrilldown": [
