@@ -67,7 +67,7 @@ const ROLE_PRESETS = {
     tabs_mode: 'all', tabs_list: [],
     bd_revenue_mode: 'all', bd_revenue_list: [],
     bd_expense_mode: 'all', bd_expense_list: [],
-    bd_audit: true, bd_hc: true, bd_shareholder: true,
+    bd_audit: true, bd_hc: true, bd_shareholder: true, bd_expenseGL: true,
     lpName: '',
   },
   'Board Member (read-only consolidated)': {
@@ -76,7 +76,7 @@ const ROLE_PRESETS = {
     tabs_mode: 'subset', tabs_list: ['overview', 'irr', 'insights'],
     bd_revenue_mode: 'none', bd_revenue_list: [],
     bd_expense_mode: 'none', bd_expense_list: [],
-    bd_audit: false, bd_hc: false, bd_shareholder: false,
+    bd_audit: false, bd_hc: false, bd_shareholder: false, bd_expenseGL: false,
     lpName: '',
   },
   'LP (IRR only — set lpName after)': {
@@ -85,7 +85,7 @@ const ROLE_PRESETS = {
     tabs_mode: 'subset', tabs_list: ['irr'],
     bd_revenue_mode: 'none', bd_revenue_list: [],
     bd_expense_mode: 'none', bd_expense_list: [],
-    bd_audit: false, bd_hc: false, bd_shareholder: false,
+    bd_audit: false, bd_hc: false, bd_shareholder: false, bd_expenseGL: false,
     lpName: '',
   },
   'Operator (single company — set companies after)': {
@@ -94,7 +94,7 @@ const ROLE_PRESETS = {
     tabs_mode: 'all', tabs_list: [],
     bd_revenue_mode: 'all', bd_revenue_list: [],
     bd_expense_mode: 'all', bd_expense_list: [],
-    bd_audit: false, bd_hc: true, bd_shareholder: false,
+    bd_audit: false, bd_hc: true, bd_shareholder: false, bd_expenseGL: true,
     lpName: '',
   },
   // Hybrid case: someone who operates a portfolio company AND has a stake
@@ -108,7 +108,7 @@ const ROLE_PRESETS = {
     tabs_mode: 'all', tabs_list: [],
     bd_revenue_mode: 'all', bd_revenue_list: [],
     bd_expense_mode: 'all', bd_expense_list: [],
-    bd_audit: false, bd_hc: true, bd_shareholder: false,
+    bd_audit: false, bd_hc: true, bd_shareholder: false, bd_expenseGL: true,
     lpName: '',
   },
 };
@@ -119,7 +119,9 @@ const EMPTY_FORM = {
   tabs_mode: 'all', tabs_list: [],
   bd_revenue_mode: 'all', bd_revenue_list: [],
   bd_expense_mode: 'all', bd_expense_list: [],
-  bd_audit: false, bd_hc: false, bd_shareholder: false,
+  // bd_expenseGL gates Layer 2 of the expense drilldown (GL detail).
+  // Default false — admins explicitly opt-in (privacy-by-default).
+  bd_audit: false, bd_hc: false, bd_shareholder: false, bd_expenseGL: false,
   lpName: '',
 };
 
@@ -134,7 +136,7 @@ function userToFormState(u) {
   else if (Array.isArray(p.tabs)) { form.tabs_mode = 'subset'; form.tabs_list = p.tabs; }
   if (p.breakdowns === '*') {
     form.bd_revenue_mode = 'all'; form.bd_expense_mode = 'all';
-    form.bd_audit = true; form.bd_hc = true; form.bd_shareholder = true;
+    form.bd_audit = true; form.bd_hc = true; form.bd_shareholder = true; form.bd_expenseGL = true;
   } else if (p.breakdowns) {
     const rv = p.breakdowns.revenueDrilldown;
     if (rv === true) form.bd_revenue_mode = 'all';
@@ -147,6 +149,7 @@ function userToFormState(u) {
     form.bd_audit = p.breakdowns.auditConsole === true;
     form.bd_hc = p.breakdowns.hcDetails === true;
     form.bd_shareholder = p.breakdowns.shareholderSplit === true;
+    form.bd_expenseGL = p.breakdowns.expenseGLDetail === true;
   }
   form.lpName = p.lpName || '';
   return form;
@@ -159,6 +162,7 @@ function formStateToPayload(form, isEdit) {
     breakdowns: {
       revenueDrilldown: form.bd_revenue_mode === 'all' ? true : form.bd_revenue_mode === 'none' ? false : form.bd_revenue_list,
       expenseDrilldown: form.bd_expense_mode === 'all' ? true : form.bd_expense_mode === 'none' ? false : form.bd_expense_list,
+      expenseGLDetail: form.bd_expenseGL,
       auditConsole: form.bd_audit,
       hcDetails: form.bd_hc,
       shareholderSplit: form.bd_shareholder,
@@ -198,11 +202,11 @@ function permissionBadges(u) {
     badges.push({ key: 'bd', text: 'All breakdowns', tone: 'neutral' });
   } else if (p.breakdowns) {
     const bd = p.breakdowns;
-    const granted = ['revenueDrilldown', 'expenseDrilldown', 'auditConsole', 'hcDetails', 'shareholderSplit'].filter(k => {
+    const granted = ['revenueDrilldown', 'expenseDrilldown', 'expenseGLDetail', 'auditConsole', 'hcDetails', 'shareholderSplit'].filter(k => {
       const v = bd[k];
       return v === true || (Array.isArray(v) && v.length > 0);
     });
-    if (granted.length > 0) badges.push({ key: 'bd', text: `${granted.length}/5 breakdowns`, tone: 'neutral' });
+    if (granted.length > 0) badges.push({ key: 'bd', text: `${granted.length}/6 breakdowns`, tone: 'neutral' });
   }
 
   // LP
@@ -496,7 +500,7 @@ export default function UserAdmin({ currentUser, lpNames = [] }) {
         let bd = '';
         if (p.breakdowns === '*') bd = 'All';
         else if (p.breakdowns) {
-          bd = ['revenueDrilldown', 'expenseDrilldown', 'auditConsole', 'hcDetails', 'shareholderSplit']
+          bd = ['revenueDrilldown', 'expenseDrilldown', 'expenseGLDetail', 'auditConsole', 'hcDetails', 'shareholderSplit']
             .filter(k => {
               const v = p.breakdowns[k];
               return v === true || (Array.isArray(v) && v.length > 0);
@@ -944,8 +948,14 @@ export default function UserAdmin({ currentUser, lpNames = [] }) {
                       Audit Console
                     </label>
                     <label className="flex items-center gap-2 text-sm cursor-pointer">
+                      <input type="checkbox" checked={form.bd_expenseGL} onChange={e => setForm({ ...form, bd_expenseGL: e.target.checked })} />
+                      Expense GL Detail
+                      <span className="text-[10px] text-muted-foreground font-normal ml-1">(Layer 2: Non-HC + Adhocks GL-level cards)</span>
+                    </label>
+                    <label className="flex items-center gap-2 text-sm cursor-pointer">
                       <input type="checkbox" checked={form.bd_hc} onChange={e => setForm({ ...form, bd_hc: e.target.checked })} />
                       HC Salary Details
+                      <span className="text-[10px] text-muted-foreground font-normal ml-1">(Layer 3: per-person headcount roster)</span>
                     </label>
                     <label className="flex items-center gap-2 text-sm cursor-pointer">
                       <input type="checkbox" checked={form.bd_shareholder} onChange={e => setForm({ ...form, bd_shareholder: e.target.checked })} />

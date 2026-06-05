@@ -3359,8 +3359,12 @@ export default function InVitroDashboard({ data: rawData, user }) {
                                                 </div>
                                               );
                                             })()}
-                                            {/* ── AMBER: Non-HC Section (excludes adhocks) ── */}
-                                            {r.nonHc !== 0 && (
+                                            {/* ── AMBER: Non-HC Section (excludes adhocks) ──
+                                                Gated by canBreakdown('expenseGLDetail', ...):
+                                                Layer 2 of the expense breakdown. Admin can
+                                                grant expense-drilldown access (Layer 1, dept
+                                                totals) without revealing GL-level detail. */}
+                                            {r.nonHc !== 0 && canBreakdown('expenseGLDetail', selectedCompany) && (
                                               <div className="rounded-lg border border-amber-200/60 bg-amber-50/20 overflow-hidden">
                                                 <div className="flex items-center justify-between px-4 py-2 border-b border-amber-200/40">
                                                   <div className="flex items-center gap-2">
@@ -3438,8 +3442,11 @@ export default function InVitroDashboard({ data: rawData, user }) {
                                                 rose-tinted to signal "one-off /
                                                 non-recurring" at a glance. Only
                                                 renders when this department has
-                                                ad-hoc expenses in the drill period. */}
-                                            {r.adhocks !== 0 && (
+                                                ad-hoc expenses in the drill period.
+                                                Gated alongside Non-HC by
+                                                'expenseGLDetail' since both expose
+                                                GL-level cost lines (Layer 2). */}
+                                            {r.adhocks !== 0 && canBreakdown('expenseGLDetail', selectedCompany) && (
                                               <div className="rounded-lg border border-rose-200/60 bg-rose-50/20 overflow-hidden">
                                                 <div className="flex items-center justify-between px-4 py-2 border-b border-rose-200/40">
                                                   <div className="flex items-center gap-2">
