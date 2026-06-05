@@ -1211,6 +1211,48 @@ export default function InVitroDashboard({ data: rawData, user }) {
     }).filter(g => g.rev > 0);
   };
 
+  // AllRx per-segment Gross Profit aggregator. Sibling of
+  // computeAllCareGroupedGP, but flatter — AllRx segments are individual
+  // customer segments (CLHF, ALF, IL, MEM, etc.) with no grouping rule.
+  // Each segment in data.revenueDetails.AllRx.segments has its OWN
+  // Revenues, Cost of Sales, Gross Profit, Gross Margin % metrics — we
+  // derive GP from rev−cos to match the same formula AllCare uses (and
+  // sidestep any inconsistent labeling between segments).
+  //
+  // Shared by AllRx and AllRx External drilldowns: the segment-level tab
+  // is the single granular source for both views. External's P&L roll-up
+  // differs (it's a separate tab with its own adjustments), so the
+  // drawer's Total may not reconcile perfectly to the External chart —
+  // that's expected; segments show the operational view.
+  const ALLRX_SEGMENT_COLORS = [
+    '#0ea5e9', /* sky-500 */
+    '#10b981', /* emerald-500 */
+    '#f59e0b', /* amber-500 */
+    '#8b5cf6', /* violet-500 */
+    '#ef4444', /* red-500 */
+    '#ec4899', /* pink-500 */
+    '#14b8a6', /* teal-500 */
+    '#84cc16', /* lime-500 */
+    '#a855f7', /* purple-500 */
+    '#f43f5e', /* rose-500 */
+  ];
+  const computeAllRxSegmentGP = (predicate) => {
+    const segs = data.revenueDetails?.AllRx?.segments || [];
+    if (segs.length === 0) return [];
+    const sumOver = (metrics, key) => (metrics?.[key] ?? []).filter(predicate).reduce((s, v) => s + (v.value ?? 0), 0);
+    return segs.map((seg, i) => {
+      const rev = sumOver(seg.metrics, 'Revenues');
+      const cos = sumOver(seg.metrics, 'Cost of Sales');
+      const gp = rev - cos;
+      const gm = rev > 0 ? (gp / rev * 100) : 0;
+      return {
+        name: seg.name,
+        color: ALLRX_SEGMENT_COLORS[i % ALLRX_SEGMENT_COLORS.length],
+        rev, cos, gp, gm,
+      };
+    }).filter(s => s.rev > 0);
+  };
+
   // Decide which pie to show. When the user is drilled into AllCare,
   // showing "AllCare = 100%" of a portfolio-by-company pie tells them
   // nothing — replace with the product-mix breakdown. For Consolidated
@@ -2259,7 +2301,7 @@ export default function InVitroDashboard({ data: rawData, user }) {
                 Gross Profit line in its P&L). */}
             {gmCompanies.length > 0 && (
             <Card className="mb-5">
-              <CardHeader><CardTitle className="text-sm">Gross Profit & Margin ({rangeLabel}){selectedCompany === 'AllCare' && viewMode === 'monthly' ? ' — click a bar for service-line breakdown' : ''}</CardTitle></CardHeader>
+              <CardHeader><CardTitle className="text-sm">Gross Profit & Margin ({rangeLabel}){(selectedCompany === 'AllCare' || selectedCompany === 'AllRx' || selectedCompany === 'AllRx External') && viewMode === 'monthly' ? ' — click a bar for breakdown' : ''}</CardTitle></CardHeader>
               <CardContent>
                 {(() => {
                   // Combine GP dollar values (bars) + margin % (lines) into one dataset
@@ -2272,11 +2314,13 @@ export default function InVitroDashboard({ data: rawData, user }) {
                     }
                     return point;
                   });
-                  // Drill-down click: only enabled when AllCare is the
-                  // selected drill target AND we're in monthly view. The
-                  // yearly view would map to a 12-month bucket which is
-                  // already covered by the range-total table above.
-                  const canDrill = selectedCompany === 'AllCare' && viewMode === 'monthly';
+                  // Drill-down click: enabled for companies that publish
+                  // a granular sub-product / segment tab in the revenue
+                  // details sheet — AllCare (service lines) and AllRx
+                  // (customer segments). AllRx External shares the same
+                  // segment tab as AllRx so it's included. Monthly view
+                  // only — yearly drill semantics aren't defined yet.
+                  const canDrill = (selectedCompany === 'AllCare' || selectedCompany === 'AllRx' || selectedCompany === 'AllRx External') && viewMode === 'monthly';
                   const handleBarClick = canDrill ? (e) => {
                     if (!e?.activePayload?.[0]) return;
                     const label = e.activePayload[0].payload.month;
@@ -2353,43 +2397,64 @@ export default function InVitroDashboard({ data: rawData, user }) {
             </Card>
             </>)}
 
-            {/* AllCare GP Drill-Down Drawer — opens when a month bar in the
-                Gross Profit & Margin chart is clicked (AllCare selected,
-                monthly view). Shows the service-line GP breakdown using
-                the SAME 5-group ALLCARE_PRODUCT_GROUPS aggregation that
-                powers the range-total table above. Same row shape, same
-                color thresholds, just scoped to a single month. */}
+            {/* GP Drill-Down Drawer — opens when a month bar in the
+                Gross Profit & Margin chart is clicked. Routes to the
+                right granular source based on the selected company:
+                  AllCare           → 5-group product mix (service lines)
+                  AllRx / AllRx Ext → customer segments (CLHF, ALF, etc.)
+                Same row shape, same color thresholds, same totals math
+                (sum_rev − sum_cos). Only the per-row grouping rule and
+                the first column label change between sources. */}
             <Drawer open={!!gpDrilldown} onOpenChange={(open) => { if (!open) setGpDrilldown(null); }}>
               <DrawerContent>
                 {gpDrilldown && (() => {
                   const ML = ['','Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
                   const drillLabel = `${ML[gpDrilldown.month]} ${gpDrilldown.year}`;
                   const inDrillMonth = (v) => v.year === gpDrilldown.year && v.month === gpDrilldown.month;
-                  const monthGroups = computeAllCareGroupedGP(inDrillMonth);
+                  // Route to the correct granular source. AllRx External
+                  // shares the AllRx segment tab (there's only one segment
+                  // tab for the AllRx franchise).
+                  const isAllCare = selectedCompany === 'AllCare';
+                  const isAllRx = selectedCompany === 'AllRx' || selectedCompany === 'AllRx External';
+                  const monthGroups = isAllCare
+                    ? computeAllCareGroupedGP(inDrillMonth)
+                    : isAllRx
+                      ? computeAllRxSegmentGP(inDrillMonth)
+                      : [];
                   // Sum the (already-combined) groups for the Total row.
-                  // Because we derive GP from sum_rev − sum_cos per group,
-                  // the group sums reconcile exactly to the AllCare "Total"
-                  // row in the sheet (and therefore to the chart).
+                  // Because we derive GP from sum_rev − sum_cos per row,
+                  // the row sums reconcile exactly to the granular tab's
+                  // own Total row (and the chart, for AllCare and the
+                  // regular AllRx view).
                   const totals = monthGroups.reduce(
                     (acc, g) => ({ rev: acc.rev + g.rev, cos: acc.cos + g.cos, gp: acc.gp + g.gp }),
                     { rev: 0, cos: 0, gp: 0 }
                   );
                   const totalGM = totals.rev > 0 ? (totals.gp / totals.rev * 100) : 0;
                   const gmColor = (pct) => pct >= 40 ? 'text-emerald-600' : pct >= 20 ? 'text-amber-600' : 'text-red-500';
+                  // Drawer copy varies with source.
+                  const drillSubject = selectedCompany || 'GP';
+                  const subjectLabel = isAllCare ? 'service-line group' : isAllRx ? 'customer segment' : 'category';
+                  const firstColHeader = isAllCare ? 'Service Line' : isAllRx ? 'Customer Segment' : 'Category';
+                  const emptyMessage = isAllCare
+                    ? 'No service-line data available for this month.'
+                    : isAllRx
+                      ? 'No segment-level data available for this month.'
+                      : 'No data available for this month.';
                   return (
                     <>
                       <DrawerHeader>
-                        <DrawerTitle>AllCare GP Breakdown &mdash; {drillLabel}</DrawerTitle>
-                        <DrawerDescription>Gross Profit & Margin by service-line group</DrawerDescription>
+                        <DrawerTitle>{drillSubject} GP Breakdown &mdash; {drillLabel}</DrawerTitle>
+                        <DrawerDescription>Gross Profit & Margin by {subjectLabel}</DrawerDescription>
                       </DrawerHeader>
                       <div className="px-4 pb-6 overflow-auto">
                         {monthGroups.length === 0 ? (
-                          <p className="text-sm text-muted-foreground">No service-line data available for this month.</p>
+                          <p className="text-sm text-muted-foreground">{emptyMessage}</p>
                         ) : (
                           <Table>
                             <TableHeader>
                               <TableRow>
-                                <TableHead>Service Line</TableHead>
+                                <TableHead>{firstColHeader}</TableHead>
                                 <TableHead className="text-right">Revenue</TableHead>
                                 <TableHead className="text-right">Gross Profit</TableHead>
                                 <TableHead className="text-right">GM %</TableHead>
