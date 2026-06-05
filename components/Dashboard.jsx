@@ -509,6 +509,7 @@ export default function InVitroDashboard({ data: rawData, user }) {
   });
   const [expenseDrilldown, setExpenseDrilldown] = useState(null); // { year, month } or null
   const [revenueDrilldown, setRevenueDrilldown] = useState(null); // { year, month } or null
+  const [gpDrilldown, setGpDrilldown] = useState(null); // { year, month } or null — AllCare service-line GP drilldown
   const [expandedDept, setExpandedDept] = useState(null); // 'G&A' | 'GTM' | etc. or null
   const [expandedGL, setExpandedGL] = useState(null); // GL name string or null
   const [expandedHCDivision, setExpandedHCDivision] = useState(null); // 'G&A:Executive' (dept:division) or null
@@ -1172,6 +1173,44 @@ export default function InVitroDashboard({ data: rawData, user }) {
     }).filter(g => g.value > 0);
   })();
 
+  // AllCare per-service-line Gross Profit aggregator. Reuses the same
+  // ALLCARE_PRODUCT_GROUPS grouping as the pie chart so all AllCare
+  // service-line views stay consistent (Primary Care + CCM merged,
+  // Podiatry + PCM merged, etc.). Factored to accept a predicate so the
+  // same reducer powers both the range-total table AND the per-month
+  // drilldown drawer below.
+  //
+  // CFO direction: combine revenues and costs of the member service lines
+  // first, THEN compute the margin on the combined totals. This is
+  // mathematically equivalent to weighted-average margin and matches the
+  // sheet's own "Total" row exactly.
+  //
+  // Why we derive GP = sum_rev − sum_cos instead of summing each line's
+  // explicit GP cell: the sheet labels GP inconsistently — visit-based
+  // service lines (Primary Care, Podiatry, Psych, Diagnostics) use
+  // "Gross Profit", while CM-based lines (CCM, PCM) use "Gross Margin"
+  // for the same concept. Summing only "Gross Profit" cells would drop
+  // CCM/PCM contributions and produce an artificially low GM% (the
+  // 51% vs canonical 58% bug). Subtracting summed costs from summed
+  // revenue sidesteps the label inconsistency entirely.
+  const computeAllCareGroupedGP = (predicate) => {
+    const slArr = data.revenueDetails?.AllCare?.serviceLines || [];
+    if (slArr.length === 0) return [];
+    const stripSuffix = (s) => String(s || '').replace(/\s*\(.*?\)\s*$/, '').trim();
+    const sumOver = (metrics, key) => (metrics?.[key] ?? []).filter(predicate).reduce((s, v) => s + (v.value ?? 0), 0);
+    return ALLCARE_PRODUCT_GROUPS.map(group => {
+      let rev = 0, cos = 0;
+      for (const sl of slArr) {
+        if (!group.members.includes(stripSuffix(sl.name))) continue;
+        rev += sumOver(sl.metrics, 'Revenues');
+        cos += sumOver(sl.metrics, 'Cost of Sales');
+      }
+      const gp = rev - cos;
+      const gm = rev > 0 ? (gp / rev * 100) : 0;
+      return { name: group.name, color: group.color, rev, cos, gp, gm };
+    }).filter(g => g.rev > 0);
+  };
+
   // Decide which pie to show. When the user is drilled into AllCare,
   // showing "AllCare = 100%" of a portfolio-by-company pie tells them
   // nothing — replace with the product-mix breakdown. For Consolidated
@@ -1828,14 +1867,38 @@ export default function InVitroDashboard({ data: rawData, user }) {
                     {arr > 0 && badgePill('blue', 'ARR', fmt(arr))}
                   </div>;
                 } else if (rd && name === 'AllCare' && rd.AllCare?.serviceLines) {
+                  // ─── AllCare gets three separate white KPI cards instead of
+                  // one card with pill badges. Lets the eye lock onto Revenue,
+                  // SUs, and ARR independently — CFO-preferred layout for the
+                  // dashboard's largest portco. ───
                   const totalSUs = rd.AllCare.serviceLines.reduce((s, sl) => s + (sl.metrics['SUs'] ?? []).filter(inRange).reduce((a, v) => a + (v.value ?? 0), 0), 0);
                   const totalSlRev = rd.AllCare.serviceLines.reduce((s, sl) => s + (sl.metrics['Revenues'] ?? []).filter(inRange).reduce((a, v) => a + (v.value ?? 0), 0), 0);
                   const arpu = totalSUs > 0 ? totalSlRev / totalSUs : 0;
-                  kpiBadge = <div className="flex flex-wrap gap-1.5 mt-1.5">
-                    {badgePill('emerald', 'SUs', totalSUs.toLocaleString())}
-                    {badgePill('emerald', 'ARPU', `$${arpu.toFixed(2)}`)}
-                    {arr > 0 && badgePill('emerald', 'ARR', fmt(arr))}
-                  </div>;
+                  const pctOfTotal = rangeRevenue > 0 ? `${(coRev / rangeRevenue * 100).toFixed(0)}% of total` : '';
+                  const revSubtitle = [pctOfTotal, `Avg ARPU $${arpu.toFixed(2)}`].filter(Boolean).join(' · ');
+                  return (
+                    <Fragment key={name}>
+                      <KPICard
+                        title={`AllCare Revenue — ${rangeLabel}`}
+                        value={fmt(coRev)}
+                        subtitle={revSubtitle}
+                        comparison={compareEnabled && <ComparisonBadge
+                          current={coRev}
+                          compValue={(data.pnl.find(c => c.name === name)?.metrics['Revenues'] ?? []).filter(v => { const vi = v.year * 100 + v.month; return vi >= compRange.from.year * 100 + compRange.from.month && vi <= compRange.to.year * 100 + compRange.to.month; }).reduce((s, v) => s + (v.value ?? 0), 0)}
+                          compLabel={compLabel} />}
+                      />
+                      <KPICard
+                        title={`AllCare SUs — ${rangeLabel}`}
+                        value={totalSUs.toLocaleString()}
+                        subtitle="Service Units"
+                      />
+                      <KPICard
+                        title={`AllCare ARR — ${rangeLabel}`}
+                        value={fmt(arr)}
+                        subtitle="Annualized"
+                      />
+                    </Fragment>
+                  );
                 } else if (arr > 0) {
                   // Other companies (Osta, Needles, InVitro Studio) — just show ARR
                   kpiBadge = <div className="flex flex-wrap gap-1.5 mt-1.5">
@@ -1981,7 +2044,15 @@ export default function InVitroDashboard({ data: rawData, user }) {
                   const drillLabel = isYearDrill ? String(revenueDrilldown.year) : `${ML[revenueDrilldown.month]} ${revenueDrilldown.year}`;
                   const inDrillRange = (v) => isYearDrill ? v.year === revenueDrilldown.year : (v.year === revenueDrilldown.year && v.month === revenueDrilldown.month);
                   const sumMetric = (metrics, name) => (metrics?.[name] ?? []).filter(inDrillRange).reduce((s, v) => s + (v.value ?? 0), 0);
-                  const gmColor = (pct) => pct >= 40 ? 'text-emerald-600' : pct >= 20 ? 'text-amber-600' : 'text-red-500';
+                  // Prior-month math: only meaningful for monthly drills.
+                  // Jan rolls back to Dec of the previous year (drillM === 1 case).
+                  const drillM = revenueDrilldown.month;
+                  const drillY = revenueDrilldown.year;
+                  const priorMonth = drillM === 1 ? 12 : drillM - 1;
+                  const priorYear = drillM === 1 ? drillY - 1 : drillY;
+                  const priorMonthLabel = ML[priorMonth];
+                  const inPriorMonth = (v) => v.year === priorYear && v.month === priorMonth;
+                  const sumPriorMetric = (metrics, name) => (metrics?.[name] ?? []).filter(inPriorMonth).reduce((s, v) => s + (v.value ?? 0), 0);
 
                   // Build sections based on company view
                   const sections = [];
@@ -2000,26 +2071,52 @@ export default function InVitroDashboard({ data: rawData, user }) {
                     <>
                       <DrawerHeader>
                         <DrawerTitle>Revenue Breakdown &mdash; {drillLabel}{selectedCompany ? ` (${selectedCompany})` : ''}</DrawerTitle>
-                        <DrawerDescription>Sub-product metrics, ARPU, and gross margins</DrawerDescription>
+                        <DrawerDescription>Revenue by sub-product</DrawerDescription>
                       </DrawerHeader>
                       <div className="px-4 pb-6 overflow-auto space-y-6">
                         {sections.length === 0 ? (
                           <p className="text-sm text-muted-foreground">No sub-product data available for this company/period.</p>
                         ) : sections.map(sec => {
-                          const totals = { units: 0, rev: 0, cos: 0, gp: 0 };
+                          // CFO direction: breakdown drawer shows ONLY revenue
+                          // per sub-product (service line / segment), with two
+                          // contextual badges under each value — MoM change
+                          // vs the previous month, and contribution % of the
+                          // section's total revenue.
+                          let totalRev = 0;
+                          let totalPriorRev = 0;
                           const rows = sec.items.map(item => {
-                            const units = sumMetric(item.metrics, sec.unitKey);
                             const rev = sumMetric(item.metrics, sec.revKey) || sumMetric(item.metrics, 'Revenues');
-                            const cos = sumMetric(item.metrics, 'Cost of Sales') || sumMetric(item.metrics, 'Cost of Sales (SDRA)');
-                            const gpExplicit = sumMetric(item.metrics, 'Gross Profit');
-                            const gp = gpExplicit || (rev - cos);
-                            const gm = rev > 0 ? (gp / rev * 100) : 0;
-                            const arpu = units > 0 ? rev / units : 0;
-                            totals.units += units; totals.rev += rev; totals.cos += cos; totals.gp += gp;
-                            return { name: item.name, units, rev, arpu, cos, gp, gm };
+                            const priorRev = !isYearDrill
+                              ? (sumPriorMetric(item.metrics, sec.revKey) || sumPriorMetric(item.metrics, 'Revenues'))
+                              : 0;
+                            totalRev += rev;
+                            totalPriorRev += priorRev;
+                            return { name: item.name, rev, priorRev };
                           });
-                          const totalGM = totals.rev > 0 ? (totals.gp / totals.rev * 100) : 0;
-                          const totalARPU = totals.units > 0 ? totals.rev / totals.units : 0;
+
+                          // Reusable badge block: MoM delta on top, contribution % below.
+                          // Direction-of-good FLIPS for revenue vs the expense drawer:
+                          // here ▲ up is emerald (revenue growth = good) and ▼ down is
+                          // red. The expense drawer uses the opposite mapping.
+                          const revCellBadges = (curr, prior, denom) => {
+                            const pctChg = !isYearDrill && prior > 0 ? ((curr - prior) / prior * 100) : null;
+                            const contribPct = denom > 0 ? (curr / denom * 100) : null;
+                            if (pctChg === null && contribPct === null) return null;
+                            return (
+                              <div className="flex items-center justify-end gap-2 mt-0.5">
+                                {pctChg !== null && (
+                                  <span className={`text-[10px] font-medium ${pctChg > 0 ? 'text-emerald-600' : pctChg < 0 ? 'text-red-500' : 'text-muted-foreground'}`}>
+                                    {pctChg > 0 ? '▲' : pctChg < 0 ? '▼' : '—'} {Math.abs(pctChg).toFixed(1)}% vs {priorMonthLabel}
+                                  </span>
+                                )}
+                                {contribPct !== null && (
+                                  <span className="text-[10px] text-muted-foreground/70">
+                                    {contribPct.toFixed(1)}% of total
+                                  </span>
+                                )}
+                              </div>
+                            );
+                          };
 
                           return (
                             <div key={sec.company}>
@@ -2031,36 +2128,35 @@ export default function InVitroDashboard({ data: rawData, user }) {
                                 <TableHeader>
                                   <TableRow>
                                     <TableHead>{sec.company === 'AllCare' ? 'Service Line' : 'Segment'}</TableHead>
-                                    <TableHead className="text-right">{sec.unitLabel}</TableHead>
                                     <TableHead className="text-right">Revenue</TableHead>
-                                    <TableHead className="text-right">ARPU</TableHead>
-                                    <TableHead className="text-right">Cost of Sales</TableHead>
-                                    <TableHead className="text-right">Gross Profit</TableHead>
-                                    <TableHead className="text-right">GM %</TableHead>
                                   </TableRow>
                                 </TableHeader>
                                 <TableBody>
                                   {rows.map(r => (
                                     <TableRow key={r.name}>
                                       <TableCell className="font-medium">{r.name}</TableCell>
-                                      <TableCell className="text-right tabular-nums">{r.units.toLocaleString()}</TableCell>
-                                      <TableCell className="text-right tabular-nums">{fmt(r.rev)}</TableCell>
-                                      <TableCell className="text-right tabular-nums">${r.arpu.toFixed(2)}</TableCell>
-                                      <TableCell className="text-right tabular-nums">{fmt(r.cos)}</TableCell>
-                                      <TableCell className="text-right tabular-nums">{fmt(r.gp)}</TableCell>
-                                      <TableCell className={`text-right font-semibold tabular-nums ${gmColor(r.gm)}`}>{r.gm.toFixed(1)}%</TableCell>
+                                      <TableCell className="text-right tabular-nums">
+                                        <div>{fmt(r.rev)}</div>
+                                        {revCellBadges(r.rev, r.priorRev, totalRev)}
+                                      </TableCell>
                                     </TableRow>
                                   ))}
                                 </TableBody>
                                 <TableFooter>
                                   <TableRow>
                                     <TableCell className="font-bold">Total</TableCell>
-                                    <TableCell className="text-right font-bold tabular-nums">{totals.units.toLocaleString()}</TableCell>
-                                    <TableCell className="text-right font-bold tabular-nums">{fmt(totals.rev)}</TableCell>
-                                    <TableCell className="text-right font-bold tabular-nums">${totalARPU.toFixed(2)}</TableCell>
-                                    <TableCell className="text-right font-bold tabular-nums">{fmt(totals.cos)}</TableCell>
-                                    <TableCell className="text-right font-bold tabular-nums">{fmt(totals.gp)}</TableCell>
-                                    <TableCell className={`text-right font-bold tabular-nums ${gmColor(totalGM)}`}>{totalGM.toFixed(1)}%</TableCell>
+                                    <TableCell className="text-right font-bold tabular-nums">
+                                      <div>{fmt(totalRev)}</div>
+                                      {/* Footer shows only MoM (contribution would be 100%). */}
+                                      {!isYearDrill && totalPriorRev > 0 && (() => {
+                                        const pctChg = ((totalRev - totalPriorRev) / totalPriorRev * 100);
+                                        return (
+                                          <div className={`text-[10px] font-medium mt-0.5 ${pctChg > 0 ? 'text-emerald-600' : pctChg < 0 ? 'text-red-500' : 'text-muted-foreground'}`}>
+                                            {pctChg > 0 ? '▲' : pctChg < 0 ? '▼' : '—'} {Math.abs(pctChg).toFixed(1)}% vs {priorMonthLabel}
+                                          </div>
+                                        );
+                                      })()}
+                                    </TableCell>
                                   </TableRow>
                                 </TableFooter>
                               </Table>
@@ -2086,34 +2182,84 @@ export default function InVitroDashboard({ data: rawData, user }) {
                 comparison={compareEnabled && (() => { const cRev = rangeTotal(data.pnl, 'Revenues', compRange.from, compRange.to, dynExcludeRevenue); const cGP = consolidatedGPRange(compRange.from, compRange.to, dynExcludeRevenue); return <ComparisonBadge current={rangeGrossMargin} compValue={cRev > 0 ? cGP/cRev*100 : 0} compLabel={compLabel} />; })()} />
               {breakevenCompany ? (
                 <KPICard title={`${breakevenCompany} Breakeven`} value={`FY ${currentYear}`} trend="Reached EBITDA breakeven" trendUp={true} />
-              ) : (
+              ) : !selectedCompany ? (
+                // "Portfolio Companies" count is only meaningful for the
+                // Consolidated view — when a single portco is drilled into,
+                // "1 active operating entity" is a tautology that adds no
+                // information, so we drop the card entirely in that case.
                 <KPICard title="Portfolio Companies" value={String(revenueCompanies.length)} subtitle="active operating entities" />
-              )}
+              ) : null}
             </div>
 
+            {/* When Compare is on: swap both charts (EBITDA & GP) to
+                side-by-side ComparisonBarCharts — same pattern as Revenue
+                and Expenses sections. The monthly trend chart + overlaid
+                dashed comp line works fine for a single metric but gets
+                noisy across two stacked profitability charts; twin bar
+                panels let the eye scan current-vs-comp at matching axes. */}
+            {compareEnabled ? (
+              <div className="mb-5 space-y-4">
+                {/* GP comparison rendered FIRST per CFO preference — gross
+                    margin is the headline operational metric; EBITDA sits
+                    below as the downstream profitability view. Hidden when
+                    no companies have GP data (e.g. InVitro Studio drilled
+                    in — a holding entity with no Gross Profit line). */}
+                {gmCompanies.length > 0 && (
+                  <ComparisonBarChart
+                    title={`Gross Profit Comparison — ${rangeLabel} vs ${compLabel}`}
+                    companies={gmCompanies}
+                    currentData={gmCompanies.map(name => ({
+                      name,
+                      value: gpByMonth.reduce((s, p) => s + (p[name] ?? 0), 0),
+                    }))}
+                    currentLabel={rangeLabel}
+                    compData={gmCompanies.map(name => {
+                      // Comp range: read each company's routed GP metric
+                      // (Osta → 'Gross Profit 2', others → 'Gross Profit')
+                      // directly from data.pnl since there's no pre-built
+                      // compGpByMonth in scope.
+                      const metric = data.pnl.find(c => c.name === name)?.metrics[getGPMetric(name)] ?? [];
+                      const fromVal = compRange.from.year * 100 + compRange.from.month;
+                      const toVal = compRange.to.year * 100 + compRange.to.month;
+                      const total = metric
+                        .filter(v => { const vi = v.year * 100 + v.month; return vi >= fromVal && vi <= toVal; })
+                        .reduce((s, v) => s + (v.value ?? 0), 0);
+                      return { name, value: total };
+                    })}
+                    compLabel={compLabel}
+                    colorMap={colorMap}
+                    compIsOlder={compIsOlder}
+                  />
+                )}
+                <ComparisonBarChart
+                  title={`EBITDA Comparison — ${rangeLabel} vs ${compLabel}`}
+                  companies={allCompanyNames}
+                  currentData={allCompanyNames.map(name => ({
+                    name,
+                    value: ebitdaByMonthWithTotal.reduce((s, p) => s + (p[name] ?? 0), 0),
+                  }))}
+                  currentLabel={rangeLabel}
+                  compData={allCompanyNames.map(name => ({
+                    name,
+                    value: compEbitdaByMonth.reduce((s, p) => s + (p[name] ?? 0), 0),
+                  }))}
+                  compLabel={compLabel}
+                  colorMap={colorMap}
+                  compIsOlder={compIsOlder}
+                />
+              </div>
+            ) : (<>
+            {/* GP & Margin rendered FIRST per CFO preference — gross
+                margin is the headline operational metric; EBITDA sits
+                below as the downstream profitability view. The `mb-5`
+                margin lives on whichever card is on top so the gap
+                between the two stays consistent across the swap.
+                Hidden entirely when no companies have GP data (e.g.
+                InVitro Studio drilled in — holding entity with no
+                Gross Profit line in its P&L). */}
+            {gmCompanies.length > 0 && (
             <Card className="mb-5">
-              <CardHeader><CardTitle className="text-sm">{viewMode === 'yearly' ? 'Yearly' : 'Monthly'} EBITDA by Company ({rangeLabel})</CardTitle></CardHeader>
-              <CardContent>
-                <ResponsiveContainer width="100%" height={340}>
-                  <ComposedChart data={ebitdaByMonthWithTotal}>
-                    <CartesianGrid strokeDasharray="3 3" stroke={CHART_STYLE.border} />
-                    <XAxis dataKey="month" tick={{ fill: CHART_STYLE.muted, fontSize: 11 }} />
-                    <YAxis tick={{ fill: CHART_STYLE.muted, fontSize: 11 }} tickFormatter={fmtShort} />
-                    <Tooltip content={<CustomTooltip />} />
-                    {forecastOverlay(ebitdaByMonthWithTotal)}
-                    {allCompanyNames.map(name => (
-                      <Bar key={name} dataKey={name} fill={colorMap[name]} />
-                    ))}
-                    <Line type="monotone" dataKey="Total" stroke={CHART_STYLE.totalLine} strokeWidth={2.5} dot={{ fill: CHART_STYLE.totalLine, r: 3 }} />
-                    {compareEnabled && <Line type="monotone" dataKey="Total_comp" stroke={CHART_STYLE.totalLine} strokeWidth={1.5} strokeDasharray="6 3" dot={false} name={`Total (${compLabel})`} />}
-                    <Legend />
-                  </ComposedChart>
-                </ResponsiveContainer>
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader><CardTitle className="text-sm">Gross Profit & Margin ({rangeLabel})</CardTitle></CardHeader>
+              <CardHeader><CardTitle className="text-sm">Gross Profit & Margin ({rangeLabel}){selectedCompany === 'AllCare' && viewMode === 'monthly' ? ' — click a bar for service-line breakdown' : ''}</CardTitle></CardHeader>
               <CardContent>
                 {(() => {
                   // Combine GP dollar values (bars) + margin % (lines) into one dataset
@@ -2126,9 +2272,25 @@ export default function InVitroDashboard({ data: rawData, user }) {
                     }
                     return point;
                   });
+                  // Drill-down click: only enabled when AllCare is the
+                  // selected drill target AND we're in monthly view. The
+                  // yearly view would map to a 12-month bucket which is
+                  // already covered by the range-total table above.
+                  const canDrill = selectedCompany === 'AllCare' && viewMode === 'monthly';
+                  const handleBarClick = canDrill ? (e) => {
+                    if (!e?.activePayload?.[0]) return;
+                    const label = e.activePayload[0].payload.month;
+                    const MONTHS_SHORT = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+                    const parts = String(label).match(/(\w+)\s*'?(\d+)/);
+                    if (parts) {
+                      const m = MONTHS_SHORT.indexOf(parts[1]) + 1;
+                      const y = 2000 + Number(parts[2]);
+                      if (m > 0) setGpDrilldown({ year: y, month: m });
+                    }
+                  } : undefined;
                   return (
                     <ResponsiveContainer width="100%" height={280}>
-                      <ComposedChart data={combinedGM}>
+                      <ComposedChart data={combinedGM} onClick={handleBarClick} style={canDrill ? { cursor: 'pointer' } : undefined}>
                         <CartesianGrid strokeDasharray="3 3" stroke={CHART_STYLE.border} />
                         <XAxis dataKey="month" tick={{ fill: CHART_STYLE.muted, fontSize: 11 }} />
                         <YAxis yAxisId="gp" tick={{ fill: CHART_STYLE.muted, fontSize: 11 }} tickFormatter={fmtShort} />
@@ -2168,6 +2330,100 @@ export default function InVitroDashboard({ data: rawData, user }) {
                 })()}
               </CardContent>
             </Card>
+            )}
+
+            <Card>
+              <CardHeader><CardTitle className="text-sm">{viewMode === 'yearly' ? 'Yearly' : 'Monthly'} EBITDA by Company ({rangeLabel})</CardTitle></CardHeader>
+              <CardContent>
+                <ResponsiveContainer width="100%" height={340}>
+                  <ComposedChart data={ebitdaByMonthWithTotal}>
+                    <CartesianGrid strokeDasharray="3 3" stroke={CHART_STYLE.border} />
+                    <XAxis dataKey="month" tick={{ fill: CHART_STYLE.muted, fontSize: 11 }} />
+                    <YAxis tick={{ fill: CHART_STYLE.muted, fontSize: 11 }} tickFormatter={fmtShort} />
+                    <Tooltip content={<CustomTooltip />} />
+                    {forecastOverlay(ebitdaByMonthWithTotal)}
+                    {allCompanyNames.map(name => (
+                      <Bar key={name} dataKey={name} fill={colorMap[name]} />
+                    ))}
+                    <Line type="monotone" dataKey="Total" stroke={CHART_STYLE.totalLine} strokeWidth={2.5} dot={{ fill: CHART_STYLE.totalLine, r: 3 }} />
+                    <Legend />
+                  </ComposedChart>
+                </ResponsiveContainer>
+              </CardContent>
+            </Card>
+            </>)}
+
+            {/* AllCare GP Drill-Down Drawer — opens when a month bar in the
+                Gross Profit & Margin chart is clicked (AllCare selected,
+                monthly view). Shows the service-line GP breakdown using
+                the SAME 5-group ALLCARE_PRODUCT_GROUPS aggregation that
+                powers the range-total table above. Same row shape, same
+                color thresholds, just scoped to a single month. */}
+            <Drawer open={!!gpDrilldown} onOpenChange={(open) => { if (!open) setGpDrilldown(null); }}>
+              <DrawerContent>
+                {gpDrilldown && (() => {
+                  const ML = ['','Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+                  const drillLabel = `${ML[gpDrilldown.month]} ${gpDrilldown.year}`;
+                  const inDrillMonth = (v) => v.year === gpDrilldown.year && v.month === gpDrilldown.month;
+                  const monthGroups = computeAllCareGroupedGP(inDrillMonth);
+                  // Sum the (already-combined) groups for the Total row.
+                  // Because we derive GP from sum_rev − sum_cos per group,
+                  // the group sums reconcile exactly to the AllCare "Total"
+                  // row in the sheet (and therefore to the chart).
+                  const totals = monthGroups.reduce(
+                    (acc, g) => ({ rev: acc.rev + g.rev, cos: acc.cos + g.cos, gp: acc.gp + g.gp }),
+                    { rev: 0, cos: 0, gp: 0 }
+                  );
+                  const totalGM = totals.rev > 0 ? (totals.gp / totals.rev * 100) : 0;
+                  const gmColor = (pct) => pct >= 40 ? 'text-emerald-600' : pct >= 20 ? 'text-amber-600' : 'text-red-500';
+                  return (
+                    <>
+                      <DrawerHeader>
+                        <DrawerTitle>AllCare GP Breakdown &mdash; {drillLabel}</DrawerTitle>
+                        <DrawerDescription>Gross Profit & Margin by service-line group</DrawerDescription>
+                      </DrawerHeader>
+                      <div className="px-4 pb-6 overflow-auto">
+                        {monthGroups.length === 0 ? (
+                          <p className="text-sm text-muted-foreground">No service-line data available for this month.</p>
+                        ) : (
+                          <Table>
+                            <TableHeader>
+                              <TableRow>
+                                <TableHead>Service Line</TableHead>
+                                <TableHead className="text-right">Revenue</TableHead>
+                                <TableHead className="text-right">Gross Profit</TableHead>
+                                <TableHead className="text-right">GM %</TableHead>
+                              </TableRow>
+                            </TableHeader>
+                            <TableBody>
+                              {monthGroups.map(g => (
+                                <TableRow key={g.name}>
+                                  <TableCell className="font-medium">
+                                    <span className="inline-block w-2 h-2 rounded-full mr-2 align-middle" style={{ background: g.color }} />
+                                    {g.name}
+                                  </TableCell>
+                                  <TableCell className="text-right tabular-nums">{fmt(g.rev)}</TableCell>
+                                  <TableCell className={`text-right tabular-nums font-semibold ${g.gp >= 0 ? 'text-emerald-600' : 'text-red-500'}`}>{fmt(g.gp)}</TableCell>
+                                  <TableCell className={`text-right font-semibold tabular-nums ${gmColor(g.gm)}`}>{g.gm.toFixed(1)}%</TableCell>
+                                </TableRow>
+                              ))}
+                            </TableBody>
+                            <TableFooter>
+                              <TableRow>
+                                <TableCell className="font-bold">Total</TableCell>
+                                <TableCell className="text-right font-bold tabular-nums">{fmt(totals.rev)}</TableCell>
+                                <TableCell className={`text-right font-bold tabular-nums ${totals.gp >= 0 ? 'text-emerald-600' : 'text-red-500'}`}>{fmt(totals.gp)}</TableCell>
+                                <TableCell className={`text-right font-bold tabular-nums ${gmColor(totalGM)}`}>{totalGM.toFixed(1)}%</TableCell>
+                              </TableRow>
+                            </TableFooter>
+                          </Table>
+                        )}
+                      </div>
+                    </>
+                  );
+                })()}
+              </DrawerContent>
+            </Drawer>
           </>)}
 
           {/* ────── CASH FLOW ────── */}
@@ -2263,65 +2519,6 @@ export default function InVitroDashboard({ data: rawData, user }) {
               </CardContent>
             </Card>
 
-            {/* Monthly Operating Cash Flow by Company — stacked bars.
-                Per CFO direction: roll up "Operational Cash Flow" per
-                portfolio company EXCEPT InVitro Studio which uses
-                "Direct Operational Cash Flow" (its "Operational Cash
-                Flow" line includes intercompany allocations that are
-                already counted at the portco level — double-counting).
-                EXCLUDE_ALWAYS strips pseudo entities (AllRx External,
-                holdings, Curenta combined block) from the consolidated
-                rollup so the Total reflects the operating businesses
-                only. */}
-            {(() => {
-              const ML = ['','Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-              const opsKeyFor = (name) =>
-                name === 'InVitro Studio' ? 'Direct Operational Cash Flow' : 'Operational Cash Flow';
-              const companies = selectedCompany
-                ? [selectedCompany]
-                : DISPLAY_COMPANIES.filter(n => !EXCLUDE_ALWAYS.includes(n));
-              const monthMap = {};
-              for (const name of companies) {
-                const co = data.cashflow.find(c => c.name === name);
-                if (!co) continue;
-                const metric = co.metrics?.[opsKeyFor(name)];
-                if (!metric) continue;
-                for (const v of metric) {
-                  if (!inRange(v)) continue;
-                  const label = viewMode === 'yearly' ? String(v.year) : `${ML[v.month]} '${String(v.year).slice(-2)}`;
-                  if (!monthMap[label]) monthMap[label] = { month: label };
-                  monthMap[label][name] = (monthMap[label][name] || 0) + (v.value ?? 0);
-                }
-              }
-              const opsCFData = Object.values(monthMap).map(point => ({
-                ...point,
-                Total: companies.reduce((s, name) => s + (point[name] || 0), 0),
-              }));
-              if (opsCFData.length === 0) return null;
-              return (
-                <Card className="mb-4">
-                  <CardHeader><CardTitle className="text-sm">Monthly Operating Cash Flow by Company ({rangeLabel})</CardTitle></CardHeader>
-                  <CardContent>
-                    <ResponsiveContainer width="100%" height={300}>
-                      <ComposedChart data={opsCFData}>
-                        <CartesianGrid strokeDasharray="3 3" stroke={CHART_STYLE.border} />
-                        <XAxis dataKey="month" tick={{ fill: CHART_STYLE.muted, fontSize: 11 }} />
-                        <YAxis tick={{ fill: CHART_STYLE.muted, fontSize: 11 }} tickFormatter={fmtShort} />
-                        <Tooltip content={<CustomTooltip />} />
-                    {forecastOverlay(opsCFData)}
-                        {companies.map((name, i) => (
-                          <Bar key={name} dataKey={name} stackId="ops" fill={colorMap[name]}
-                            radius={i === companies.length - 1 ? [4, 4, 0, 0] : [0, 0, 0, 0]} />
-                        ))}
-                        <Line type="monotone" dataKey="Total" stroke={CHART_STYLE.totalLine} strokeWidth={2} dot={{ r: 3, fill: CHART_STYLE.totalLine }} />
-                        <Legend />
-                      </ComposedChart>
-                    </ResponsiveContainer>
-                  </CardContent>
-                </Card>
-              );
-            })()}
-
             {/* Combined: Normal Cash Burn (bars) + Cash Runway (line) — consolidated only shows burn */}
             {(() => {
               const MONTHS_L = ['','Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
@@ -2397,6 +2594,317 @@ export default function InVitroDashboard({ data: rawData, user }) {
                     </p>
                   </CardContent>
                 </Card>
+              );
+            })()}
+
+            {/* ─── Indirect Cash Flow Statement ───
+                CFO-style build-up: EBITDA → ± Working Capital Δ → Operating
+                Cash Flow → ± Investing → ± Financing → Net Cash Change →
+                Cash Balance. Three layers:
+                  Layer 1 — monthly stacked bar chart (components) +
+                           cash balance line overlay.
+                  Layer 2 — per-month build-up table (rows = line items,
+                           columns = months in range + Total).
+                  Layer 3 — per-company comparison table (Consolidated
+                           view only). Each row = one portco.
+                Working Capital Δ is derived (Op CF − EBITDA) — the sheet
+                doesn't publish it directly but it's the implicit plug. */}
+            {(() => {
+              const ML_S = ['','Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+              const monthLabel = (y, m) => viewMode === 'yearly' ? String(y) : `${ML_S[m]} '${String(y).slice(-2)}`;
+
+              // Metric routing — Studio uses 'Direct Operational Cash Flow'
+              // because its 'Operational Cash Flow' double-counts portco
+              // rollups. Same convention as the existing OpCF chart.
+              const opCFKey = (name) => name === 'InVitro Studio' ? 'Direct Operational Cash Flow' : 'Operational Cash Flow';
+              const investCFKey = 'Investment Cash Flow';
+              const finCFKey = 'Financing Cash Flow';
+              const balanceKey = 'Cash Balance';
+
+              const getValue = (companyData, metricName, year, month) => {
+                if (!companyData) return 0;
+                const arr = companyData.metrics?.[metricName] || [];
+                const match = arr.find(v => v.year === year && v.month === month);
+                return match?.value ?? 0;
+              };
+
+              // Months in the currently-selected range (chronological list).
+              // Yearly view collapses to whole years; monthly view lists each
+              // month individually.
+              const monthsInRange = (() => {
+                const result = [];
+                if (viewMode === 'yearly') {
+                  for (let y = rangeFrom.year; y <= rangeTo.year; y++) {
+                    result.push({ year: y, month: 0, label: String(y) });
+                  }
+                } else {
+                  const start = rangeFrom.year * 12 + rangeFrom.month;
+                  const end = rangeTo.year * 12 + rangeTo.month;
+                  for (let mi = start; mi <= end; mi++) {
+                    const y = Math.floor((mi - 1) / 12);
+                    const m = ((mi - 1) % 12) + 1;
+                    result.push({ year: y, month: m, label: monthLabel(y, m) });
+                  }
+                }
+                return result;
+              })();
+
+              // For yearly view, sum monthly values within each year.
+              const sumYearMetric = (companyData, metricName, year) => {
+                if (!companyData) return 0;
+                const arr = companyData.metrics?.[metricName] || [];
+                return arr.filter(v => v.year === year).reduce((s, v) => s + (v.value ?? 0), 0);
+              };
+              // Cash balance for a year = December's balance (end-of-year).
+              const getYearEndBalance = (companyData, year) => {
+                if (!companyData) return 0;
+                const arr = companyData.metrics?.[balanceKey] || [];
+                const yearVals = arr.filter(v => v.year === year);
+                if (yearVals.length === 0) return 0;
+                const sorted = [...yearVals].sort((a, b) => b.month - a.month);
+                return sorted[0]?.value ?? 0;
+              };
+
+              // Which companies roll into the view. Same exclusion rules as
+              // the existing OpCF chart so the consolidated totals reconcile.
+              const companies = selectedCompany
+                ? [selectedCompany]
+                : DISPLAY_COMPANIES.filter(n => !EXCLUDE_ALWAYS.includes(n));
+
+              // Per-period build (monthly OR yearly bucket → one chart point).
+              const chartData = monthsInRange.map(({ year, month, label }) => {
+                let ebitda = 0, opCF = 0, invCF = 0, finCF = 0, balance = 0;
+                for (const name of companies) {
+                  const pnl = data.pnl?.find(c => c.name === name);
+                  const cf  = data.cashflow?.find(c => c.name === name);
+                  if (viewMode === 'yearly') {
+                    ebitda  += sumYearMetric(pnl, 'EBITDA', year);
+                    opCF    += sumYearMetric(cf, opCFKey(name), year);
+                    invCF   += sumYearMetric(cf, investCFKey, year);
+                    finCF   += sumYearMetric(cf, finCFKey, year);
+                    balance += getYearEndBalance(cf, year);
+                  } else {
+                    ebitda  += getValue(pnl, 'EBITDA', year, month);
+                    opCF    += getValue(cf, opCFKey(name), year, month);
+                    invCF   += getValue(cf, investCFKey, year, month);
+                    finCF   += getValue(cf, finCFKey, year, month);
+                    balance += getValue(cf, balanceKey, year, month);
+                  }
+                }
+                const wcDelta = opCF - ebitda;
+                const netCash = opCF + invCF + finCF;
+                return { month: label, year, m: month, ebitda, wcDelta, opCF, invCF, finCF, netCash, balance };
+              });
+
+              // Per-company stmts for Layer 3 (Consolidated comparison).
+              // Always summed across the FULL selected range.
+              const buildCompanyStmt = (name) => {
+                const pnl = data.pnl?.find(c => c.name === name);
+                const cf  = data.cashflow?.find(c => c.name === name);
+                let ebitda = 0, opCF = 0, invCF = 0, finCF = 0;
+                for (const { year, month } of monthsInRange) {
+                  if (viewMode === 'yearly') {
+                    ebitda += sumYearMetric(pnl, 'EBITDA', year);
+                    opCF   += sumYearMetric(cf, opCFKey(name), year);
+                    invCF  += sumYearMetric(cf, investCFKey, year);
+                    finCF  += sumYearMetric(cf, finCFKey, year);
+                  } else {
+                    ebitda += getValue(pnl, 'EBITDA', year, month);
+                    opCF   += getValue(cf, opCFKey(name), year, month);
+                    invCF  += getValue(cf, investCFKey, year, month);
+                    finCF  += getValue(cf, finCFKey, year, month);
+                  }
+                }
+                // End balance is point-in-time — use the LAST period's value.
+                const last = monthsInRange[monthsInRange.length - 1];
+                const endBalance = viewMode === 'yearly'
+                  ? getYearEndBalance(cf, last.year)
+                  : getValue(cf, balanceKey, last.year, last.month);
+                const wcDelta = opCF - ebitda;
+                const netCash = opCF + invCF + finCF;
+                return { name, ebitda, wcDelta, opCF, invCF, finCF, netCash, endBalance };
+              };
+              const perCompanyStmts = companies.map(buildCompanyStmt);
+              const totalStmt = perCompanyStmts.reduce(
+                (acc, s) => ({
+                  ebitda: acc.ebitda + s.ebitda,
+                  wcDelta: acc.wcDelta + s.wcDelta,
+                  opCF: acc.opCF + s.opCF,
+                  invCF: acc.invCF + s.invCF,
+                  finCF: acc.finCF + s.finCF,
+                  netCash: acc.netCash + s.netCash,
+                  endBalance: acc.endBalance + s.endBalance,
+                }),
+                { ebitda: 0, wcDelta: 0, opCF: 0, invCF: 0, finCF: 0, netCash: 0, endBalance: 0 }
+              );
+
+              // Skip entirely if there's no data at all
+              if (chartData.length === 0) return null;
+              const hasAnyData = chartData.some(p =>
+                p.ebitda !== 0 || p.opCF !== 0 || p.invCF !== 0 || p.finCF !== 0
+              );
+              if (!hasAnyData) return null;
+
+              // Build-up table line config. Indent helps the eye see that
+              // WC Δ is a "modifier" of EBITDA, not a peer line.
+              const LINE_ITEMS = [
+                { key: 'ebitda',  label: 'EBITDA',                  bold: false, indent: 0 },
+                { key: 'wcDelta', label: '± Working Capital Δ',      bold: false, indent: 1 },
+                { key: 'opCF',    label: '= Operating Cash Flow',    bold: true,  indent: 0 },
+                { key: 'invCF',   label: '± Investing Cash Flow',    bold: false, indent: 0 },
+                { key: 'finCF',   label: '± Financing Cash Flow',    bold: false, indent: 0 },
+                { key: 'netCash', label: '= Net Cash Change',        bold: true,  indent: 0 },
+                { key: 'balance', label: 'Ending Cash Balance',      bold: true,  indent: 0 },
+              ];
+
+              // Color rule: green for cash-positive, red for cash-negative.
+              // Same convention as Op CF / EBITDA cells elsewhere.
+              const cashColor = (val) => {
+                if (val === 0 || val === null) return 'text-muted-foreground';
+                return val > 0 ? 'text-emerald-600' : 'text-red-500';
+              };
+
+              return (
+                <>
+                  <div className="mt-8 mb-4">
+                    <h2 className="text-lg font-bold mb-1">Indirect Cash Flow Statement</h2>
+                    <p className="text-sm text-muted-foreground">
+                      EBITDA → ± Working Capital → Operating CF → Investing → Financing → Ending Balance
+                      {selectedCompany ? ` · ${selectedCompany}` : ' · Consolidated'}
+                    </p>
+                  </div>
+
+                  {/* Layer 1 — Monthly chart: components stacked, balance line overlay */}
+                  <Card className="mb-5">
+                    <CardHeader>
+                      <CardTitle className="text-sm">Cash Flow Components ({rangeLabel})</CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <ResponsiveContainer width="100%" height={320}>
+                        <ComposedChart data={chartData}>
+                          <CartesianGrid strokeDasharray="3 3" stroke={CHART_STYLE.border} />
+                          <XAxis dataKey="month" tick={{ fill: CHART_STYLE.muted, fontSize: 11 }} />
+                          <YAxis yAxisId="bars" tick={{ fill: CHART_STYLE.muted, fontSize: 11 }} tickFormatter={fmtShort} />
+                          <YAxis yAxisId="balance" orientation="right" tick={{ fill: '#1e40af', fontSize: 11 }} tickFormatter={fmtShort} />
+                          <Tooltip content={<CustomTooltip />} />
+                          {forecastOverlay(chartData, 'bars')}
+                          {/* Stacked bars: components that sum to Net Cash Change */}
+                          <Bar yAxisId="bars" dataKey="ebitda"  stackId="cf" fill="#10b981" name="EBITDA" />
+                          <Bar yAxisId="bars" dataKey="wcDelta" stackId="cf" fill="#f59e0b" name="WC Δ" />
+                          <Bar yAxisId="bars" dataKey="invCF"   stackId="cf" fill="#8b5cf6" name="Investing CF" />
+                          <Bar yAxisId="bars" dataKey="finCF"   stackId="cf" fill="#3b82f6" name="Financing CF" />
+                          <Line yAxisId="balance" type="monotone" dataKey="balance" stroke="#1e40af" strokeWidth={2.5}
+                            dot={{ r: 3, fill: '#1e40af' }} name="Cash Balance" />
+                          <Legend />
+                        </ComposedChart>
+                      </ResponsiveContainer>
+                    </CardContent>
+                  </Card>
+
+                  {/* Layer 2 — Build-up table: rows = line items, columns = months + Total */}
+                  <Card className="mb-5 overflow-hidden">
+                    <CardHeader>
+                      <CardTitle className="text-sm">Build-up by {viewMode === 'yearly' ? 'Year' : 'Month'} ({selectedCompany || 'Consolidated'})</CardTitle>
+                    </CardHeader>
+                    <CardContent className="overflow-auto px-0">
+                      <Table>
+                        <TableHeader>
+                          <TableRow>
+                            <TableHead className="sticky left-0 bg-card z-10">Line Item</TableHead>
+                            {monthsInRange.map(({ label }) => (
+                              <TableHead key={label} className="text-right whitespace-nowrap">{label}</TableHead>
+                            ))}
+                            <TableHead className="text-right font-bold whitespace-nowrap">Total</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {LINE_ITEMS.map(item => {
+                            // Ending Balance is point-in-time, not summed — use the
+                            // last period's balance for the Total column.
+                            const totalVal = item.key === 'balance'
+                              ? (chartData[chartData.length - 1]?.balance ?? 0)
+                              : (totalStmt[item.key] ?? 0);
+                            return (
+                              <TableRow key={item.key} className={item.bold ? 'bg-muted/30' : ''}>
+                                <TableCell
+                                  className={`sticky left-0 bg-card z-10 ${item.bold ? 'font-bold' : ''}`}
+                                  style={{ paddingLeft: `${1 + item.indent}rem` }}
+                                >
+                                  {item.label}
+                                </TableCell>
+                                {monthsInRange.map(({ label }, i) => {
+                                  const val = chartData[i]?.[item.key] ?? 0;
+                                  return (
+                                    <TableCell key={label} className={`text-right tabular-nums whitespace-nowrap ${item.bold ? 'font-bold' : ''} ${cashColor(val)}`}>
+                                      {fmt(val)}
+                                    </TableCell>
+                                  );
+                                })}
+                                <TableCell className={`text-right tabular-nums font-bold whitespace-nowrap ${cashColor(totalVal)}`}>
+                                  {fmt(totalVal)}
+                                </TableCell>
+                              </TableRow>
+                            );
+                          })}
+                        </TableBody>
+                      </Table>
+                    </CardContent>
+                  </Card>
+
+                  {/* Layer 3 — Per-company comparison (only when Consolidated and multiple companies) */}
+                  {!selectedCompany && perCompanyStmts.length > 1 && (
+                    <Card>
+                      <CardHeader>
+                        <CardTitle className="text-sm">Per-Company Cash Flow ({rangeLabel})</CardTitle>
+                      </CardHeader>
+                      <CardContent className="overflow-auto px-0">
+                        <Table>
+                          <TableHeader>
+                            <TableRow>
+                              <TableHead>Company</TableHead>
+                              <TableHead className="text-right">EBITDA</TableHead>
+                              <TableHead className="text-right">WC Δ</TableHead>
+                              <TableHead className="text-right">Op CF</TableHead>
+                              <TableHead className="text-right">Inv CF</TableHead>
+                              <TableHead className="text-right">Fin CF</TableHead>
+                              <TableHead className="text-right">Net Cash Δ</TableHead>
+                              <TableHead className="text-right">End Balance</TableHead>
+                            </TableRow>
+                          </TableHeader>
+                          <TableBody>
+                            {perCompanyStmts.map(s => (
+                              <TableRow key={s.name}>
+                                <TableCell className="font-medium whitespace-nowrap">
+                                  <span className="inline-block w-2 h-2 rounded-full mr-2 align-middle" style={{ background: colorMap[s.name] }} />
+                                  {s.name}
+                                </TableCell>
+                                <TableCell className={`text-right tabular-nums ${cashColor(s.ebitda)}`}>{fmt(s.ebitda)}</TableCell>
+                                <TableCell className={`text-right tabular-nums ${cashColor(s.wcDelta)}`}>{fmt(s.wcDelta)}</TableCell>
+                                <TableCell className={`text-right font-semibold tabular-nums ${cashColor(s.opCF)}`}>{fmt(s.opCF)}</TableCell>
+                                <TableCell className={`text-right tabular-nums ${cashColor(s.invCF)}`}>{fmt(s.invCF)}</TableCell>
+                                <TableCell className={`text-right tabular-nums ${cashColor(s.finCF)}`}>{fmt(s.finCF)}</TableCell>
+                                <TableCell className={`text-right font-semibold tabular-nums ${cashColor(s.netCash)}`}>{fmt(s.netCash)}</TableCell>
+                                <TableCell className={`text-right tabular-nums ${cashColor(s.endBalance)}`}>{fmt(s.endBalance)}</TableCell>
+                              </TableRow>
+                            ))}
+                          </TableBody>
+                          <TableFooter>
+                            <TableRow>
+                              <TableCell className="font-bold">Total</TableCell>
+                              <TableCell className={`text-right font-bold tabular-nums ${cashColor(totalStmt.ebitda)}`}>{fmt(totalStmt.ebitda)}</TableCell>
+                              <TableCell className={`text-right font-bold tabular-nums ${cashColor(totalStmt.wcDelta)}`}>{fmt(totalStmt.wcDelta)}</TableCell>
+                              <TableCell className={`text-right font-bold tabular-nums ${cashColor(totalStmt.opCF)}`}>{fmt(totalStmt.opCF)}</TableCell>
+                              <TableCell className={`text-right font-bold tabular-nums ${cashColor(totalStmt.invCF)}`}>{fmt(totalStmt.invCF)}</TableCell>
+                              <TableCell className={`text-right font-bold tabular-nums ${cashColor(totalStmt.finCF)}`}>{fmt(totalStmt.finCF)}</TableCell>
+                              <TableCell className={`text-right font-bold tabular-nums ${cashColor(totalStmt.netCash)}`}>{fmt(totalStmt.netCash)}</TableCell>
+                              <TableCell className={`text-right font-bold tabular-nums ${cashColor(totalStmt.endBalance)}`}>{fmt(totalStmt.endBalance)}</TableCell>
+                            </TableRow>
+                          </TableFooter>
+                        </Table>
+                      </CardContent>
+                    </Card>
+                  )}
+                </>
               );
             })()}
           </>)}
