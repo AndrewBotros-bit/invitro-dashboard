@@ -500,19 +500,26 @@ export default function InVitroDashboard({ data: rawData, user }) {
   const DISPLAY_COMPANIES = perms.companies === '*'
     ? ALL_COMPANIES.filter(canSeeCompany)
     : (Array.isArray(perms.companies) ? perms.companies : []).filter(c => ALL_COMPANIES.includes(c));
-  // Initial selectedCompany: AllCare is the default landing target for
-  // Portfolio Performance (per CFO direction — AllCare is the headline
-  // portfolio company most users are interested in by default).
-  // Fallback chain:
-  //   1. AllCare, if user has permission to see it
-  //   2. First company in their allowed list, otherwise
-  //   3. null (Consolidated) if no companies available at all
-  // LP users WITHOUT consolidated access used to land on their first
-  // allowed company; that still works because lpAutoCompanies typically
-  // includes AllCare for InVitro Fund/InVitro Ventures LPs (since both
-  // vehicles invest in AllCare).
+  // Initial selectedCompany — admin-customizable per user.
+  //
+  // Rule:
+  //   - Admin (companies === '*'): AllCare is the headline portco by CFO
+  //     direction; falls back to the canonical first company otherwise.
+  //   - Viewer with explicit array: use the FIRST entry in their array.
+  //     The array order is admin-set in /admin/users, so position 1
+  //     IS the intended landing portco. Reordering the array reorders
+  //     both the sidebar AND the landing page in one move.
+  //   - Empty / no companies: null (Consolidated view).
+  //
+  // Per-user examples:
+  //   Andrew (admin '*')              → AllCare
+  //   Ayman ['InVitro Studio', ...]   → InVitro Studio
+  //   LP user ['AllRx External', ...] → AllRx External
   const [selectedCompany, setSelectedCompany] = useState(() => {
-    if (DISPLAY_COMPANIES.includes('AllCare')) return 'AllCare';
+    if (perms.companies === '*') {
+      if (DISPLAY_COMPANIES.includes('AllCare')) return 'AllCare';
+      return DISPLAY_COMPANIES[0] ?? null;
+    }
     return DISPLAY_COMPANIES[0] ?? null;
   });
   const [expenseDrilldown, setExpenseDrilldown] = useState(null); // { year, month } or null
