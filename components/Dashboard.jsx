@@ -11,7 +11,7 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import { Table, TableHeader, TableBody, TableHead, TableRow, TableCell, TableFooter } from "@/components/ui/table";
 import { fmt, fmtShort, pct } from "@/lib/formatters";
-import { buildColorMap, buildMonthlySeries, buildCashflowSeries, annualTotal, monthlyTotal, getAvailableMonths, filterSeriesToRange, buildYearlySeries, rangeTotal, EXCLUDE_REVENUE, EXCLUDE_EBITDA, EXCLUDE_ALWAYS, PALETTE } from "@/lib/chartHelpers";
+import { buildColorMap, buildMonthlySeries, buildCashflowSeries, annualTotal, monthlyTotal, getAvailableMonths, filterSeriesToRange, buildYearlySeries, buildQuarterlySeries, rangeTotal, EXCLUDE_REVENUE, EXCLUDE_EBITDA, EXCLUDE_ALWAYS, PALETTE } from "@/lib/chartHelpers";
 import { Button } from "@/components/ui/button";
 import { generateInsights } from "@/lib/insights";
 import { Drawer, DrawerContent, DrawerHeader, DrawerTitle, DrawerDescription, DrawerClose } from "@/components/ui/drawer";
@@ -531,7 +531,7 @@ export default function InVitroDashboard({ data: rawData, user }) {
   const [expandedHCDivision, setExpandedHCDivision] = useState(null); // 'G&A:Executive' (dept:division) or null
 
   // View mode & date range state
-  const [viewMode, setViewMode] = useState('monthly'); // 'monthly' | 'yearly'
+  const [viewMode, setViewMode] = useState('monthly'); // 'monthly' | 'quarterly' | 'yearly'
 
   // IRR & Valuation has different time semantics than the other tabs (point-
   // in-time per year, not a range), so it keeps its own state. Initial year
@@ -687,11 +687,23 @@ export default function InVitroDashboard({ data: rawData, user }) {
   const getForecastBoundary = (dataArr) => {
     if (!Array.isArray(dataArr) || dataArr.length === 0) return null;
     const isYearly = viewMode === 'yearly';
+    const isQuarterly = viewMode === 'quarterly';
     const isForecast = (point) => {
       const label = String(point.month ?? '');
       if (isYearly) {
         const y = Number(label);
         return y > prevMonthYear;
+      }
+      if (isQuarterly) {
+        // Quarterly labels: "Q1 26" or "Q1 '26"
+        const parts = label.split(' ');
+        const qPart = parts[0] || '';
+        const q = Number(qPart.replace(/^Q/, ''));
+        const yearStr = (parts[1] || '').replace(/^'/, '');
+        const y = 2000 + Number(yearStr);
+        if (!q || isNaN(y)) return false;
+        const prevQuarter = Math.ceil(prevMonth / 3);
+        return y > prevMonthYear || (y === prevMonthYear && q > prevQuarter);
       }
       // Month labels in this codebase come in two flavors:
       //   "Jan 26"  (some helpers)
@@ -808,18 +820,26 @@ export default function InVitroDashboard({ data: rawData, user }) {
   const rawEbitdaByMonth = buildMonthlySeries(data.pnl, 'EBITDA', dynExcludeEbitda, null);
   const revenueByMonth = viewMode === 'yearly'
     ? buildYearlySeries(data.pnl, 'Revenues', dynExcludeRevenue, yearFrom, yearTo)
+    : viewMode === 'quarterly'
+    ? buildQuarterlySeries(data.pnl, 'Revenues', dynExcludeRevenue, rangeFrom.year, rangeTo.year)
     : filterSeriesToRange(rawRevenueByMonth, rangeFrom, rangeTo, availableMonths);
   const ebitdaByMonth = viewMode === 'yearly'
     ? buildYearlySeries(data.pnl, 'EBITDA', dynExcludeEbitda, yearFrom, yearTo)
+    : viewMode === 'quarterly'
+    ? buildQuarterlySeries(data.pnl, 'EBITDA', dynExcludeEbitda, rangeFrom.year, rangeTo.year)
     : filterSeriesToRange(rawEbitdaByMonth, rangeFrom, rangeTo, availableMonths);
   // ── Comparison ghost series (dashed overlay) ──
   // Build comparison series aligned to current period months
   const compRevenueByMonth = compareEnabled ? (viewMode === 'yearly'
     ? buildYearlySeries(data.pnl, 'Revenues', dynExcludeRevenue, compRange.from.year, compRange.to.year)
+    : viewMode === 'quarterly'
+    ? buildQuarterlySeries(data.pnl, 'Revenues', dynExcludeRevenue, compRange.from.year, compRange.to.year)
     : filterSeriesToRange(rawRevenueByMonth, compRange.from, compRange.to, availableMonths)
   ) : [];
   const compEbitdaByMonth = compareEnabled ? (viewMode === 'yearly'
     ? buildYearlySeries(data.pnl, 'EBITDA', dynExcludeEbitda, compRange.from.year, compRange.to.year)
+    : viewMode === 'quarterly'
+    ? buildQuarterlySeries(data.pnl, 'EBITDA', dynExcludeEbitda, compRange.from.year, compRange.to.year)
     : filterSeriesToRange(rawEbitdaByMonth, compRange.from, compRange.to, availableMonths)
   ) : [];
   // Merge comparison Total into current series (align by index, not by month label)
@@ -891,6 +911,25 @@ export default function InVitroDashboard({ data: rawData, user }) {
       byYear[y].net += p.net;
     }
     return Object.values(byYear).sort((a, b) => a._year - b._year);
+  })();
+
+  // Quarterly rollup of cashBalanceByMonth for viewMode='quarterly'. Same
+  // FLOW-metric assumption as cashBalanceByYear (sum of months in quarter).
+  const cashBalanceByQuarter = (() => {
+    if (cashBalanceByMonth.length === 0) return [];
+    const byBucket = {};
+    for (const p of cashBalanceByMonth) {
+      const q = Math.ceil(p._month / 3);
+      const key = `${p._year}-${q}`;
+      if (!byBucket[key]) {
+        byBucket[key] = { month: `Q${q} '${String(p._year).slice(-2)}`, inflow: 0, outflow: 0, opsCashFlow: 0, net: 0, _year: p._year, _quarter: q, _month: q * 3 };
+      }
+      byBucket[key].inflow += p.inflow;
+      byBucket[key].outflow += p.outflow;
+      byBucket[key].opsCashFlow += p.opsCashFlow;
+      byBucket[key].net += p.net;
+    }
+    return Object.values(byBucket).sort((a, b) => a._year !== b._year ? a._year - b._year : a._quarter - b._quarter);
   })();
 
   // Revenue by month with Total
@@ -980,6 +1019,17 @@ export default function InVitroDashboard({ data: rawData, user }) {
         }
         return Object.values(byYear).sort((a, b) => a.month - b.month);
       }
+      if (viewMode === 'quarterly') {
+        const byBucket = {};
+        for (const v of vals) {
+          if (v.year < rangeFrom.year || v.year > rangeTo.year) continue;
+          const q = Math.ceil(v.month / 3);
+          const key = `${v.year}-${q}`;
+          byBucket[key] = byBucket[key] || { month: `Q${q} ${String(v.year).slice(-2)}`, _year: v.year, _quarter: q, _month: q * 3, 'InVitro Studio': 0 };
+          byBucket[key]['InVitro Studio'] += v.value ?? 0;
+        }
+        return Object.values(byBucket).sort((a, b) => a._year !== b._year ? a._year - b._year : a._quarter - b._quarter);
+      }
       return vals
         .filter(v => { const pv = v.year * 100 + v.month; return pv >= fromVal && pv <= toVal; })
         .map(v => ({ month: `${MONTHS[v.month]} ${String(v.year).slice(-2)}`, 'InVitro Studio': v.value ?? 0 }));
@@ -988,17 +1038,27 @@ export default function InVitroDashboard({ data: rawData, user }) {
     const rawSgna = buildMonthlySeries(data.pnl, 'SG&A + R&D Expenses', dynExcludeEbitda, null);
     const base = viewMode === 'yearly'
       ? buildYearlySeries(data.pnl, 'SG&A + R&D Expenses', dynExcludeEbitda, yearFrom, yearTo)
+      : viewMode === 'quarterly'
+      ? buildQuarterlySeries(data.pnl, 'SG&A + R&D Expenses', dynExcludeEbitda, rangeFrom.year, rangeTo.year)
       : filterSeriesToRange(rawSgna, rangeFrom, rangeTo, availableMonths);
     // Merge InVitro Studio's Fixed+Direct into the consolidated series
     const studio = data.pnl.find(c => c.name === 'InVitro Studio');
     if (studio && !dynExcludeEbitda.includes('InVitro Studio')) {
       const studioVals = getCompanyExpenseValues(studio);
       for (const point of base) {
-        const match = studioVals.find(v => {
-          if (viewMode === 'yearly') return String(v.year) === point.month;
-          return `${MONTHS[v.month]} ${String(v.year).slice(-2)}` === point.month;
-        });
-        if (match) point['InVitro Studio'] = match.value;
+        if (viewMode === 'yearly') {
+          const match = studioVals.find(v => String(v.year) === point.month);
+          if (match) point['InVitro Studio'] = match.value;
+        } else if (viewMode === 'quarterly') {
+          // Sum all months in the quarter
+          const matches = studioVals.filter(v => v.year === point._year && Math.ceil(v.month / 3) === point._quarter);
+          if (matches.length > 0) {
+            point['InVitro Studio'] = matches.reduce((s, v) => s + (v.value ?? 0), 0);
+          }
+        } else {
+          const match = studioVals.find(v => `${MONTHS[v.month]} ${String(v.year).slice(-2)}` === point.month);
+          if (match) point['InVitro Studio'] = match.value;
+        }
       }
     }
     return base;
@@ -1015,6 +1075,8 @@ export default function InVitroDashboard({ data: rawData, user }) {
     const rawExp = buildMonthlySeries(data.pnl, selectedCompany ? 'SG&A + R&D Expenses' : 'Total Expenses', dynExcludeEbitda, null);
     return viewMode === 'yearly'
       ? buildYearlySeries(data.pnl, selectedCompany ? 'SG&A + R&D Expenses' : 'Total Expenses', dynExcludeEbitda, compRange.from.year, compRange.to.year)
+      : viewMode === 'quarterly'
+      ? buildQuarterlySeries(data.pnl, selectedCompany ? 'SG&A + R&D Expenses' : 'Total Expenses', dynExcludeEbitda, compRange.from.year, compRange.to.year)
       : filterSeriesToRange(rawExp, compRange.from, compRange.to, availableMonths);
   })() : [];
   const expenseByMonthWithTotal = addCompTotal(expenseByMonthPositive.map(point => ({
@@ -1369,6 +1431,14 @@ export default function InVitroDashboard({ data: rawData, user }) {
     const label = String(mv.year);
     ostaGP2ByYearLabel[label] = (ostaGP2ByYearLabel[label] ?? 0) + mv.value;
   }
+  // Quarterly lookup: { 'Q1 26' -> sum(...) }
+  const ostaGP2ByQuarterLabel = {};
+  for (const mv of ostaGP2Values) {
+    if (mv.value == null) continue;
+    const q = Math.ceil(mv.month / 3);
+    const label = `Q${q} ${String(mv.year).slice(-2)}`;
+    ostaGP2ByQuarterLabel[label] = (ostaGP2ByQuarterLabel[label] ?? 0) + mv.value;
+  }
   const patchOstaInRows = (rows, lookup) => rows.map(row => {
     const v = lookup[row.month];
     return v != null ? { ...row, Osta: v } : row;
@@ -1378,6 +1448,11 @@ export default function InVitroDashboard({ data: rawData, user }) {
     ? patchOstaInRows(
         buildYearlySeries(data.pnl, 'Gross Profit', dynExcludeRevenue, yearFrom, yearTo),
         ostaGP2ByYearLabel
+      )
+    : viewMode === 'quarterly'
+    ? patchOstaInRows(
+        buildQuarterlySeries(data.pnl, 'Gross Profit', dynExcludeRevenue, rangeFrom.year, rangeTo.year),
+        ostaGP2ByQuarterLabel
       )
     : filterSeriesToRange(patchedGpByMonth, rangeFrom, rangeTo, availableMonths);
   const grossMarginPctByMonth = revenueByMonth.map((revPoint, i) => {
@@ -1537,13 +1612,19 @@ export default function InVitroDashboard({ data: rawData, user }) {
               </>
             ) : (
               <>
-            {/* Monthly / Yearly toggle */}
+            {/* Monthly / Quarterly / Yearly toggle */}
             <div className="flex bg-muted rounded-lg p-0.5">
               <button
                 onClick={() => { setViewMode('monthly'); setExpenseDrilldown(null); if (compareEnabled) { setCompareFromKey(`${rangeFrom.year - 1}-${rangeFrom.month}`); setCompareToKey(`${rangeTo.year - 1}-${rangeTo.month}`); } }}
                 className={`px-3 py-1.5 text-xs font-medium rounded-md transition-all ${viewMode === 'monthly' ? 'bg-white text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'}`}
               >
                 Monthly
+              </button>
+              <button
+                onClick={() => { setViewMode('quarterly'); setExpenseDrilldown(null); if (compareEnabled) { setCompareFromKey(`${rangeFrom.year - 1}-${rangeFrom.month}`); setCompareToKey(`${rangeTo.year - 1}-${rangeTo.month}`); } }}
+                className={`px-3 py-1.5 text-xs font-medium rounded-md transition-all ${viewMode === 'quarterly' ? 'bg-white text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'}`}
+              >
+                Quarterly
               </button>
               <button
                 onClick={() => { setViewMode('yearly'); setExpenseDrilldown(null); if (compareEnabled) { setCompareFromKey(`${yearFrom - 1}-1`); setCompareToKey(`${yearTo - 1}-12`); } }}
@@ -1555,7 +1636,7 @@ export default function InVitroDashboard({ data: rawData, user }) {
 
             {/* Date range selectors */}
             <div className="flex items-center gap-1.5 bg-muted/60 rounded-lg px-2 py-1">
-              {viewMode === 'monthly' ? (
+              {viewMode !== 'yearly' ? (
                 <>
                   <select value={rangeFromKey} onChange={e => { setRangeFromKey(e.target.value); setExpenseDrilldown(null); }}
                     className="h-7 rounded-md bg-white border border-border/60 px-2 text-xs font-medium text-foreground shadow-sm focus:outline-none focus:ring-2 focus:ring-ring/30">
@@ -1748,7 +1829,7 @@ export default function InVitroDashboard({ data: rawData, user }) {
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-8">
               <Card>
                 <CardHeader>
-                  <CardTitle className="text-sm">{viewMode === 'yearly' ? 'Yearly' : 'Monthly'} Revenue Trend ({rangeLabel}) &mdash; excl. Holdings</CardTitle>
+                  <CardTitle className="text-sm">{viewMode === 'yearly' ? 'Yearly' : viewMode === 'quarterly' ? 'Quarterly' : 'Monthly'} Revenue Trend ({rangeLabel}) &mdash; excl. Holdings</CardTitle>
                 </CardHeader>
                 <CardContent>
                   <ResponsiveContainer width="100%" height={260}>
@@ -1789,7 +1870,7 @@ export default function InVitroDashboard({ data: rawData, user }) {
 
               <Card>
                 <CardHeader>
-                  <CardTitle className="text-sm">{viewMode === 'yearly' ? 'Yearly' : 'Monthly'} EBITDA by Company ({rangeLabel})</CardTitle>
+                  <CardTitle className="text-sm">{viewMode === 'yearly' ? 'Yearly' : viewMode === 'quarterly' ? 'Quarterly' : 'Monthly'} EBITDA by Company ({rangeLabel})</CardTitle>
                 </CardHeader>
                 <CardContent>
                   <ResponsiveContainer width="100%" height={260}>
@@ -2026,7 +2107,7 @@ export default function InVitroDashboard({ data: rawData, user }) {
               </div>
             ) : (
             <Card className="mb-5">
-              <CardHeader><CardTitle className="text-sm">{viewMode === 'yearly' ? 'Yearly' : 'Monthly'} Revenue by Company ({rangeLabel}){data.revenueDetails && selectedCompany && canBreakdown('revenueDrilldown', selectedCompany) ? ' — click a bar for breakdown' : ''}</CardTitle></CardHeader>
+              <CardHeader><CardTitle className="text-sm">{viewMode === 'yearly' ? 'Yearly' : viewMode === 'quarterly' ? 'Quarterly' : 'Monthly'} Revenue by Company ({rangeLabel}){data.revenueDetails && selectedCompany && canBreakdown('revenueDrilldown', selectedCompany) ? ' — click a bar for breakdown' : ''}</CardTitle></CardHeader>
               <CardContent>
                 <ResponsiveContainer width="100%" height={340}>
                   <ComposedChart data={revenueByMonthWithTotal} onClick={(e) => {
@@ -2424,7 +2505,7 @@ export default function InVitroDashboard({ data: rawData, user }) {
             )}
 
             <Card>
-              <CardHeader><CardTitle className="text-sm">{viewMode === 'yearly' ? 'Yearly' : 'Monthly'} EBITDA by Company ({rangeLabel})</CardTitle></CardHeader>
+              <CardHeader><CardTitle className="text-sm">{viewMode === 'yearly' ? 'Yearly' : viewMode === 'quarterly' ? 'Quarterly' : 'Monthly'} EBITDA by Company ({rangeLabel})</CardTitle></CardHeader>
               <CardContent>
                 <ResponsiveContainer width="100%" height={340}>
                   <ComposedChart data={ebitdaByMonthWithTotal}>
@@ -2677,14 +2758,14 @@ export default function InVitroDashboard({ data: rawData, user }) {
               </div>
             ) : (
             <Card className="mb-5">
-              <CardHeader><CardTitle className="text-sm">{viewMode === 'yearly' ? 'Yearly' : 'Monthly'} Cash Flows &amp; Operational CF</CardTitle></CardHeader>
+              <CardHeader><CardTitle className="text-sm">{viewMode === 'yearly' ? 'Yearly' : viewMode === 'quarterly' ? 'Quarterly' : 'Monthly'} Cash Flows &amp; Operational CF</CardTitle></CardHeader>
               <CardContent>
                 {(() => {
                   // Pick the right pre-built series for the current view
                   // mode. Both series have the same shape ({ month, inflow,
                   // outflow, opsCashFlow, net, ... }) so the chart body
                   // doesn't need to branch — only the data source does.
-                  const cfData = viewMode === 'yearly' ? cashBalanceByYear : cashBalanceByMonth;
+                  const cfData = viewMode === 'yearly' ? cashBalanceByYear : viewMode === 'quarterly' ? cashBalanceByQuarter : cashBalanceByMonth;
                   return (
                     <ResponsiveContainer width="100%" height={320}>
                       <ComposedChart data={cfData}>
@@ -2711,7 +2792,9 @@ export default function InVitroDashboard({ data: rawData, user }) {
               const MONTHS_L = ['','Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
               // Build runway data
               const runwayData = cashRunwayValues.map(v => ({
-                month: viewMode === 'yearly' ? String(v.year) : `${MONTHS_L[v.month]} '${String(v.year).slice(-2)}`,
+                month: viewMode === 'yearly' ? String(v.year)
+                  : viewMode === 'quarterly' ? `Q${Math.ceil(v.month/3)} '${String(v.year).slice(-2)}`
+                  : `${MONTHS_L[v.month]} '${String(v.year).slice(-2)}`,
                 runway: (v.value !== null && v.value !== 0) ? v.value : null,
                 year: v.year, m: v.month,
               }));
@@ -2726,7 +2809,9 @@ export default function InVitroDashboard({ data: rawData, user }) {
                     const vi = v.year * 12 + v.month;
                     return vi >= rangeFrom.year * 12 + rangeFrom.month && vi <= rangeTo.year * 12 + rangeTo.month;
                   }).filter(v => v.value !== null).forEach(v => {
-                    const key = viewMode === 'yearly' ? String(v.year) : `${MONTHS_L[v.month]} '${String(v.year).slice(-2)}`;
+                    const key = viewMode === 'yearly' ? String(v.year)
+                      : viewMode === 'quarterly' ? `Q${Math.ceil(v.month/3)} '${String(v.year).slice(-2)}`
+                      : `${MONTHS_L[v.month]} '${String(v.year).slice(-2)}`;
                     burnMap[key] = v.value;
                   });
                 }
@@ -2798,7 +2883,9 @@ export default function InVitroDashboard({ data: rawData, user }) {
                 doesn't publish it directly but it's the implicit plug. */}
             {(() => {
               const ML_S = ['','Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-              const monthLabel = (y, m) => viewMode === 'yearly' ? String(y) : `${ML_S[m]} '${String(y).slice(-2)}`;
+              const monthLabel = (y, m) => viewMode === 'yearly' ? String(y)
+                : viewMode === 'quarterly' ? `Q${Math.ceil(m/3)} '${String(y).slice(-2)}`
+                : `${ML_S[m]} '${String(y).slice(-2)}`;
 
               // Metric routing — Studio uses 'Direct Operational Cash Flow'
               // because its 'Operational Cash Flow' double-counts portco
@@ -2816,13 +2903,24 @@ export default function InVitroDashboard({ data: rawData, user }) {
               };
 
               // Months in the currently-selected range (chronological list).
-              // Yearly view collapses to whole years; monthly view lists each
-              // month individually.
+              // Yearly view collapses to whole years; quarterly view collapses
+              // to (year, quarter) buckets; monthly view lists each month.
               const monthsInRange = (() => {
                 const result = [];
                 if (viewMode === 'yearly') {
                   for (let y = rangeFrom.year; y <= rangeTo.year; y++) {
                     result.push({ year: y, month: 0, label: String(y) });
+                  }
+                } else if (viewMode === 'quarterly') {
+                  // Enumerate quarters in range. Each quarter is keyed by (year, lastMonthOfQuarter).
+                  const startQ = Math.ceil(rangeFrom.month / 3);
+                  const endQ = Math.ceil(rangeTo.month / 3);
+                  const startYQ = rangeFrom.year * 4 + startQ;
+                  const endYQ = rangeTo.year * 4 + endQ;
+                  for (let yq = startYQ; yq <= endYQ; yq++) {
+                    const y = Math.floor((yq - 1) / 4);
+                    const q = ((yq - 1) % 4) + 1;
+                    result.push({ year: y, month: q * 3, quarter: q, label: `Q${q} '${String(y).slice(-2)}` });
                   }
                 } else {
                   const start = rangeFrom.year * 12 + rangeFrom.month;
@@ -2842,6 +2940,16 @@ export default function InVitroDashboard({ data: rawData, user }) {
                 const arr = companyData.metrics?.[metricName] || [];
                 return arr.filter(v => v.year === year).reduce((s, v) => s + (v.value ?? 0), 0);
               };
+              // For quarterly view, sum monthly values within (year, quarter).
+              const sumQuarterMetric = (companyData, metricName, year, quarter) => {
+                if (!companyData) return 0;
+                const arr = companyData.metrics?.[metricName] || [];
+                const fromMonth = (quarter - 1) * 3 + 1;
+                const toMonth = quarter * 3;
+                return arr
+                  .filter(v => v.year === year && v.month >= fromMonth && v.month <= toMonth)
+                  .reduce((s, v) => s + (v.value ?? 0), 0);
+              };
               // Cash balance for a year = December's balance (end-of-year).
               const getYearEndBalance = (companyData, year) => {
                 if (!companyData) return 0;
@@ -2851,6 +2959,17 @@ export default function InVitroDashboard({ data: rawData, user }) {
                 const sorted = [...yearVals].sort((a, b) => b.month - a.month);
                 return sorted[0]?.value ?? 0;
               };
+              // Cash balance for a quarter = balance of the LAST month of the quarter present in data.
+              const getQuarterEndBalance = (companyData, year, quarter) => {
+                if (!companyData) return 0;
+                const arr = companyData.metrics?.[balanceKey] || [];
+                const fromMonth = (quarter - 1) * 3 + 1;
+                const toMonth = quarter * 3;
+                const qVals = arr.filter(v => v.year === year && v.month >= fromMonth && v.month <= toMonth);
+                if (qVals.length === 0) return 0;
+                const sorted = [...qVals].sort((a, b) => b.month - a.month);
+                return sorted[0]?.value ?? 0;
+              };
 
               // Which companies roll into the view. Same exclusion rules as
               // the existing OpCF chart so the consolidated totals reconcile.
@@ -2858,8 +2977,8 @@ export default function InVitroDashboard({ data: rawData, user }) {
                 ? [selectedCompany]
                 : DISPLAY_COMPANIES.filter(n => !EXCLUDE_ALWAYS.includes(n));
 
-              // Per-period build (monthly OR yearly bucket → one chart point).
-              const chartData = monthsInRange.map(({ year, month, label }) => {
+              // Per-period build (monthly OR quarterly OR yearly bucket → one chart point).
+              const chartData = monthsInRange.map(({ year, month, quarter, label }) => {
                 let ebitda = 0, opCF = 0, invCF = 0, finCF = 0, balance = 0;
                 for (const name of companies) {
                   const pnl = data.pnl?.find(c => c.name === name);
@@ -2870,6 +2989,12 @@ export default function InVitroDashboard({ data: rawData, user }) {
                     invCF   += sumYearMetric(cf, investCFKey, year);
                     finCF   += sumYearMetric(cf, finCFKey, year);
                     balance += getYearEndBalance(cf, year);
+                  } else if (viewMode === 'quarterly') {
+                    ebitda  += sumQuarterMetric(pnl, 'EBITDA', year, quarter);
+                    opCF    += sumQuarterMetric(cf, opCFKey(name), year, quarter);
+                    invCF   += sumQuarterMetric(cf, investCFKey, year, quarter);
+                    finCF   += sumQuarterMetric(cf, finCFKey, year, quarter);
+                    balance += getQuarterEndBalance(cf, year, quarter);
                   } else {
                     ebitda  += getValue(pnl, 'EBITDA', year, month);
                     opCF    += getValue(cf, opCFKey(name), year, month);
@@ -2891,6 +3016,16 @@ export default function InVitroDashboard({ data: rawData, user }) {
                   for (let y = compRange.from.year; y <= compRange.to.year; y++) {
                     result.push({ year: y, month: 0 });
                   }
+                } else if (viewMode === 'quarterly') {
+                  const startQ = Math.ceil(compRange.from.month / 3);
+                  const endQ = Math.ceil(compRange.to.month / 3);
+                  const startYQ = compRange.from.year * 4 + startQ;
+                  const endYQ = compRange.to.year * 4 + endQ;
+                  for (let yq = startYQ; yq <= endYQ; yq++) {
+                    const y = Math.floor((yq - 1) / 4);
+                    const q = ((yq - 1) % 4) + 1;
+                    result.push({ year: y, month: q * 3, quarter: q });
+                  }
                 } else {
                   const start = compRange.from.year * 12 + compRange.from.month;
                   const end = compRange.to.year * 12 + compRange.to.month;
@@ -2911,12 +3046,17 @@ export default function InVitroDashboard({ data: rawData, user }) {
                 const pnl = data.pnl?.find(c => c.name === name);
                 const cf  = data.cashflow?.find(c => c.name === name);
                 let ebitda = 0, opCF = 0, invCF = 0, finCF = 0;
-                for (const { year, month } of months) {
+                for (const { year, month, quarter } of months) {
                   if (viewMode === 'yearly') {
                     ebitda += sumYearMetric(pnl, 'EBITDA', year);
                     opCF   += sumYearMetric(cf, opCFKey(name), year);
                     invCF  += sumYearMetric(cf, investCFKey, year);
                     finCF  += sumYearMetric(cf, finCFKey, year);
+                  } else if (viewMode === 'quarterly') {
+                    ebitda += sumQuarterMetric(pnl, 'EBITDA', year, quarter);
+                    opCF   += sumQuarterMetric(cf, opCFKey(name), year, quarter);
+                    invCF  += sumQuarterMetric(cf, investCFKey, year, quarter);
+                    finCF  += sumQuarterMetric(cf, finCFKey, year, quarter);
                   } else {
                     ebitda += getValue(pnl, 'EBITDA', year, month);
                     opCF   += getValue(cf, opCFKey(name), year, month);
@@ -2928,6 +3068,8 @@ export default function InVitroDashboard({ data: rawData, user }) {
                 const last = months[months.length - 1];
                 const endBalance = !last ? 0 : (viewMode === 'yearly'
                   ? getYearEndBalance(cf, last.year)
+                  : viewMode === 'quarterly'
+                  ? getQuarterEndBalance(cf, last.year, last.quarter)
                   : getValue(cf, balanceKey, last.year, last.month));
                 const wcDelta = opCF - ebitda;
                 const netCash = opCF + invCF + finCF;
@@ -3071,7 +3213,7 @@ export default function InVitroDashboard({ data: rawData, user }) {
                       <CardTitle className="text-sm">
                         {compareEnabled
                           ? `Build-up Comparison — ${rangeLabel} vs ${compLabel} (${selectedCompany || 'Consolidated'})`
-                          : `Build-up by ${viewMode === 'yearly' ? 'Year' : 'Month'} (${selectedCompany || 'Consolidated'})`}
+                          : `Build-up by ${viewMode === 'yearly' ? 'Year' : viewMode === 'quarterly' ? 'Quarter' : 'Month'} (${selectedCompany || 'Consolidated'})`}
                       </CardTitle>
                     </CardHeader>
                     <CardContent className="overflow-auto px-0">
@@ -3479,7 +3621,7 @@ export default function InVitroDashboard({ data: rawData, user }) {
               const canDrill = canBreakdown('expenseDrilldown', selectedCompany);
               return (
             <Card className="mb-5">
-              <CardHeader><CardTitle className="text-sm">{viewMode === 'yearly' ? 'Yearly' : 'Monthly'} Expenses ({rangeLabel}){canDrill ? ' — click a bar for breakdown' : ''}</CardTitle></CardHeader>
+              <CardHeader><CardTitle className="text-sm">{viewMode === 'yearly' ? 'Yearly' : viewMode === 'quarterly' ? 'Quarterly' : 'Monthly'} Expenses ({rangeLabel}){canDrill ? ' — click a bar for breakdown' : ''}</CardTitle></CardHeader>
               <CardContent>
                 <ResponsiveContainer width="100%" height={340}>
                   <ComposedChart data={expenseByMonthWithTotal} onClick={canDrill ? (e) => {
