@@ -61,8 +61,8 @@
     "role": "viewer",
     "permissions": {
       "companies": [
-        "Osta",
         "AllCare",
+        "Osta",
         "Needles",
         "AllRx External"
       ],
