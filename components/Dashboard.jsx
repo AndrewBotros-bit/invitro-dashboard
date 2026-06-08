@@ -844,25 +844,25 @@ export default function InVitroDashboard({ data: rawData, user }) {
   const revenueByMonth = viewMode === 'yearly'
     ? buildYearlySeries(data.pnl, 'Revenues', dynExcludeRevenue, yearFrom, yearTo)
     : viewMode === 'quarterly'
-    ? buildQuarterlySeries(data.pnl, 'Revenues', dynExcludeRevenue, rangeFrom.year, rangeTo.year)
+    ? buildQuarterlySeries(data.pnl, 'Revenues', dynExcludeRevenue, rangeFrom, rangeTo)
     : filterSeriesToRange(rawRevenueByMonth, rangeFrom, rangeTo, availableMonths);
   const ebitdaByMonth = viewMode === 'yearly'
     ? buildYearlySeries(data.pnl, 'EBITDA', dynExcludeEbitda, yearFrom, yearTo)
     : viewMode === 'quarterly'
-    ? buildQuarterlySeries(data.pnl, 'EBITDA', dynExcludeEbitda, rangeFrom.year, rangeTo.year)
+    ? buildQuarterlySeries(data.pnl, 'EBITDA', dynExcludeEbitda, rangeFrom, rangeTo)
     : filterSeriesToRange(rawEbitdaByMonth, rangeFrom, rangeTo, availableMonths);
   // ── Comparison ghost series (dashed overlay) ──
   // Build comparison series aligned to current period months
   const compRevenueByMonth = compareEnabled ? (viewMode === 'yearly'
     ? buildYearlySeries(data.pnl, 'Revenues', dynExcludeRevenue, compRange.from.year, compRange.to.year)
     : viewMode === 'quarterly'
-    ? buildQuarterlySeries(data.pnl, 'Revenues', dynExcludeRevenue, compRange.from.year, compRange.to.year)
+    ? buildQuarterlySeries(data.pnl, 'Revenues', dynExcludeRevenue, compRange.from, compRange.to)
     : filterSeriesToRange(rawRevenueByMonth, compRange.from, compRange.to, availableMonths)
   ) : [];
   const compEbitdaByMonth = compareEnabled ? (viewMode === 'yearly'
     ? buildYearlySeries(data.pnl, 'EBITDA', dynExcludeEbitda, compRange.from.year, compRange.to.year)
     : viewMode === 'quarterly'
-    ? buildQuarterlySeries(data.pnl, 'EBITDA', dynExcludeEbitda, compRange.from.year, compRange.to.year)
+    ? buildQuarterlySeries(data.pnl, 'EBITDA', dynExcludeEbitda, compRange.from, compRange.to)
     : filterSeriesToRange(rawEbitdaByMonth, compRange.from, compRange.to, availableMonths)
   ) : [];
   // Merge comparison Total into current series (align by index, not by month label)
@@ -1062,7 +1062,7 @@ export default function InVitroDashboard({ data: rawData, user }) {
     const base = viewMode === 'yearly'
       ? buildYearlySeries(data.pnl, 'SG&A + R&D Expenses', dynExcludeEbitda, yearFrom, yearTo)
       : viewMode === 'quarterly'
-      ? buildQuarterlySeries(data.pnl, 'SG&A + R&D Expenses', dynExcludeEbitda, rangeFrom.year, rangeTo.year)
+      ? buildQuarterlySeries(data.pnl, 'SG&A + R&D Expenses', dynExcludeEbitda, rangeFrom, rangeTo)
       : filterSeriesToRange(rawSgna, rangeFrom, rangeTo, availableMonths);
     // Merge InVitro Studio's Fixed+Direct into the consolidated series
     const studio = data.pnl.find(c => c.name === 'InVitro Studio');
@@ -1099,7 +1099,7 @@ export default function InVitroDashboard({ data: rawData, user }) {
     return viewMode === 'yearly'
       ? buildYearlySeries(data.pnl, selectedCompany ? 'SG&A + R&D Expenses' : 'Total Expenses', dynExcludeEbitda, compRange.from.year, compRange.to.year)
       : viewMode === 'quarterly'
-      ? buildQuarterlySeries(data.pnl, selectedCompany ? 'SG&A + R&D Expenses' : 'Total Expenses', dynExcludeEbitda, compRange.from.year, compRange.to.year)
+      ? buildQuarterlySeries(data.pnl, selectedCompany ? 'SG&A + R&D Expenses' : 'Total Expenses', dynExcludeEbitda, compRange.from, compRange.to)
       : filterSeriesToRange(rawExp, compRange.from, compRange.to, availableMonths);
   })() : [];
   const expenseByMonthWithTotal = addCompTotal(expenseByMonthPositive.map(point => ({
@@ -1474,7 +1474,7 @@ export default function InVitroDashboard({ data: rawData, user }) {
       )
     : viewMode === 'quarterly'
     ? patchOstaInRows(
-        buildQuarterlySeries(data.pnl, 'Gross Profit', dynExcludeRevenue, rangeFrom.year, rangeTo.year),
+        buildQuarterlySeries(data.pnl, 'Gross Profit', dynExcludeRevenue, rangeFrom, rangeTo),
         ostaGP2ByQuarterLabel
       )
     : filterSeriesToRange(patchedGpByMonth, rangeFrom, rangeTo, availableMonths);
