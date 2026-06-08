@@ -1458,7 +1458,12 @@ export default function InVitroDashboard({ data: rawData, user }) {
       {/* Main content area — offset by sidebar width */}
       <div className="md:ml-64">
       {/* Header */}
-      <header className="border-b border-border bg-white px-6 py-4">
+      {/* Sticky header — stays pinned at top as the user scrolls any tab.
+          `sticky top-0` keeps it in document flow (no overlap-and-pad hack),
+          `bg-white` is essential so scrolling content reads UNDER it cleanly,
+          `z-30` layers it above Card components and chart shadows. Drawers
+          use a higher z-index so modal overlays still cover the header. */}
+      <header className="sticky top-0 z-30 border-b border-border bg-white px-6 py-4">
         <div className="flex flex-wrap items-center justify-between gap-4">
 
           <div className="flex items-center gap-2.5 flex-wrap">
