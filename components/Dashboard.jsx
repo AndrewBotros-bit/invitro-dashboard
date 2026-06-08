@@ -3394,27 +3394,43 @@ export default function InVitroDashboard({ data: rawData, user }) {
                             const drillKind = item.key === 'invCF' ? 'investing'
                               : item.key === 'finCF' ? 'financing'
                               : null;
+                            // Drillable in ALL view modes (monthly, quarterly,
+                            // yearly). The click dispatches a scope matching
+                            // the current view — drawer aggregates accordingly.
                             const cellDrillable = drillKind
                               && !!selectedCompany
-                              && viewMode === 'monthly'
                               && canBreakdown('cashflowDrilldown', selectedCompany);
                             return (
                               <TableRow key={item.key} className={item.bold ? 'bg-muted/30' : ''}>
                                 <TableCell
                                   className={`sticky left-0 bg-card z-10 ${item.bold ? 'font-bold' : ''}`}
                                   style={{ paddingLeft: `${1 + item.indent}rem` }}
-                                  title={cellDrillable ? 'Click any month or the Total cell to see breakdown' : undefined}
+                                  title={cellDrillable ? `Click any ${viewMode === 'yearly' ? 'year' : viewMode === 'quarterly' ? 'quarter' : 'month'} or the Total cell to see breakdown` : undefined}
                                 >
                                   {item.label}
                                   {cellDrillable && (
                                     <span className="ml-2 text-[10px] font-medium text-primary uppercase tracking-wide">click ↗</span>
                                   )}
                                 </TableCell>
-                                {monthsInRange.map(({ label, year, month }, i) => {
+                                {monthsInRange.map((bucket, i) => {
+                                  const { label, year, month } = bucket;
                                   const val = chartData[i]?.[item.key] ?? 0;
-                                  const onClick = cellDrillable
-                                    ? () => setCfDrilldown({ kind: drillKind, scope: 'month', year, month })
-                                    : undefined;
+                                  // Dispatch shape varies by view mode:
+                                  //   monthly   → { scope:'month',   year, month }
+                                  //   quarterly → { scope:'quarter', year, quarter }
+                                  //   yearly    → { scope:'year',    year }
+                                  // Drawer routes the aggregation predicate
+                                  // off the scope field.
+                                  const buildDrillPayload = () => {
+                                    if (viewMode === 'quarterly') {
+                                      return { kind: drillKind, scope: 'quarter', year, quarter: bucket.quarter };
+                                    }
+                                    if (viewMode === 'yearly') {
+                                      return { kind: drillKind, scope: 'year', year };
+                                    }
+                                    return { kind: drillKind, scope: 'month', year, month };
+                                  };
+                                  const onClick = cellDrillable ? () => setCfDrilldown(buildDrillPayload()) : undefined;
                                   return (
                                     <TableCell
                                       key={label}
@@ -3553,23 +3569,39 @@ export default function InVitroDashboard({ data: rawData, user }) {
                     {cfDrilldown && company && canBreakdown('cashflowDrilldown', selectedCompany) && (() => {
                       const ML = ['','Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
                       const isInvesting = cfDrilldown.kind === 'investing';
-                      const isRange = cfDrilldown.scope === 'range';
-                      const drillLabel = isRange
-                        ? rangeLabel
-                        : `${ML[cfDrilldown.month]} ${cfDrilldown.year}`;
+                      const scope = cfDrilldown.scope;
+                      const isRange = scope === 'range';
+                      // Drawer title adapts to scope:
+                      //   range   → full date range label
+                      //   month   → "Apr 26"
+                      //   quarter → "Q2 26"
+                      //   year    → "2026"
+                      const drillLabel = scope === 'range'   ? rangeLabel
+                                       : scope === 'year'    ? String(cfDrilldown.year)
+                                       : scope === 'quarter' ? `Q${cfDrilldown.quarter} ${String(cfDrilldown.year).slice(-2)}`
+                                       :                       `${ML[cfDrilldown.month]} ${cfDrilldown.year}`;
                       const aggKey = isInvesting ? 'Investment Cash Flow' : 'Financing Cash Flow';
                       const subjectLabel = isInvesting ? 'Per-line investment outflows' : 'Per-line financing inflows';
                       const firstColHeader = isInvesting ? 'Investment Target' : 'Funding Source';
                       const { investing, financing } = detectCashflowBreakdown(selectedCompany);
                       const lines = isInvesting ? investing : financing;
-                      // Value lookup: single month vs range aggregation. The
-                      // scope flag (set at click time) controls which path runs.
+                      // Aggregation predicate picks which monthly values to
+                      // sum based on scope. Single shared codepath via
+                      // .filter(matchesScope) — only the predicate changes.
                       const matchesScope = (v) => {
-                        if (isRange) {
+                        if (scope === 'range') {
                           const vi = v.year * 100 + v.month;
                           return vi >= rangeFrom.year * 100 + rangeFrom.month
                               && vi <= rangeTo.year * 100 + rangeTo.month;
                         }
+                        if (scope === 'year') {
+                          return v.year === cfDrilldown.year;
+                        }
+                        if (scope === 'quarter') {
+                          if (v.year !== cfDrilldown.year) return false;
+                          return Math.ceil(v.month / 3) === cfDrilldown.quarter;
+                        }
+                        // month (default)
                         return v.year === cfDrilldown.year && v.month === cfDrilldown.month;
                       };
                       const getVal = (metricName) => {
@@ -3595,7 +3627,7 @@ export default function InVitroDashboard({ data: rawData, user }) {
                           </DrawerHeader>
                           <div className="px-4 pb-6 overflow-auto">
                             {rows.length === 0 && !hasUnallocated ? (
-                              <p className="text-sm text-muted-foreground">No {isInvesting ? 'investment' : 'financing'} activity recorded for this {isRange ? 'range' : 'month'}.</p>
+                              <p className="text-sm text-muted-foreground">No {isInvesting ? 'investment' : 'financing'} activity recorded for this {scope === 'range' ? 'range' : scope === 'year' ? 'year' : scope === 'quarter' ? 'quarter' : 'month'}.</p>
                             ) : (
                               <Table>
                                 <TableHeader>
