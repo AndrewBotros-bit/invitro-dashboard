@@ -61,8 +61,8 @@
     "role": "viewer",
     "permissions": {
       "companies": [
-        "AllCare",
         "Osta",
+        "AllCare",
         "Needles",
         "AllRx External"
       ],
@@ -80,8 +80,14 @@
           "Osta"
         ],
         "expenseDrilldown": false,
+        "expenseGLDetail": false,
+        "gpDrilldown": [
+          "AllCare"
+        ],
+        "cashflowDrilldown": false,
         "auditConsole": false,
-        "hcDetails": false
+        "hcDetails": false,
+        "shareholderSplit": false
       },
       "lpName": null
     }
