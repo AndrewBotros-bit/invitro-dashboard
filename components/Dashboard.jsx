@@ -578,6 +578,29 @@ export default function InVitroDashboard({ data: rawData, user }) {
   const availableMonths = getAvailableMonths(data.pnl);
   // Available years (unique, sorted)
   const availableYears = [...new Set(availableMonths.map(m => m.year))].sort();
+  // Available quarters (unique, sorted by year then quarter). Each quarter
+  // entry carries fromMonth/toMonth so the picker can translate a quarter
+  // selection back into the month-keyed range state (rangeFromKey is always
+  // a "YYYY-M" string under the hood — only the picker UI is quarter-aware).
+  const availableQuarters = (() => {
+    const seen = new Set();
+    const result = [];
+    for (const m of availableMonths) {
+      const q = Math.ceil(m.month / 3);
+      const key = `${m.year}-Q${q}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      result.push({
+        key,
+        year: m.year,
+        quarter: q,
+        fromMonth: (q - 1) * 3 + 1,
+        toMonth: q * 3,
+        label: `Q${q} ${String(m.year).slice(-2)}`,
+      });
+    }
+    return result.sort((a, b) => a.year !== b.year ? a.year - b.year : a.quarter - b.quarter);
+  })();
   // Default to current FY (Jan–Dec of currentYear)
   const defaultFrom = availableMonths.find(m => m.year === 2026 && m.month === 1) ?? availableMonths[0] ?? { year: 2026, month: 1, key: '2026-1', label: 'Jan 26' };
   const defaultTo = availableMonths.find(m => m.year === 2026 && m.month === 12) ?? availableMonths[availableMonths.length - 1] ?? { year: 2026, month: 12, key: '2026-12', label: 'Dec 26' };
@@ -1621,7 +1644,24 @@ export default function InVitroDashboard({ data: rawData, user }) {
                 Monthly
               </button>
               <button
-                onClick={() => { setViewMode('quarterly'); setExpenseDrilldown(null); if (compareEnabled) { setCompareFromKey(`${rangeFrom.year - 1}-${rangeFrom.month}`); setCompareToKey(`${rangeTo.year - 1}-${rangeTo.month}`); } }}
+                onClick={() => {
+                  setViewMode('quarterly');
+                  setExpenseDrilldown(null);
+                  // Snap range to quarter boundaries: rangeFromKey moves to
+                  // start of its containing quarter; rangeToKey to end of its
+                  // containing quarter. Mirrors the yearly button's Jan/Dec
+                  // snap so the picker dropdowns show the matching values.
+                  const [fY, fM] = rangeFromKey.split('-').map(Number);
+                  const [tY, tM] = rangeToKey.split('-').map(Number);
+                  const fQ = Math.ceil(fM / 3);
+                  const tQ = Math.ceil(tM / 3);
+                  setRangeFromKey(`${fY}-${(fQ - 1) * 3 + 1}`);
+                  setRangeToKey(`${tY}-${tQ * 3}`);
+                  if (compareEnabled) {
+                    setCompareFromKey(`${fY - 1}-${(fQ - 1) * 3 + 1}`);
+                    setCompareToKey(`${tY - 1}-${tQ * 3}`);
+                  }
+                }}
                 className={`px-3 py-1.5 text-xs font-medium rounded-md transition-all ${viewMode === 'quarterly' ? 'bg-white text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'}`}
               >
                 Quarterly
@@ -1634,9 +1674,16 @@ export default function InVitroDashboard({ data: rawData, user }) {
               </button>
             </div>
 
-            {/* Date range selectors */}
+            {/* Date range selectors — three variants per viewMode:
+                  monthly:   month dropdowns (Jan 25 → Dec 28)
+                  quarterly: quarter dropdowns (Q1 25 → Q4 28)
+                  yearly:    year dropdowns (2025 → 2028)
+                Underlying state stays month-granularity (rangeFromKey is
+                always "YYYY-M") — only the picker UI varies. Quarterly
+                picker translates a quarter selection back into the
+                first-or-last month of that quarter for storage. */}
             <div className="flex items-center gap-1.5 bg-muted/60 rounded-lg px-2 py-1">
-              {viewMode !== 'yearly' ? (
+              {viewMode === 'monthly' ? (
                 <>
                   <select value={rangeFromKey} onChange={e => { setRangeFromKey(e.target.value); setExpenseDrilldown(null); }}
                     className="h-7 rounded-md bg-white border border-border/60 px-2 text-xs font-medium text-foreground shadow-sm focus:outline-none focus:ring-2 focus:ring-ring/30">
@@ -1648,6 +1695,37 @@ export default function InVitroDashboard({ data: rawData, user }) {
                     {availableMonths.map(m => (<option key={m.key} value={m.key}>{m.label}</option>))}
                   </select>
                 </>
+              ) : viewMode === 'quarterly' ? (
+                (() => {
+                  // Derive currently-displayed quarter from the month-keyed state.
+                  const [fY, fM] = rangeFromKey.split('-').map(Number);
+                  const [tY, tM] = rangeToKey.split('-').map(Number);
+                  const curFromQuarterKey = `${fY}-Q${Math.ceil(fM / 3)}`;
+                  const curToQuarterKey   = `${tY}-Q${Math.ceil(tM / 3)}`;
+                  return (
+                    <>
+                      <select value={curFromQuarterKey}
+                        onChange={e => {
+                          // "from" picker: snap to FIRST month of selected quarter
+                          const q = availableQuarters.find(x => x.key === e.target.value);
+                          if (q) { setRangeFromKey(`${q.year}-${q.fromMonth}`); setExpenseDrilldown(null); }
+                        }}
+                        className="h-7 rounded-md bg-white border border-border/60 px-2 text-xs font-medium text-foreground shadow-sm focus:outline-none focus:ring-2 focus:ring-ring/30">
+                        {availableQuarters.map(q => (<option key={q.key} value={q.key}>{q.label}</option>))}
+                      </select>
+                      <span className="text-[10px] text-muted-foreground font-medium">to</span>
+                      <select value={curToQuarterKey}
+                        onChange={e => {
+                          // "to" picker: snap to LAST month of selected quarter
+                          const q = availableQuarters.find(x => x.key === e.target.value);
+                          if (q) { setRangeToKey(`${q.year}-${q.toMonth}`); setExpenseDrilldown(null); }
+                        }}
+                        className="h-7 rounded-md bg-white border border-border/60 px-2 text-xs font-medium text-foreground shadow-sm focus:outline-none focus:ring-2 focus:ring-ring/30">
+                        {availableQuarters.map(q => (<option key={q.key} value={q.key}>{q.label}</option>))}
+                      </select>
+                    </>
+                  );
+                })()
               ) : (
                 <>
                   <select value={yearFrom} onChange={e => { setYearFrom(Number(e.target.value)); setExpenseDrilldown(null); }}
@@ -1698,6 +1776,27 @@ export default function InVitroDashboard({ data: rawData, user }) {
                       {availableYears.map(y => (<option key={y} value={y}>{y}</option>))}
                     </select>
                   </>
+                ) : viewMode === 'quarterly' ? (
+                  (() => {
+                    // Mirror the main quarterly picker for the comp range.
+                    const fromQ = compareFromKey ? (() => { const [y, m] = compareFromKey.split('-').map(Number); return `${y}-Q${Math.ceil(m / 3)}`; })() : '';
+                    const toQ   = compareToKey   ? (() => { const [y, m] = compareToKey.split('-').map(Number);   return `${y}-Q${Math.ceil(m / 3)}`; })() : '';
+                    return (
+                      <>
+                        <select value={fromQ}
+                          onChange={e => { const q = availableQuarters.find(x => x.key === e.target.value); if (q) setCompareFromKey(`${q.year}-${q.fromMonth}`); }}
+                          className="h-7 rounded-md bg-white border border-border/60 px-2 text-xs font-medium text-foreground shadow-sm focus:outline-none focus:ring-2 focus:ring-ring/30">
+                          {availableQuarters.map(q => (<option key={q.key} value={q.key}>{q.label}</option>))}
+                        </select>
+                        <span className="text-[10px] text-muted-foreground font-medium">to</span>
+                        <select value={toQ}
+                          onChange={e => { const q = availableQuarters.find(x => x.key === e.target.value); if (q) setCompareToKey(`${q.year}-${q.toMonth}`); }}
+                          className="h-7 rounded-md bg-white border border-border/60 px-2 text-xs font-medium text-foreground shadow-sm focus:outline-none focus:ring-2 focus:ring-ring/30">
+                          {availableQuarters.map(q => (<option key={q.key} value={q.key}>{q.label}</option>))}
+                        </select>
+                      </>
+                    );
+                  })()
                 ) : (
                   <>
                     <select value={compareFromKey || ''} onChange={e => setCompareFromKey(e.target.value)}
