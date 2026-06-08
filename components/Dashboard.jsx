@@ -871,6 +871,28 @@ export default function InVitroDashboard({ data: rawData, user }) {
       });
   })();
 
+  // Yearly rollup of cashBalanceByMonth for viewMode='yearly'. All four
+  // tracked metrics (inflow/outflow/opsCashFlow/net) are FLOW metrics so
+  // the yearly value = sum of the monthly values for that year. (If a
+  // stock metric like cash balance is ever added to this series, it
+  // needs end-of-year semantics, not sum.) x-axis label collapses to
+  // just the year string.
+  const cashBalanceByYear = (() => {
+    if (cashBalanceByMonth.length === 0) return [];
+    const byYear = {};
+    for (const p of cashBalanceByMonth) {
+      const y = p._year;
+      if (!byYear[y]) {
+        byYear[y] = { month: String(y), inflow: 0, outflow: 0, opsCashFlow: 0, net: 0, _year: y, _month: 12 };
+      }
+      byYear[y].inflow += p.inflow;
+      byYear[y].outflow += p.outflow;
+      byYear[y].opsCashFlow += p.opsCashFlow;
+      byYear[y].net += p.net;
+    }
+    return Object.values(byYear).sort((a, b) => a._year - b._year);
+  })();
+
   // Revenue by month with Total
   const revenueByMonthWithTotal = addCompTotal(revenueByMonth.map(point => ({
     ...point,
@@ -2655,22 +2677,31 @@ export default function InVitroDashboard({ data: rawData, user }) {
               </div>
             ) : (
             <Card className="mb-5">
-              <CardHeader><CardTitle className="text-sm">Monthly Cash Flows &amp; Operational CF</CardTitle></CardHeader>
+              <CardHeader><CardTitle className="text-sm">{viewMode === 'yearly' ? 'Yearly' : 'Monthly'} Cash Flows &amp; Operational CF</CardTitle></CardHeader>
               <CardContent>
-                <ResponsiveContainer width="100%" height={320}>
-                  <ComposedChart data={cashBalanceByMonth}>
-                    <CartesianGrid strokeDasharray="3 3" stroke={CHART_STYLE.border} />
-                    <XAxis dataKey="month" tick={{ fill: CHART_STYLE.muted, fontSize: 11 }} />
-                    <YAxis yAxisId="left" tick={{ fill: CHART_STYLE.muted, fontSize: 11 }} tickFormatter={fmtShort} />
-                    <YAxis yAxisId="right" orientation="right" tick={{ fill: CHART_STYLE.muted, fontSize: 11 }} tickFormatter={fmtShort} />
-                    <Tooltip content={<CustomTooltip />} />
-                    {forecastOverlay(cashBalanceByMonth, 'left')}
-                    <Bar yAxisId="left" dataKey="inflow" name="Cash Inflow" fill="#22c55e" fillOpacity={0.4} />
-                    <Bar yAxisId="left" dataKey="outflow" name="Cash Outflow" fill="#ef4444" fillOpacity={0.4} />
-                    <Line yAxisId="right" type="monotone" dataKey="opsCashFlow" name="Ops Cash Flow" stroke="#f59e0b" strokeWidth={3} dot={{ fill: "#f59e0b", r: 4 }} />
-                    <Legend />
-                  </ComposedChart>
-                </ResponsiveContainer>
+                {(() => {
+                  // Pick the right pre-built series for the current view
+                  // mode. Both series have the same shape ({ month, inflow,
+                  // outflow, opsCashFlow, net, ... }) so the chart body
+                  // doesn't need to branch — only the data source does.
+                  const cfData = viewMode === 'yearly' ? cashBalanceByYear : cashBalanceByMonth;
+                  return (
+                    <ResponsiveContainer width="100%" height={320}>
+                      <ComposedChart data={cfData}>
+                        <CartesianGrid strokeDasharray="3 3" stroke={CHART_STYLE.border} />
+                        <XAxis dataKey="month" tick={{ fill: CHART_STYLE.muted, fontSize: 11 }} />
+                        <YAxis yAxisId="left" tick={{ fill: CHART_STYLE.muted, fontSize: 11 }} tickFormatter={fmtShort} />
+                        <YAxis yAxisId="right" orientation="right" tick={{ fill: CHART_STYLE.muted, fontSize: 11 }} tickFormatter={fmtShort} />
+                        <Tooltip content={<CustomTooltip />} />
+                        {forecastOverlay(cfData, 'left')}
+                        <Bar yAxisId="left" dataKey="inflow" name="Cash Inflow" fill="#22c55e" fillOpacity={0.4} />
+                        <Bar yAxisId="left" dataKey="outflow" name="Cash Outflow" fill="#ef4444" fillOpacity={0.4} />
+                        <Line yAxisId="right" type="monotone" dataKey="opsCashFlow" name="Ops Cash Flow" stroke="#f59e0b" strokeWidth={3} dot={{ fill: "#f59e0b", r: 4 }} />
+                        <Legend />
+                      </ComposedChart>
+                    </ResponsiveContainer>
+                  );
+                })()}
               </CardContent>
             </Card>
             )}
