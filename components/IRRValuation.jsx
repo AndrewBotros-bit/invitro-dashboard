@@ -1013,36 +1013,27 @@ export default function IRRValuation({ data, user, selectedYear: selectedYearPro
                           question vs "how did it get there?" (vehicle table).
                           Only rendered in 'by-company' view. */}
                       {lookThroughView === 'by-company' && (
-                      <div className="grid grid-cols-[1fr_auto_auto_auto] gap-x-4 gap-y-1 text-xs items-baseline">
+                      <div className="grid grid-cols-[1fr_auto_auto] gap-x-4 gap-y-1 text-xs items-baseline">
+                        {/* CFO direction: LP by-company view shows only the
+                            Stake Value per portco (and % of total value).
+                            Investment / cost-basis split per company is
+                            hidden — LPs aren't expected to track the
+                            per-portco cost basis routed through them; the
+                            by-source view above (when toggled) has that
+                            detail. Grid collapses to 3 columns. */}
                         <span className="text-[10px] uppercase tracking-wide text-violet-700 font-semibold pb-1">By Company</span>
-                        <span className="text-[10px] uppercase tracking-wide text-violet-700 font-semibold text-right pb-1">Investment</span>
                         <span className="text-[10px] uppercase tracking-wide text-violet-700 font-semibold text-right pb-1">Stake Value</span>
                         <span className="text-[10px] uppercase tracking-wide text-violet-700 font-semibold text-right pb-1">% of value</span>
                         {[...lookThrough]
                           .sort((a, b) => b.totalValue - a.totalValue)
-                          .map(lt => {
-                            const hasRec = (lt.totalRecycledInvestment ?? 0) > 0;
-                            return (
-                              <Fragment key={`co-${lt.portcoName}`}>
-                                <span className="text-foreground"><span className="font-medium text-violet-800">{lt.portcoName}</span></span>
-                                <span className="text-right tabular-nums">
-                                  <span className="block">{lt.totalInvestment > 0 ? fmt(lt.totalInvestment) : '—'}</span>
-                                  {lt.totalInvestment > 0 && (
-                                    <span className="block text-[9px] text-muted-foreground font-normal mt-0.5">
-                                      <span className="text-violet-700">{fmt(lt.totalCashInvestment ?? 0)}</span> cash
-                                      {hasRec && (
-                                        <> · <span className="text-violet-700">{fmt(lt.totalRecycledInvestment)}</span> recyc.</>
-                                      )}
-                                    </span>
-                                  )}
-                                </span>
-                                <span className="text-right tabular-nums font-medium">{fmt(lt.totalValue)}</span>
-                                <span className="text-right tabular-nums text-[10px] text-muted-foreground">{totalAll > 0 ? ((lt.totalValue / totalAll) * 100).toFixed(1) : '0.0'}%</span>
-                              </Fragment>
-                            );
-                          })}
+                          .map(lt => (
+                            <Fragment key={`co-${lt.portcoName}`}>
+                              <span className="text-foreground"><span className="font-medium text-violet-800">{lt.portcoName}</span></span>
+                              <span className="text-right tabular-nums font-medium">{fmt(lt.totalValue)}</span>
+                              <span className="text-right tabular-nums text-[10px] text-muted-foreground">{totalAll > 0 ? ((lt.totalValue / totalAll) * 100).toFixed(1) : '0.0'}%</span>
+                            </Fragment>
+                          ))}
                         <span className="text-sm font-bold text-violet-900 pt-2 mt-1 border-t-2 border-violet-300/60">Total</span>
-                        <span className="text-right text-sm font-bold tabular-nums text-violet-900 pt-2 mt-1 border-t-2 border-violet-300/60">{fmt(totalInvestmentAll)}</span>
                         <span className="text-right text-base font-bold tabular-nums text-violet-900 pt-2 mt-1 border-t-2 border-violet-300/60">{fmt(totalAll)}</span>
                         <span className="text-right text-[10px] text-muted-foreground pt-2 mt-1 border-t-2 border-violet-300/60">100%</span>
                       </div>
@@ -1219,36 +1210,17 @@ export default function IRRValuation({ data, user, selectedYear: selectedYearPro
                         </div>
                       </div>
                       <div className="p-4">
-                        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                          <div className="rounded-lg border border-border bg-background p-3">
-                            <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">Stake Value</p>
-                            <p className="text-base font-bold tabular-nums text-foreground mt-0.5">{fmt(lt.totalValue)}</p>
-                          </div>
-                          <div className="rounded-lg border border-border bg-background p-3">
-                            <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">Cost Basis</p>
-                            <p className="text-base font-bold tabular-nums text-foreground mt-0.5">{lt.totalInvestment > 0 ? fmt(lt.totalInvestment) : '—'}</p>
-                            {lt.totalRecycledInvestment > 0 && (
-                              <p className="text-[9px] text-muted-foreground mt-0.5">
-                                <span className="text-violet-700 font-semibold">{fmt(lt.totalCashInvestment)}</span> cash · <span className="text-violet-700 font-semibold">{fmt(lt.totalRecycledInvestment)}</span> recyc.
-                              </p>
-                            )}
-                          </div>
-                          <div className="rounded-lg border border-border bg-background p-3">
-                            <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">MOIC</p>
-                            <p className={cn(
-                              "text-base font-bold tabular-nums mt-0.5",
-                              lt.moic == null ? "text-foreground" :
-                              lt.moic >= 1 ? "text-emerald-700" : "text-red-600"
-                            )}>{lt.moic != null ? `${lt.moic.toFixed(2)}×` : '—'}</p>
-                          </div>
-                          <div className="rounded-lg border border-border bg-background p-3">
-                            <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">IRR</p>
-                            <p className={cn(
-                              "text-base font-bold tabular-nums mt-0.5",
-                              lt.irr == null ? "text-foreground" :
-                              lt.irr >= 0 ? "text-emerald-700" : "text-red-600"
-                            )}>{lt.irr != null ? `${lt.irr.toFixed(1)}%` : '—'}</p>
-                          </div>
+                        {/* CFO direction: LP per-portco card shows only the
+                            Stake Value as its headline KPI. Cost Basis,
+                            MOIC, and IRR removed — those are vehicle-level
+                            metrics not meaningfully attributable to a
+                            single LP's slice of a single portco. The
+                            "Your exposure breakdown" section below still
+                            shows ownership % per vehicle. The Effective
+                            Stake % stays in the ribbon header above. */}
+                        <div className="rounded-lg border border-border bg-background p-3">
+                          <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">Stake Value</p>
+                          <p className="text-lg font-bold tabular-nums text-foreground mt-0.5">{fmt(lt.totalValue)}</p>
                         </div>
                         {/* Per-source decomposition — direct + each vehicle
                             with effective ownership and stake value. */}
