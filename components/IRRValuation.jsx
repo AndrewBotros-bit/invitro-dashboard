@@ -857,14 +857,25 @@ export default function IRRValuation({ data, user, selectedYear: selectedYearPro
                   if (lt.earliestYearIdx < earliestYearIdxAll) earliestYearIdxAll = lt.earliestYearIdx;
                 }
                 if (totalAll <= 0) return null;
-                // Consolidated MOIC = total value ÷ total cost basis
-                const consMoic = totalInvestmentAll > 0 ? totalAll / totalInvestmentAll : null;
+                // Consolidated MOIC — CASH-BASIS per CFO direction. We use
+                // the LP's total cash-out contributions (cheque you wrote)
+                // as the denominator, EXCLUDING GP-recycled redeployments.
+                // Rationale: recycled capital is value the LP already earned
+                // and the GP put back to work — treating it as a fresh "cost
+                // basis" understates the multiple. Investor-friendly
+                // convention: MOIC = value / cash invested. The "Your
+                // Investment" tile still shows the FULL totalInvestmentAll
+                // (cash + recycled) with the composition broken out below
+                // it — only the multiplier math uses the cash slice.
+                const cashBasis = lookThrough._cashTotals?.totalLpCash ?? 0;
+                const consMoic = cashBasis > 0 ? totalAll / cashBasis : null;
                 // Consolidated IRR (CAGR) anchored on the earliest year ANY
                 // contribution to ANY portco started. Approximate — full
                 // XIRR would aggregate per-year flows across direct + every
                 // vehicle slice across every portco; the per-vehicle
                 // XIRR (on the My Performance card) is still the authoritative
-                // per-vehicle number.
+                // per-vehicle number. Same cash-basis MOIC feeds the CAGR
+                // formula so IRR % reflects cash-on-cash return.
                 let consIrr = null;
                 if (consMoic != null && consMoic > 0 && earliestYearIdxAll !== Infinity) {
                   const holdYears = years[yearIdx] - years[earliestYearIdxAll];
