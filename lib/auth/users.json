@@ -61,10 +61,10 @@
     "role": "viewer",
     "permissions": {
       "companies": [
-        "Osta",
         "AllCare",
-        "Needles",
-        "AllRx External"
+        "AllRx External",
+        "Osta",
+        "Needles"
       ],
       "tabs": [
         "overview",
