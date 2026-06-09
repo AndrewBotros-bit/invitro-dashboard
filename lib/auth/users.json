@@ -140,7 +140,7 @@
   },
   {
     "username": "Ayman.Ismail",
-    "name": "Ayman Ismail 2",
+    "name": "Ayman Ismail",
     "passwordHash": "$2b$10$E8PTP657tvYFhnFMjYcKUupmbYz3gSd33Rr44wF2UA7FoSOIEvgQK",
     "role": "viewer",
     "permissions": {
@@ -165,7 +165,6 @@
         ],
         "expenseDrilldown": [
           "InVitro Studio",
-          "AllRx",
           "AllCare"
         ],
         "expenseGLDetail": true,
