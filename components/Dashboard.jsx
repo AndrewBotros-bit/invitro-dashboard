@@ -375,12 +375,18 @@ function ChangeCard({ rec, rankBadge }) {
  * entries. Operates on a shallow copy; downstream code can treat result as
  * immutable.
  */
-function applyExternalCompanyView(data, perms, internalName, externalName) {
+function applyExternalCompanyView(data, perms, internalName, externalName, opts = {}) {
+  // opts.relabel (default true): when an LP has only the External variant,
+  // rename it to the internal name so they don't know an alternate view
+  // exists. AllRx External uses this (legacy behavior — LPs see "AllRx").
+  // AllCare External opts OUT (relabel=false) — CFO direction is to keep
+  // the explicit "AllCare External" label visible to LP-grantees.
+  const relabel = opts.relabel !== false;
   const compList = Array.isArray(perms.companies) ? perms.companies : null;
   const hasExternal = perms.companies === '*' || compList?.includes(externalName) === true;
   const hasInternal = perms.companies === '*' || compList?.includes(internalName) === true;
 
-  if (hasExternal && !hasInternal) {
+  if (hasExternal && !hasInternal && relabel) {
     const transform = (arr) => (arr || [])
       .filter(c => c.name !== internalName)
       .map(c => c.name === externalName ? { ...c, name: internalName } : c);
@@ -411,8 +417,14 @@ export default function InVitroDashboard({ data: rawData, user }) {
   // which internal/external variant is being shown. Run once per
   // (internal, external) pair; each call returns transformed { data, perms }
   // that the next call layers on top of.
+  // AllRx External: legacy behavior — LPs with external-only access see the
+  // entry renamed to "AllRx" (relabel: true is the default).
   const allRxApplied = applyExternalCompanyView(rawData, rawPerms, 'AllRx', 'AllRx External');
-  const { data, perms } = applyExternalCompanyView(allRxApplied.data, allRxApplied.perms, 'AllCare', 'AllCare External');
+  // AllCare External: CFO direction — keep the "AllCare External" label
+  // visible to LP-grantees so they know they're seeing the public-target
+  // view (relabel: false). The no-access strip branch still runs to
+  // prevent data leaks for users without permission.
+  const { data, perms } = applyExternalCompanyView(allRxApplied.data, allRxApplied.perms, 'AllCare', 'AllCare External', { relabel: false });
 
   // LP auto-derived company set: when the user has an lpName, their visible
   // portfolio companies *include* the companies their vehicle(s) invested
