@@ -2096,16 +2096,26 @@ export default function InVitroDashboard({ data: rawData, user }) {
                     .reduce((s, c) => s + ((c.metrics?.[getGPMetric(c.name)] ?? [])
                       .filter(v => inPeriod(v, p))
                       .reduce((a, v) => a + (v.value ?? 0), 0)), 0);
-                  // Expense convention: in this codebase "rangeExpenses" uses
-                  // 'SG&A + R&D Expenses' for single-company and 'Total Expenses'
-                  // for consolidated. Mirror that here so the summary table
-                  // reconciles with the KPI cards above.
-                  const expMetric = selectedCompany ? 'SG&A + R&D Expenses' : 'Total Expenses';
+                  // Per-company expense routing:
+                  //   InVitro Studio → 'Fixed Expenses' + 'Direct Expenses'
+                  //     (rows 41 + 42 of the P&L tab — Studio doesn't publish
+                  //     a single Total Expenses or SG&A+R&D roll-up line).
+                  //   All others → 'SG&A + R&D Expenses' (single line).
+                  // For Consolidated view we sum each company using its own
+                  // routing — so Studio contributes Fixed+Direct, the rest
+                  // contribute SG&A+R&D. This matches the Expenses tab's
+                  // mergeMonthlyValues convention so totals reconcile.
+                  const expMetricsFor = (name) => name === 'InVitro Studio'
+                    ? ['Fixed Expenses', 'Direct Expenses']
+                    : ['SG&A + R&D Expenses'];
                   const sumExpInPeriod = (p, excludes) => Math.abs(data.pnl
                     .filter(c => !excludes.includes(c.name))
-                    .reduce((s, c) => s + ((c.metrics?.[expMetric] ?? [])
-                      .filter(v => inPeriod(v, p))
-                      .reduce((a, v) => a + (v.value ?? 0), 0)), 0));
+                    .reduce((s, c) => {
+                      const keys = expMetricsFor(c.name);
+                      return s + keys.reduce((ks, key) => ks + ((c.metrics?.[key] ?? [])
+                        .filter(v => inPeriod(v, p))
+                        .reduce((a, v) => a + (v.value ?? 0), 0)), 0);
+                    }, 0));
                   const sumOpCFInPeriod = (p) => {
                     const targets = selectedCompany
                       ? [selectedCompany]
