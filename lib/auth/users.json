@@ -157,7 +157,8 @@
         "profitability",
         "expenses",
         "insights",
-        "cashflow"
+        "cashflow",
+        "kpis"
       ],
       "breakdowns": {
         "revenueDrilldown": [
