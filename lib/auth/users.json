@@ -139,49 +139,6 @@
     "email": "ramy.barsoum@allcare.ai"
   },
   {
-    "username": "Ayman.ismail",
-    "name": "Ayman Ismail",
-    "passwordHash": "$2b$10$A8MrlE5JN2.ZnajhNivCquPU9TuDH5KMAXCkUDCIFlJnT34Uud6ea",
-    "role": "viewer",
-    "permissions": {
-      "companies": [
-        "InVitro Studio",
-        "AllCare External",
-        "AllRx External",
-        "Osta",
-        "Needles"
-      ],
-      "tabs": [
-        "overview",
-        "revenue",
-        "profitability",
-        "expenses",
-        "insights",
-        "cashflow"
-      ],
-      "breakdowns": {
-        "revenueDrilldown": [
-          "AllCare"
-        ],
-        "expenseDrilldown": [
-          "InVitro Studio",
-          "AllRx",
-          "AllCare"
-        ],
-        "expenseGLDetail": true,
-        "gpDrilldown": [
-          "AllCare"
-        ],
-        "cashflowDrilldown": true,
-        "auditConsole": false,
-        "hcDetails": false,
-        "shareholderSplit": false
-      },
-      "lpName": "Ayman Ismail"
-    },
-    "email": "melinda.joseph@invitrocapital.com"
-  },
-  {
     "username": "Ayman.Ismail",
     "name": "Ayman Ismail 2",
     "passwordHash": "$2b$10$E8PTP657tvYFhnFMjYcKUupmbYz3gSd33Rr44wF2UA7FoSOIEvgQK",
