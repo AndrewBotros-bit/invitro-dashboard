@@ -312,11 +312,17 @@ export default function DashboardSidebar({
           )}
         </div>
 
-        {/* Footer — three zones with explicit dividers:
-            (1) admin tools, (2) user identity + logout */}
-        <div className="border-t border-border">
-          {(canBreakdown('auditConsole') || userRole === 'admin') && (
-            <div className="px-3 pt-3 pb-1 space-y-0.5">
+        {/* Admin section — labeled like the other nav groups so it stands
+            out. Lives just above the user-identity footer. The "Admin"
+            header is gated on either capability being granted; each row
+            is gated on its own permission. Per-row primary tint makes
+            User Management impossible to miss for admins. */}
+        {(canBreakdown('auditConsole') || userRole === 'admin') && (
+          <div className="px-3 py-3 border-t border-border">
+            <p className="px-2 mb-2 text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
+              Admin
+            </p>
+            <nav className="space-y-0.5">
               {canBreakdown('auditConsole') && (
                 <a
                   href="/audit"
@@ -329,14 +335,16 @@ export default function DashboardSidebar({
               {userRole === 'admin' && (
                 <a
                   href="/admin/users"
-                  className="flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm font-medium text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
+                  className="flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm font-semibold bg-primary/10 text-primary hover:bg-primary/15 transition-colors"
                 >
                   <span className="text-base leading-none">👥</span>
                   <span>User Management</span>
                 </a>
               )}
-            </div>
-          )}
+            </nav>
+          </div>
+        )}
+        <div className="border-t border-border">
 
           {userName && (
             <div className="px-5 py-3 border-t border-border/60">
