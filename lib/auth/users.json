@@ -146,10 +146,10 @@
     "permissions": {
       "companies": [
         "InVitro Studio",
-        "AllCare",
         "AllRx External",
         "Osta",
-        "Needles"
+        "Needles",
+        "AllCare External"
       ],
       "tabs": [
         "overview",
