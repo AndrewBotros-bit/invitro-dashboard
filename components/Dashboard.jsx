@@ -3975,6 +3975,151 @@ export default function InVitroDashboard({ data: rawData, user }) {
                     <KPICard title="CAC" value={cac == null ? '—' : fmt(cac)} subtitle={newPatients == null ? 'needs prior-period data' : `GTM spend ÷ ${newPatients.toLocaleString()} new patients`} />
                   </div>
 
+                  {/* AllCare Totals by Period — sits above the per-service-
+                      line pivot. Same column shape (periods + Total). Rows
+                      include both FLOW metrics (SUs, Revenue, COS, GP, GTM
+                      Expenses) summed per bucket and STOCK metrics (Active
+                      Patients, Active Facilities) read as the LAST value in
+                      each bucket. "New Patients" is the delta of Active
+                      Patients between the bucket and the prior one — first
+                      bucket shows '—' (no prior). Ratios (ARPU, COS/Unit,
+                      GM%, CAC, etc.) are recomputed per bucket from the
+                      summed numerator/denominator. */}
+                  {(() => {
+                    // Whole-AllCare per-period totals
+                    const sumAllCareIn = (metricName, pred) =>
+                      slArr.reduce((s, sl) => s + sumIn(sl.metrics?.[metricName], pred), 0);
+
+                    // Per-period bucket values
+                    const buckets = periods.map((p, idx) => {
+                      const su = sumAllCareIn('SUs', v => inPeriod(v, p));
+                      const rev = sumAllCareIn('Revenues', v => inPeriod(v, p));
+                      const cos = sumAllCareIn('Cost of Sales', v => inPeriod(v, p));
+                      const gp = rev - cos;
+                      const apEnd = lastInBucket(totals['Active Patients'], p);
+                      const afEnd = lastInBucket(totals['Active Facilities'], p);
+                      // GTM spend in this bucket from the expense ledger
+                      const gtm = (data.expenses ?? [])
+                        .filter(e => e.company === 'AllCare' && (e.department || '').toUpperCase() === 'GTM')
+                        .filter(e => inPeriod(e, p))
+                        .reduce((s, e) => s + Math.abs(e.amount ?? 0), 0);
+                      return { ...p, su, rev, cos, gp, apEnd, afEnd, gtm };
+                    });
+                    // Second pass: compute "new patients" delta per bucket
+                    // using prior bucket's apEnd. First bucket uses
+                    // activePatientsPrior (last value before range start) if
+                    // available so the user gets a useful number for the
+                    // first period rather than '—'.
+                    buckets.forEach((b, i) => {
+                      const priorEnd = i === 0 ? activePatientsPrior : buckets[i - 1].apEnd;
+                      b.newPatients = (b.apEnd != null && priorEnd != null) ? b.apEnd - priorEnd : null;
+                      b.cac = (b.newPatients != null && b.newPatients > 0) ? b.gtm / b.newPatients : null;
+                      b.arpu = b.su > 0 ? b.rev / b.su : null;
+                      b.cosPerUnit = b.su > 0 ? b.cos / b.su : null;
+                      b.gpPerUnit = b.su > 0 ? b.gp / b.su : null;
+                      b.gmPct = b.rev > 0 ? (b.gp / b.rev) * 100 : null;
+                      b.suPerPatient = (b.su > 0 && b.apEnd > 0) ? b.su / b.apEnd : null;
+                      b.patientPerFacility = (b.apEnd > 0 && b.afEnd > 0) ? b.apEnd / b.afEnd : null;
+                    });
+                    // Range total (last column) — flow metrics sum, stock
+                    // metrics use end-of-range value, ratios recompute on
+                    // aggregates. Reuses the same in-range numbers already
+                    // computed for the KPI tiles above.
+                    const grandRev = totalRev;
+                    const grandCOS = totalCOS;
+                    const grandGP = totalGP;
+                    const grandSU = totalSUs;
+                    const grandGTM = allCareGTM;
+                    const totalRow = {
+                      su: grandSU,
+                      rev: grandRev,
+                      cos: grandCOS,
+                      gp: grandGP,
+                      gtm: grandGTM,
+                      apEnd: activePatientsLatest,
+                      afEnd: activeFacilitiesLatest,
+                      newPatients: newPatients,
+                      cac: cac,
+                      arpu: grandSU > 0 ? grandRev / grandSU : null,
+                      cosPerUnit: grandSU > 0 ? grandCOS / grandSU : null,
+                      gpPerUnit: grandSU > 0 ? grandGP / grandSU : null,
+                      gmPct: grandRev > 0 ? (grandGP / grandRev) * 100 : null,
+                      suPerPatient: visitsPerPatient,
+                      patientPerFacility: patientsPerFacility,
+                    };
+
+                    // Row config: label, key, formatter, optional color rule.
+                    // section: 'flow' / 'stock' / 'ratio' — drives faint
+                    // grouping background to help the eye chunk the table.
+                    const fmtDollar = (v) => v == null ? '—' : fmt(v);
+                    const fmtRatio$ = (v) => v == null ? '—' : `$${v.toFixed(2)}`;
+                    const fmtPctR = (v) => v == null ? '—' : `${v.toFixed(1)}%`;
+                    const fmtX = (v, d = 1) => v == null ? '—' : `${v.toFixed(d)}×`;
+                    const ROWS = [
+                      // Volume + presence
+                      { key: 'su',          label: 'SUs',                       fmt: fmtInt },
+                      { key: 'apEnd',       label: 'Active Patients',           fmt: fmtInt },
+                      { key: 'afEnd',       label: 'Active Facilities',         fmt: fmtInt },
+                      { key: 'newPatients', label: 'New Patients (Δ vs prior)', fmt: fmtInt,
+                        color: (v) => v == null ? '' : v > 0 ? 'text-emerald-600' : v < 0 ? 'text-red-500' : '' },
+                      // Money flows
+                      { key: 'rev', label: 'Revenue',       fmt: fmtDollar },
+                      { key: 'cos', label: 'Cost of Sales', fmt: fmtDollar },
+                      { key: 'gp',  label: 'Gross Profit',  fmt: fmtDollar,
+                        color: (v) => v == null ? '' : v >= 0 ? 'text-emerald-600' : 'text-red-500' },
+                      { key: 'gtm', label: 'GTM Expenses',  fmt: fmtDollar },
+                      // Unit economics + ratios
+                      { key: 'arpu',              label: 'ARPU',                fmt: fmtRatio$ },
+                      { key: 'cosPerUnit',        label: 'COS / Unit',          fmt: fmtRatio$ },
+                      { key: 'gpPerUnit',         label: 'GP / Unit',           fmt: fmtRatio$,
+                        color: (v) => v == null ? '' : v >= 0 ? 'text-emerald-600' : 'text-red-500' },
+                      { key: 'gmPct',             label: 'GM %',                fmt: fmtPctR,
+                        color: (v) => v == null ? '' : v >= 40 ? 'text-emerald-600' : v >= 20 ? 'text-amber-600' : 'text-red-500' },
+                      { key: 'cac',               label: 'CAC (GTM ÷ new pts.)', fmt: fmtDollar },
+                      { key: 'suPerPatient',      label: 'SUs / Patient',       fmt: (v) => fmtX(v, 2) },
+                      { key: 'patientPerFacility', label: 'Patients / Facility', fmt: (v) => fmtX(v, 1) },
+                    ];
+
+                    return (
+                      <Card className="mb-5 overflow-hidden">
+                        <CardHeader>
+                          <CardTitle className="text-sm">AllCare Totals by {viewMode === 'yearly' ? 'Year' : viewMode === 'quarterly' ? 'Quarter' : 'Month'}</CardTitle>
+                        </CardHeader>
+                        <CardContent className="overflow-auto px-0">
+                          <Table>
+                            <TableHeader>
+                              <TableRow>
+                                <TableHead className="sticky left-0 bg-card z-10">KPI</TableHead>
+                                {periods.map(p => (
+                                  <TableHead key={p.key} className="text-right whitespace-nowrap">{p.label}</TableHead>
+                                ))}
+                                <TableHead className="text-right font-bold whitespace-nowrap">Total</TableHead>
+                              </TableRow>
+                            </TableHeader>
+                            <TableBody>
+                              {ROWS.map(item => (
+                                <TableRow key={item.key}>
+                                  <TableCell className="sticky left-0 bg-card z-10 font-medium">{item.label}</TableCell>
+                                  {buckets.map(b => {
+                                    const v = b[item.key];
+                                    return (
+                                      <TableCell key={b.key} className={`text-right tabular-nums whitespace-nowrap ${item.color ? item.color(v) : ''}`}>
+                                        {item.fmt(v)}
+                                      </TableCell>
+                                    );
+                                  })}
+                                  <TableCell className={`text-right tabular-nums whitespace-nowrap font-bold border-l border-border/60 ${item.color ? item.color(totalRow[item.key]) : ''}`}>
+                                    {item.fmt(totalRow[item.key])}
+                                  </TableCell>
+                                </TableRow>
+                              ))}
+                            </TableBody>
+                          </Table>
+                        </CardContent>
+                      </Card>
+                    );
+                  })()}
+
                   {/* Per-service-line pivot matrix — Option B layout */}
                   <Card className="mb-5 overflow-hidden">
                     <CardHeader>
