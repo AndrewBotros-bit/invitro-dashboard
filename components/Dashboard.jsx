@@ -2016,83 +2016,174 @@ export default function InVitroDashboard({ data: rawData, user }) {
             </div>
             )}
 
-            {/* Company Performance Table */}
+            {/* Company Performance Table — transposed CFO-style summary.
+                Rows = line items (Revenue → GP → Expenses → EBITDA →
+                Operating CF). Columns = periods (month/quarter/year based
+                on viewMode) + Total. Same idiom as the Indirect CF
+                Build-up table; sub-metric (margin/ratio) appears as a 9px
+                muted line below each $ value. */}
             <div className="mb-4">
               <h2 className="text-lg font-bold mb-1">Company Performance Summary</h2>
-              <p className="text-sm text-muted-foreground mb-4">All active portfolio companies &mdash; {rangeLabel}</p>
+              <p className="text-sm text-muted-foreground mb-4">
+                {viewMode === 'yearly' ? 'Yearly' : viewMode === 'quarterly' ? 'Quarterly' : 'Monthly'} build-up across active portfolio companies &mdash; {rangeLabel}
+              </p>
             </div>
-            <Card className="py-0 overflow-hidden">
-              <Table>
-                <TableHeader>
-                  <TableRow className="border-border/60 hover:bg-transparent">
-                    <TableHead className="w-[180px]">Company</TableHead>
-                    <TableHead className="text-right">Revenue</TableHead>
-                    <TableHead className="text-right">Gross Profit</TableHead>
-                    <TableHead className="text-right">Expenses</TableHead>
-                    <TableHead className="text-right">EBITDA</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {companyRows.map((co) => (
-                    <TableRow key={co.name}>
-                      <TableCell className="font-semibold">
-                        <span className="inline-block w-2 h-2 rounded-full mr-2" style={{ background: co.color }} />
-                        {co.name}
-                      </TableCell>
-                      <TableCell className="text-right">
-                        <div className="font-semibold">{fmt(co.rev)}</div>
-                        {co.revGrowth !== null ? (
-                          <div className={`text-[11px] ${co.revGrowth >= 0 ? "text-emerald-600" : "text-red-500"}`}>
-                            {co.revGrowth >= 0 ? "+" : ""}{(co.revGrowth * 100).toFixed(0)}% {compareEnabled ? `vs ${compLabel}` : 'YoY'}
-                          </div>
-                        ) : (
-                          <div className="text-[11px] text-muted-foreground">New</div>
-                        )}
-                      </TableCell>
-                      <TableCell className="text-right">
-                        <div className={`font-semibold ${co.grossProfit >= 0 ? "text-emerald-600" : "text-red-500"}`}>{fmt(co.grossProfit)}</div>
-                        <div className="text-[11px] text-muted-foreground">
-                          {co.grossMargin !== null && co.rev > 0 ? `${(co.grossMargin * 100).toFixed(1)}% margin` : 'N/A'}
-                        </div>
-                      </TableCell>
-                      <TableCell className="text-right">
-                        <div className="font-semibold text-foreground">{fmt(co.expenses)}</div>
-                        <div className="text-[11px] text-muted-foreground">
-                          {co.rev > 0 ? `${(co.expenses / co.rev * 100).toFixed(1)}% of revenue` : 'N/A'}
-                        </div>
-                      </TableCell>
-                      <TableCell className="text-right">
-                        <div className={`font-semibold ${co.ebitda >= 0 ? "text-emerald-600" : "text-red-500"}`}>{fmt(co.ebitda)}</div>
-                        <div className="text-[11px] text-muted-foreground">{co.rev > 0 ? (co.ebitda / co.rev * 100).toFixed(1) + '% margin' : 'N/A'}</div>
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-                <TableFooter>
-                  <TableRow className="bg-muted hover:bg-muted">
-                    <TableCell className="font-bold">TOTAL (excl. holdings)</TableCell>
-                    <TableCell className="text-right font-bold">{fmt(totalRowRev)}</TableCell>
-                    <TableCell className="text-right">
-                      <div className={`font-bold ${totalRowGP >= 0 ? "text-emerald-600" : "text-red-500"}`}>{fmt(totalRowGP)}</div>
-                      <div className="text-[11px] text-muted-foreground font-normal">
-                        {totalRowGrossMargin !== null ? `${(totalRowGrossMargin * 100).toFixed(1)}% margin` : 'N/A'}
-                      </div>
-                    </TableCell>
-                    <TableCell className="text-right">
-                      <div className="font-bold text-foreground">{fmt(Math.abs(rangeExpenses))}</div>
-                      <div className="text-[11px] text-muted-foreground font-normal">
-                        {totalRowRev > 0 ? `${(Math.abs(rangeExpenses) / totalRowRev * 100).toFixed(1)}% of revenue` : 'N/A'}
-                      </div>
-                    </TableCell>
-                    <TableCell className="text-right">
-                      <div className="font-bold text-emerald-600">{fmt(totalRowEbitda)}</div>
-                      <div className="text-[11px] text-muted-foreground font-normal">
-                        {totalRowRev > 0 ? `${(totalRowEbitda / totalRowRev * 100).toFixed(1)}% margin` : 'N/A'}
-                      </div>
-                    </TableCell>
-                  </TableRow>
-                </TableFooter>
-              </Table>
+            <Card className="mb-5 overflow-hidden">
+              <CardContent className="overflow-auto px-0">
+                {(() => {
+                  // Period buckets matching the current viewMode. Same
+                  // logic as the Indirect CF builder: yearly → one entry
+                  // per year; quarterly → one per (year, quarter);
+                  // monthly → one per (year, month).
+                  const ML = ['','Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+                  const monthLabel = (y, m) => `${ML[m]} '${String(y).slice(-2)}`;
+                  const periods = (() => {
+                    const result = [];
+                    if (viewMode === 'yearly') {
+                      for (let y = rangeFrom.year; y <= rangeTo.year; y++) result.push({ year: y, label: String(y), key: `y-${y}` });
+                    } else if (viewMode === 'quarterly') {
+                      const startQ = Math.ceil(rangeFrom.month / 3);
+                      const endQ = Math.ceil(rangeTo.month / 3);
+                      const startYQ = rangeFrom.year * 4 + startQ;
+                      const endYQ = rangeTo.year * 4 + endQ;
+                      for (let yq = startYQ; yq <= endYQ; yq++) {
+                        const y = Math.floor((yq - 1) / 4);
+                        const q = ((yq - 1) % 4) + 1;
+                        result.push({ year: y, quarter: q, label: `Q${q} '${String(y).slice(-2)}`, key: `q-${y}-${q}` });
+                      }
+                    } else {
+                      const start = rangeFrom.year * 12 + rangeFrom.month;
+                      const end = rangeTo.year * 12 + rangeTo.month;
+                      for (let mi = start; mi <= end; mi++) {
+                        const y = Math.floor((mi - 1) / 12);
+                        const m = ((mi - 1) % 12) + 1;
+                        result.push({ year: y, month: m, label: monthLabel(y, m), key: `m-${y}-${m}` });
+                      }
+                    }
+                    return result;
+                  })();
+
+                  // Predicate: is a monthly value within the given period bucket?
+                  const inPeriod = (v, p) => {
+                    if (viewMode === 'yearly') return v.year === p.year;
+                    if (viewMode === 'quarterly') return v.year === p.year && Math.ceil(v.month / 3) === p.quarter;
+                    return v.year === p.year && v.month === p.month;
+                  };
+
+                  // Aggregators — sum a metric across all relevant companies
+                  // for a given period. Routes Studio to its Direct OpCF (the
+                  // same convention used elsewhere; the consolidated OpCF
+                  // double-counts portco roll-ups).
+                  const opCFKey = (name) => name === 'InVitro Studio' ? 'Direct Operational Cash Flow' : 'Operational Cash Flow';
+                  const sumPnlInPeriod = (metricKey, p, excludes) => data.pnl
+                    .filter(c => !excludes.includes(c.name))
+                    .reduce((s, c) => s + ((c.metrics?.[metricKey] ?? [])
+                      .filter(v => inPeriod(v, p))
+                      .reduce((a, v) => a + (v.value ?? 0), 0)), 0);
+                  const sumGPInPeriod = (p, excludes) => data.pnl
+                    .filter(c => !excludes.includes(c.name))
+                    .reduce((s, c) => s + ((c.metrics?.[getGPMetric(c.name)] ?? [])
+                      .filter(v => inPeriod(v, p))
+                      .reduce((a, v) => a + (v.value ?? 0), 0)), 0);
+                  // Expense convention: in this codebase "rangeExpenses" uses
+                  // 'SG&A + R&D Expenses' for single-company and 'Total Expenses'
+                  // for consolidated. Mirror that here so the summary table
+                  // reconciles with the KPI cards above.
+                  const expMetric = selectedCompany ? 'SG&A + R&D Expenses' : 'Total Expenses';
+                  const sumExpInPeriod = (p, excludes) => Math.abs(data.pnl
+                    .filter(c => !excludes.includes(c.name))
+                    .reduce((s, c) => s + ((c.metrics?.[expMetric] ?? [])
+                      .filter(v => inPeriod(v, p))
+                      .reduce((a, v) => a + (v.value ?? 0), 0)), 0));
+                  const sumOpCFInPeriod = (p) => {
+                    const targets = selectedCompany
+                      ? [selectedCompany]
+                      : DISPLAY_COMPANIES.filter(n => !EXCLUDE_ALWAYS.includes(n));
+                    return targets.reduce((s, name) => {
+                      const co = data.cashflow?.find(c => c.name === name);
+                      if (!co) return s;
+                      const arr = co.metrics?.[opCFKey(name)] ?? [];
+                      return s + arr.filter(v => inPeriod(v, p)).reduce((a, v) => a + (v.value ?? 0), 0);
+                    }, 0);
+                  };
+
+                  // Build per-period totals for each line item, plus the
+                  // grand Total column (sum across all periods in range).
+                  const perPeriod = periods.map(p => {
+                    const rev = sumPnlInPeriod('Revenues', p, dynExcludeRevenue);
+                    const gp = sumGPInPeriod(p, dynExcludeRevenue);
+                    const exp = sumExpInPeriod(p, dynExcludeEbitda);
+                    const ebitda = sumPnlInPeriod('EBITDA', p, dynExcludeEbitda);
+                    const opCF = sumOpCFInPeriod(p);
+                    return { ...p, rev, gp, exp, ebitda, opCF };
+                  });
+                  const totals = perPeriod.reduce(
+                    (acc, p) => ({ rev: acc.rev + p.rev, gp: acc.gp + p.gp, exp: acc.exp + p.exp, ebitda: acc.ebitda + p.ebitda, opCF: acc.opCF + p.opCF }),
+                    { rev: 0, gp: 0, exp: 0, ebitda: 0, opCF: 0 }
+                  );
+
+                  // Sub-metric formatters: returns null when undefined (e.g.
+                  // GM% when revenue is zero); rendering will fall back to —.
+                  const pct = (num, denom) => denom > 0 ? (num / denom * 100) : null;
+                  const fmtPct = (v) => v == null ? '—' : `${v.toFixed(1)}%`;
+                  // Line item config: key, label, color rule, sub-metric extractor.
+                  const LINE_ITEMS = [
+                    { key: 'rev',    label: 'Revenue',                bold: false, color: () => 'text-foreground', sub: null },
+                    { key: 'gp',     label: 'Gross Profit',           bold: false, color: (v) => v >= 0 ? 'text-emerald-600' : 'text-red-500',
+                      sub: (row) => ({ label: 'margin', value: fmtPct(pct(row.gp, row.rev)) }) },
+                    { key: 'exp',    label: 'Expenses (SG&A + R&D)',  bold: false, color: () => 'text-foreground',
+                      sub: (row) => ({ label: '% of rev', value: fmtPct(pct(row.exp, row.rev)) }) },
+                    { key: 'ebitda', label: 'EBITDA',                 bold: true,  color: (v) => v >= 0 ? 'text-emerald-600' : 'text-red-500',
+                      sub: (row) => ({ label: 'margin', value: fmtPct(pct(row.ebitda, row.rev)) }) },
+                    { key: 'opCF',   label: 'Operating Cash Flow',    bold: true,  color: (v) => v >= 0 ? 'text-emerald-600' : 'text-red-500', sub: null },
+                  ];
+
+                  return (
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead className="sticky left-0 bg-card z-10">Line Item</TableHead>
+                          {periods.map(p => (
+                            <TableHead key={p.key} className="text-right whitespace-nowrap">{p.label}</TableHead>
+                          ))}
+                          <TableHead className="text-right font-bold whitespace-nowrap">Total</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {LINE_ITEMS.map(item => {
+                          const totalVal = totals[item.key];
+                          const totalSub = item.sub ? item.sub(totals) : null;
+                          return (
+                            <TableRow key={item.key} className={item.bold ? 'bg-muted/30' : ''}>
+                              <TableCell className={`sticky left-0 bg-card z-10 ${item.bold ? 'font-bold' : 'font-medium'}`}>
+                                {item.label}
+                              </TableCell>
+                              {perPeriod.map(row => {
+                                const val = row[item.key];
+                                const sub = item.sub ? item.sub(row) : null;
+                                return (
+                                  <TableCell key={row.key} className={`text-right tabular-nums whitespace-nowrap ${item.bold ? 'font-bold' : ''}`}>
+                                    <div className={item.color(val)}>{fmt(val)}</div>
+                                    {sub && (
+                                      <div className="text-[9px] text-muted-foreground font-normal mt-0.5">{sub.value} {sub.label}</div>
+                                    )}
+                                  </TableCell>
+                                );
+                              })}
+                              <TableCell className={`text-right tabular-nums whitespace-nowrap font-bold border-l border-border/60`}>
+                                <div className={item.color(totalVal)}>{fmt(totalVal)}</div>
+                                {totalSub && (
+                                  <div className="text-[9px] text-muted-foreground font-normal mt-0.5">{totalSub.value} {totalSub.label}</div>
+                                )}
+                              </TableCell>
+                            </TableRow>
+                          );
+                        })}
+                      </TableBody>
+                    </Table>
+                  );
+                })()}
+              </CardContent>
             </Card>
           </>)}
 
