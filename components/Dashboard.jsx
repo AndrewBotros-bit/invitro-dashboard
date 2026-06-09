@@ -3889,20 +3889,6 @@ export default function InVitroDashboard({ data: rawData, user }) {
                 const sorted = [...beforeRange].sort((a, b) => (b.year * 100 + b.month) - (a.year * 100 + a.month));
                 return sorted[0]?.value ?? null;
               })();
-              const newPatients = (activePatientsLatest != null && activePatientsPrior != null)
-                ? activePatientsLatest - activePatientsPrior
-                : null;
-
-              // CAC = AllCare GTM expenses (in-range) / new patients.
-              // Uses the GTM department from data.expenses for AllCare.
-              // Note: this is a first-pass definition — if the user wants
-              // a different cost source, swap the filter below.
-              const allCareGTM = (data.expenses ?? [])
-                .filter(e => e.company === 'AllCare' && (e.department || '').toUpperCase() === 'GTM')
-                .filter(e => inRangeAllCare(e))
-                .reduce((s, e) => s + Math.abs(e.amount ?? 0), 0);
-              const cac = (newPatients != null && newPatients > 0) ? allCareGTM / newPatients : null;
-
               // Ratios
               const visitsPerPatient = (totalSUs > 0 && activePatientsLatest > 0) ? totalSUs / activePatientsLatest : null;
               const patientsPerFacility = (activePatientsLatest > 0 && activeFacilitiesLatest > 0) ? activePatientsLatest / activeFacilitiesLatest : null;
@@ -3972,7 +3958,6 @@ export default function InVitroDashboard({ data: rawData, user }) {
                     <KPICard title={`Active Facilities — ${rangeLabel}`} value={fmtInt(activeFacilitiesLatest)} subtitle="latest in range" />
                     <KPICard title="SUs / Patient" value={fmtRatio(visitsPerPatient, '×', 2)} subtitle="engagement (SUs ÷ active patients)" />
                     <KPICard title="Patients / Facility" value={fmtRatio(patientsPerFacility, '×', 1)} subtitle="penetration (patients ÷ facilities)" />
-                    <KPICard title="CAC" value={cac == null ? '—' : fmt(cac)} subtitle={newPatients == null ? 'needs prior-period data' : `GTM spend ÷ ${newPatients.toLocaleString()} new patients`} />
                   </div>
 
                   {/* AllCare Totals by Period — sits above the per-service-
@@ -3998,12 +3983,7 @@ export default function InVitroDashboard({ data: rawData, user }) {
                       const gp = rev - cos;
                       const apEnd = lastInBucket(totals['Active Patients'], p);
                       const afEnd = lastInBucket(totals['Active Facilities'], p);
-                      // GTM spend in this bucket from the expense ledger
-                      const gtm = (data.expenses ?? [])
-                        .filter(e => e.company === 'AllCare' && (e.department || '').toUpperCase() === 'GTM')
-                        .filter(e => inPeriod(e, p))
-                        .reduce((s, e) => s + Math.abs(e.amount ?? 0), 0);
-                      return { ...p, su, rev, cos, gp, apEnd, afEnd, gtm };
+                      return { ...p, su, rev, cos, gp, apEnd, afEnd };
                     });
                     // Second pass: compute "new patients" delta per bucket
                     // using prior bucket's apEnd. First bucket uses
@@ -4013,7 +3993,6 @@ export default function InVitroDashboard({ data: rawData, user }) {
                     buckets.forEach((b, i) => {
                       const priorEnd = i === 0 ? activePatientsPrior : buckets[i - 1].apEnd;
                       b.newPatients = (b.apEnd != null && priorEnd != null) ? b.apEnd - priorEnd : null;
-                      b.cac = (b.newPatients != null && b.newPatients > 0) ? b.gtm / b.newPatients : null;
                       b.arpu = b.su > 0 ? b.rev / b.su : null;
                       b.cosPerUnit = b.su > 0 ? b.cos / b.su : null;
                       b.gpPerUnit = b.su > 0 ? b.gp / b.su : null;
@@ -4029,17 +4008,18 @@ export default function InVitroDashboard({ data: rawData, user }) {
                     const grandCOS = totalCOS;
                     const grandGP = totalGP;
                     const grandSU = totalSUs;
-                    const grandGTM = allCareGTM;
+                    // Range-total New Patients = active_patients(end) - active_patients(prior-to-range)
+                    const totalNewPatients = (activePatientsLatest != null && activePatientsPrior != null)
+                      ? activePatientsLatest - activePatientsPrior
+                      : null;
                     const totalRow = {
                       su: grandSU,
                       rev: grandRev,
                       cos: grandCOS,
                       gp: grandGP,
-                      gtm: grandGTM,
                       apEnd: activePatientsLatest,
                       afEnd: activeFacilitiesLatest,
-                      newPatients: newPatients,
-                      cac: cac,
+                      newPatients: totalNewPatients,
                       arpu: grandSU > 0 ? grandRev / grandSU : null,
                       cosPerUnit: grandSU > 0 ? grandCOS / grandSU : null,
                       gpPerUnit: grandSU > 0 ? grandGP / grandSU : null,
@@ -4067,7 +4047,6 @@ export default function InVitroDashboard({ data: rawData, user }) {
                       { key: 'cos', label: 'Cost of Sales', fmt: fmtDollar },
                       { key: 'gp',  label: 'Gross Profit',  fmt: fmtDollar,
                         color: (v) => v == null ? '' : v >= 0 ? 'text-emerald-600' : 'text-red-500' },
-                      { key: 'gtm', label: 'GTM Expenses',  fmt: fmtDollar },
                       // Unit economics + ratios
                       { key: 'arpu',              label: 'ARPU',                fmt: fmtRatio$ },
                       { key: 'cosPerUnit',        label: 'COS / Unit',          fmt: fmtRatio$ },
@@ -4075,7 +4054,6 @@ export default function InVitroDashboard({ data: rawData, user }) {
                         color: (v) => v == null ? '' : v >= 0 ? 'text-emerald-600' : 'text-red-500' },
                       { key: 'gmPct',             label: 'GM %',                fmt: fmtPctR,
                         color: (v) => v == null ? '' : v >= 40 ? 'text-emerald-600' : v >= 20 ? 'text-amber-600' : 'text-red-500' },
-                      { key: 'cac',               label: 'CAC (GTM ÷ new pts.)', fmt: fmtDollar },
                       { key: 'suPerPatient',      label: 'SUs / Patient',       fmt: (v) => fmtX(v, 2) },
                       { key: 'patientPerFacility', label: 'Patients / Facility', fmt: (v) => fmtX(v, 1) },
                     ];
