@@ -417,14 +417,13 @@ export default function InVitroDashboard({ data: rawData, user }) {
   // which internal/external variant is being shown. Run once per
   // (internal, external) pair; each call returns transformed { data, perms }
   // that the next call layers on top of.
-  // AllRx External: legacy behavior — LPs with external-only access see the
-  // entry renamed to "AllRx" (relabel: true is the default).
+  // Both External pairs use the relabel convention: LPs (and any user with
+  // external-only access) see the entry under the regular internal name —
+  // they don't know an alternate view exists. "AllRx External" → "AllRx",
+  // "AllCare External" → "AllCare". Admin/internal users with both
+  // permissions see the two as separate sidebar entries.
   const allRxApplied = applyExternalCompanyView(rawData, rawPerms, 'AllRx', 'AllRx External');
-  // AllCare External: CFO direction — keep the "AllCare External" label
-  // visible to LP-grantees so they know they're seeing the public-target
-  // view (relabel: false). The no-access strip branch still runs to
-  // prevent data leaks for users without permission.
-  const { data, perms } = applyExternalCompanyView(allRxApplied.data, allRxApplied.perms, 'AllCare', 'AllCare External', { relabel: false });
+  const { data, perms } = applyExternalCompanyView(allRxApplied.data, allRxApplied.perms, 'AllCare', 'AllCare External');
 
   // LP auto-derived company set: when the user has an lpName, their visible
   // portfolio companies *include* the companies their vehicle(s) invested
