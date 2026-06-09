@@ -29,6 +29,7 @@ const ALL_TABS = [
   { id: 'expenses', label: 'Expenses' },
   { id: 'profitability', label: 'Profitability' },
   { id: 'cashflow', label: 'Cash Flow' },
+  { id: 'kpis', label: 'KPIs & Unit Economics' },
   { id: 'irr', label: 'IRR & Valuation' },
   { id: 'insights', label: 'Insights' },
 ];

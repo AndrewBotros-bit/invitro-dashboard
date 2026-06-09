@@ -22,7 +22,7 @@ const ALL_COMPANIES = ['AllRx', 'AllCare', 'Osta', 'Needles', 'InVitro Studio'];
 // ALL_COMPANIES to prevent them from appearing in drill-down permission
 // arrays.
 const COMPANIES_INCLUDING_CONSOLIDATED = [...ALL_COMPANIES, 'Consolidated', 'AllRx External', 'AllCare External'];
-const ALL_TABS = ['overview', 'revenue', 'expenses', 'profitability', 'cashflow', 'irr', 'insights'];
+const ALL_TABS = ['overview', 'revenue', 'expenses', 'profitability', 'cashflow', 'kpis', 'irr', 'insights'];
 // 'expenseGLDetail' gates Layer 2 of the expense breakdown drawer — the
 // GL-level sub-cards (Non-HC + Adhocks). Layer 1 (dept totals) is gated
 // by 'expenseDrilldown'; Layer 3 (HC headcount roster) by 'hcDetails'.

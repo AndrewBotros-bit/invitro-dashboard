@@ -26,6 +26,7 @@ const PORTFOLIO_TABS = [
   { id: 'expenses', label: 'Expenses', icon: '📋' },
   { id: 'profitability', label: 'Profitability', icon: '📈' },
   { id: 'cashflow', label: 'Cash Flow', icon: '🏦' },
+  { id: 'kpis', label: 'KPIs & Unit Economics', icon: '📐' },
   { id: 'insights', label: 'Insights', icon: '💡' },
 ];
 

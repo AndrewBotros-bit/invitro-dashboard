@@ -3788,6 +3788,248 @@ export default function InVitroDashboard({ data: rawData, user }) {
             })()}
           </>)}
 
+          {/* ────── KPIs & UNIT ECONOMICS ──────
+              AllCare-only (initially). Two surfaces:
+                1. KPI ratio tiles — Visits/Patient, Patients/Facility, CAC
+                2. Service-line × period pivot matrix — service lines as
+                   parent rows, ARPU/COS/Unit/GP/Unit/GM% as sub-rows,
+                   columns adapt to viewMode (Monthly/Quarterly/Yearly).
+              Active Patients + Active Facilities are AllCare-wide; SUs
+              are summed and ratios computed on the range. Per-service-line
+              metrics use the existing ALLCARE_PRODUCT_GROUPS so the
+              groupings stay consistent with the Revenue Mix pie and the
+              Profitability GP drilldown. */}
+          {activeSection === 'kpis' && (<>
+            {(() => {
+              const allCare = data.revenueDetails?.AllCare;
+              if (!allCare?.serviceLines?.length) {
+                return <p className="text-sm text-muted-foreground">No AllCare service-line data available.</p>;
+              }
+              const totals = allCare.totals || {};
+              const slArr = allCare.serviceLines;
+
+              // ─── Period buckets (same builder as Indirect CF / Overview) ───
+              const ML = ['','Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+              const monthLabel = (y, m) => `${ML[m]} '${String(y).slice(-2)}`;
+              const periods = (() => {
+                const result = [];
+                if (viewMode === 'yearly') {
+                  for (let y = rangeFrom.year; y <= rangeTo.year; y++) result.push({ year: y, label: String(y), key: `y-${y}` });
+                } else if (viewMode === 'quarterly') {
+                  const startQ = Math.ceil(rangeFrom.month / 3);
+                  const endQ = Math.ceil(rangeTo.month / 3);
+                  const startYQ = rangeFrom.year * 4 + startQ;
+                  const endYQ = rangeTo.year * 4 + endQ;
+                  for (let yq = startYQ; yq <= endYQ; yq++) {
+                    const y = Math.floor((yq - 1) / 4);
+                    const q = ((yq - 1) % 4) + 1;
+                    result.push({ year: y, quarter: q, label: `Q${q} '${String(y).slice(-2)}`, key: `q-${y}-${q}` });
+                  }
+                } else {
+                  const start = rangeFrom.year * 12 + rangeFrom.month;
+                  const end = rangeTo.year * 12 + rangeTo.month;
+                  for (let mi = start; mi <= end; mi++) {
+                    const y = Math.floor((mi - 1) / 12);
+                    const m = ((mi - 1) % 12) + 1;
+                    result.push({ year: y, month: m, label: monthLabel(y, m), key: `m-${y}-${m}` });
+                  }
+                }
+                return result;
+              })();
+              const inPeriod = (v, p) => {
+                if (viewMode === 'yearly') return v.year === p.year;
+                if (viewMode === 'quarterly') return v.year === p.year && Math.ceil(v.month / 3) === p.quarter;
+                return v.year === p.year && v.month === p.month;
+              };
+
+              // Helper: sum a metric array filtered to a period predicate
+              const sumIn = (arr, pred) => (arr || []).filter(pred).reduce((s, v) => s + (v.value ?? 0), 0);
+              // Last in-range value for stock metrics (Active Patients/Facilities)
+              const lastInRange = (arr) => {
+                if (!arr || arr.length === 0) return null;
+                const inR = arr.filter(v => {
+                  const vi = v.year * 100 + v.month;
+                  return vi >= rangeFrom.year * 100 + rangeFrom.month
+                      && vi <= rangeTo.year * 100 + rangeTo.month;
+                });
+                if (inR.length === 0) return null;
+                const sorted = [...inR].sort((a, b) => (b.year * 100 + b.month) - (a.year * 100 + a.month));
+                return sorted[0]?.value ?? null;
+              };
+              // Stock metric value WITHIN a period bucket — last month in the bucket
+              const lastInBucket = (arr, p) => {
+                const inB = (arr || []).filter(v => inPeriod(v, p));
+                if (inB.length === 0) return null;
+                const sorted = [...inB].sort((a, b) => (b.year * 100 + b.month) - (a.year * 100 + a.month));
+                return sorted[0]?.value ?? null;
+              };
+
+              // ─── Whole-AllCare KPI tiles (range totals) ───
+              const stripSuffix = (s) => String(s || '').replace(/\s*\(.*?\)\s*$/, '').trim();
+              const inRangeAllCare = (v) => {
+                const vi = v.year * 100 + v.month;
+                return vi >= rangeFrom.year * 100 + rangeFrom.month
+                    && vi <= rangeTo.year * 100 + rangeTo.month;
+              };
+              const totalSUs = slArr.reduce((s, sl) => s + sumIn(sl.metrics?.['SUs'], inRangeAllCare), 0);
+              const totalRev = slArr.reduce((s, sl) => s + sumIn(sl.metrics?.['Revenues'], inRangeAllCare), 0);
+              const totalCOS = slArr.reduce((s, sl) => s + sumIn(sl.metrics?.['Cost of Sales'], inRangeAllCare), 0);
+              const totalGP = totalRev - totalCOS;
+              const activePatientsLatest = lastInRange(totals['Active Patients']);
+              const activeFacilitiesLatest = lastInRange(totals['Active Facilities']);
+              // For "new patients acquired" — compare last in-range value vs
+              // last value BEFORE the range start. If no prior, fallback to 0.
+              const activePatientsPrior = (() => {
+                const arr = totals['Active Patients'] || [];
+                const beforeRange = arr.filter(v => {
+                  const vi = v.year * 100 + v.month;
+                  return vi < rangeFrom.year * 100 + rangeFrom.month;
+                });
+                if (beforeRange.length === 0) return null;
+                const sorted = [...beforeRange].sort((a, b) => (b.year * 100 + b.month) - (a.year * 100 + a.month));
+                return sorted[0]?.value ?? null;
+              })();
+              const newPatients = (activePatientsLatest != null && activePatientsPrior != null)
+                ? activePatientsLatest - activePatientsPrior
+                : null;
+
+              // CAC = AllCare GTM expenses (in-range) / new patients.
+              // Uses the GTM department from data.expenses for AllCare.
+              // Note: this is a first-pass definition — if the user wants
+              // a different cost source, swap the filter below.
+              const allCareGTM = (data.expenses ?? [])
+                .filter(e => e.company === 'AllCare' && (e.department || '').toUpperCase() === 'GTM')
+                .filter(e => inRangeAllCare(e))
+                .reduce((s, e) => s + Math.abs(e.amount ?? 0), 0);
+              const cac = (newPatients != null && newPatients > 0) ? allCareGTM / newPatients : null;
+
+              // Ratios
+              const visitsPerPatient = (totalSUs > 0 && activePatientsLatest > 0) ? totalSUs / activePatientsLatest : null;
+              const patientsPerFacility = (activePatientsLatest > 0 && activeFacilitiesLatest > 0) ? activePatientsLatest / activeFacilitiesLatest : null;
+
+              const fmtRatio = (v, suffix = '', digits = 1) => v == null ? '—' : `${v.toFixed(digits)}${suffix}`;
+              const fmtInt = (v) => v == null ? '—' : Math.round(v).toLocaleString();
+
+              // ─── Per-service-line groups (matches ALLCARE_PRODUCT_GROUPS used elsewhere) ───
+              const computeGroupMetrics = (group, p) => {
+                let su = 0, rev = 0, cos = 0;
+                for (const sl of slArr) {
+                  if (!group.members.includes(stripSuffix(sl.name))) continue;
+                  su += sumIn(sl.metrics?.['SUs'], v => inPeriod(v, p));
+                  rev += sumIn(sl.metrics?.['Revenues'], v => inPeriod(v, p));
+                  cos += sumIn(sl.metrics?.['Cost of Sales'], v => inPeriod(v, p));
+                }
+                const gp = rev - cos;
+                return {
+                  su, rev, cos, gp,
+                  arpu: su > 0 ? rev / su : null,
+                  cosPerUnit: su > 0 ? cos / su : null,
+                  gpPerUnit: su > 0 ? gp / su : null,
+                  gmPct: rev > 0 ? (gp / rev) * 100 : null,
+                };
+              };
+              const groupRows = ALLCARE_PRODUCT_GROUPS.map(group => {
+                const perPeriod = periods.map(p => ({ ...p, ...computeGroupMetrics(group, p) }));
+                // Range totals (same math as period buckets but over the whole range)
+                let su = 0, rev = 0, cos = 0;
+                for (const sl of slArr) {
+                  if (!group.members.includes(stripSuffix(sl.name))) continue;
+                  su += sumIn(sl.metrics?.['SUs'], inRangeAllCare);
+                  rev += sumIn(sl.metrics?.['Revenues'], inRangeAllCare);
+                  cos += sumIn(sl.metrics?.['Cost of Sales'], inRangeAllCare);
+                }
+                const gp = rev - cos;
+                const total = {
+                  su, rev, cos, gp,
+                  arpu: su > 0 ? rev / su : null,
+                  cosPerUnit: su > 0 ? cos / su : null,
+                  gpPerUnit: su > 0 ? gp / su : null,
+                  gmPct: rev > 0 ? (gp / rev) * 100 : null,
+                };
+                return { name: group.name, color: group.color, perPeriod, total };
+              }).filter(g => g.total.su > 0);
+
+              // Sub-row config for the pivot matrix
+              const SUB_ROWS = [
+                { key: 'arpu',       label: 'ARPU',        fmt: (v) => v == null ? '—' : `$${v.toFixed(2)}` },
+                { key: 'cosPerUnit', label: 'COS / Unit',  fmt: (v) => v == null ? '—' : `$${v.toFixed(2)}` },
+                { key: 'gpPerUnit',  label: 'GP / Unit',   fmt: (v) => v == null ? '—' : `$${v.toFixed(2)}`, color: (v) => v == null ? '' : v >= 0 ? 'text-emerald-600' : 'text-red-500' },
+                { key: 'gmPct',      label: 'GM %',        fmt: (v) => v == null ? '—' : `${v.toFixed(1)}%`, color: (v) => v == null ? '' : v >= 40 ? 'text-emerald-600' : v >= 20 ? 'text-amber-600' : 'text-red-500' },
+              ];
+
+              return (
+                <>
+                  <div className="mb-4">
+                    <h2 className="text-lg font-bold mb-1">AllCare KPIs & Unit Economics</h2>
+                    <p className="text-sm text-muted-foreground">
+                      {viewMode === 'yearly' ? 'Yearly' : viewMode === 'quarterly' ? 'Quarterly' : 'Monthly'} unit economics by service line &mdash; {rangeLabel}
+                    </p>
+                  </div>
+
+                  {/* AllCare-wide KPI tiles */}
+                  <div className="flex flex-wrap gap-4 mb-6">
+                    <KPICard title={`Active Patients — ${rangeLabel}`} value={fmtInt(activePatientsLatest)} subtitle="latest in range" />
+                    <KPICard title={`Active Facilities — ${rangeLabel}`} value={fmtInt(activeFacilitiesLatest)} subtitle="latest in range" />
+                    <KPICard title="SUs / Patient" value={fmtRatio(visitsPerPatient, '×', 2)} subtitle="engagement (SUs ÷ active patients)" />
+                    <KPICard title="Patients / Facility" value={fmtRatio(patientsPerFacility, '×', 1)} subtitle="penetration (patients ÷ facilities)" />
+                    <KPICard title="CAC" value={cac == null ? '—' : fmt(cac)} subtitle={newPatients == null ? 'needs prior-period data' : `GTM spend ÷ ${newPatients.toLocaleString()} new patients`} />
+                  </div>
+
+                  {/* Per-service-line pivot matrix — Option B layout */}
+                  <Card className="mb-5 overflow-hidden">
+                    <CardHeader>
+                      <CardTitle className="text-sm">Service-Line Unit Economics</CardTitle>
+                    </CardHeader>
+                    <CardContent className="overflow-auto px-0">
+                      <Table>
+                        <TableHeader>
+                          <TableRow>
+                            <TableHead className="sticky left-0 bg-card z-10">Service Line / KPI</TableHead>
+                            {periods.map(p => (
+                              <TableHead key={p.key} className="text-right whitespace-nowrap">{p.label}</TableHead>
+                            ))}
+                            <TableHead className="text-right font-bold whitespace-nowrap">Total</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {groupRows.map(g => (
+                            <Fragment key={g.name}>
+                              {/* Parent row — service line label with color dot */}
+                              <TableRow className="bg-muted/30">
+                                <TableCell className="sticky left-0 bg-muted/30 z-10 font-bold">
+                                  <span className="inline-block w-2 h-2 rounded-full mr-2 align-middle" style={{ background: g.color }} />
+                                  {g.name}
+                                </TableCell>
+                                {periods.map(p => null).map((_, i) => <TableCell key={i} />)}
+                                <TableCell />
+                              </TableRow>
+                              {/* Sub-rows — one per KPI metric */}
+                              {SUB_ROWS.map(sub => (
+                                <TableRow key={`${g.name}-${sub.key}`}>
+                                  <TableCell className="sticky left-0 bg-card z-10 text-muted-foreground" style={{ paddingLeft: '2rem' }}>
+                                    {sub.label}
+                                  </TableCell>
+                                  {g.perPeriod.map(row => (
+                                    <TableCell key={row.key} className={`text-right tabular-nums whitespace-nowrap ${sub.color ? sub.color(row[sub.key]) : ''}`}>
+                                      {sub.fmt(row[sub.key])}
+                                    </TableCell>
+                                  ))}
+                                  <TableCell className={`text-right tabular-nums whitespace-nowrap font-semibold border-l border-border/60 ${sub.color ? sub.color(g.total[sub.key]) : ''}`}>
+                                    {sub.fmt(g.total[sub.key])}
+                                  </TableCell>
+                                </TableRow>
+                              ))}
+                            </Fragment>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    </CardContent>
+                  </Card>
+                </>
+              );
+            })()}
+          </>)}
+
           {/* ────── INSIGHTS ────── */}
           {/* ────── EXPENSES ────── */}
           {activeSection === 'expenses' && (<>
