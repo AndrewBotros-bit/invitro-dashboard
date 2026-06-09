@@ -13,14 +13,16 @@ import { cn } from "@/lib/utils";
 // has effect — their portfolio companies are auto-derived from their
 // vehicle's investments at runtime (see Dashboard.jsx).
 const CONSOLIDATED_PSEUDO = 'Consolidated';
-// 'AllRx External' is a parallel entity sourced from the "AllRx P&L External"
-// and "AllRx Cashflow External" tabs. Granting *only* 'AllRx External' to a
-// user makes them see the external numbers labeled as plain "AllRx" — they
-// don't know they're seeing the external view. Granting *both* shows them
-// as separate companies (admin/internal view). Consolidated always rolls up
-// the internal "AllRx" entry.
+// 'AllRx External' and 'AllCare External' are parallel entities sourced from
+// their own "{Company} P&L External" + "{Company} Cashflow External" tabs.
+// Granting *only* the External variant makes the user see external numbers
+// labeled as the plain internal name — they don't know an alternate view
+// exists. Granting *both* shows them as separate companies (admin/internal
+// view). Consolidated rollups always use the internal entry.
 const ALLRX_EXTERNAL_PSEUDO = 'AllRx External';
-const ALL_COMPANIES = ['AllRx', ALLRX_EXTERNAL_PSEUDO, 'AllCare', 'Osta', 'Needles', 'InVitro Studio', CONSOLIDATED_PSEUDO];
+const ALLCARE_EXTERNAL_PSEUDO = 'AllCare External';
+const EXTERNAL_PSEUDOS = [ALLRX_EXTERNAL_PSEUDO, ALLCARE_EXTERNAL_PSEUDO];
+const ALL_COMPANIES = ['AllRx', ALLRX_EXTERNAL_PSEUDO, 'AllCare', ALLCARE_EXTERNAL_PSEUDO, 'Osta', 'Needles', 'InVitro Studio', CONSOLIDATED_PSEUDO];
 const ALL_TABS = [
   { id: 'overview', label: 'Overview' },
   { id: 'revenue', label: 'Revenue' },
@@ -891,6 +893,9 @@ export default function UserAdmin({ currentUser, lpNames = [] }) {
                             {c === ALLRX_EXTERNAL_PSEUDO && (
                               <span className="text-[10px] text-muted-foreground font-normal ml-1">(public-target view; shown as &quot;AllRx&quot; if internal is unchecked)</span>
                             )}
+                            {c === ALLCARE_EXTERNAL_PSEUDO && (
+                              <span className="text-[10px] text-muted-foreground font-normal ml-1">(public-target view; shown as &quot;AllCare&quot; if internal is unchecked)</span>
+                            )}
                           </label>
                         ))}
                       </div>
@@ -942,7 +947,7 @@ export default function UserAdmin({ currentUser, lpNames = [] }) {
                                 from the main P&L tab and only meaningful for
                                 real portfolio companies — exclude pseudo
                                 entries (Consolidated, AllRx External). */}
-                            {ALL_COMPANIES.filter(c => c !== CONSOLIDATED_PSEUDO && c !== ALLRX_EXTERNAL_PSEUDO).map(c => (
+                            {ALL_COMPANIES.filter(c => c !== CONSOLIDATED_PSEUDO && !EXTERNAL_PSEUDOS.includes(c)).map(c => (
                               <label key={c} className="flex items-center gap-2 text-sm cursor-pointer">
                                 <input type="checkbox" checked={form[listField].includes(c)}
                                   onChange={() => setForm({ ...form, [listField]: toggleListItem(form[listField], c) })} />
