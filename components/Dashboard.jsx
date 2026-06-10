@@ -3801,6 +3801,16 @@ export default function InVitroDashboard({ data: rawData, user }) {
               Profitability GP drilldown. */}
           {activeSection === 'kpis' && (<>
             {(() => {
+              // KPIs & Unit Economics is AllCare-only at this point. If the
+              // user lands on this section while another company is selected
+              // (stale URL, direct state, etc.), show a polite redirect note.
+              if (selectedCompany !== 'AllCare') {
+                return (
+                  <p className="text-sm text-muted-foreground">
+                    KPIs &amp; Unit Economics is available for <strong>AllCare</strong> only at this time. Switch to AllCare from the sidebar to view this section.
+                  </p>
+                );
+              }
               const allCare = data.revenueDetails?.AllCare;
               if (!allCare?.serviceLines?.length) {
                 return <p className="text-sm text-muted-foreground">No AllCare service-line data available.</p>;

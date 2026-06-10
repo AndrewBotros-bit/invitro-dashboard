@@ -119,26 +119,36 @@ export default function DashboardSidebar({
   };
 
   // Renders the nested operating tabs under whichever company is currently
-  // selected (Consolidated when selectedCompany === null).
-  const renderNestedTabs = () => (
-    <div className="ml-3 mt-1 mb-2 border-l border-border/50 pl-2 space-y-0.5">
-      {visiblePortfolioTabs.map(s => (
-        <button
-          key={s.id}
-          onClick={() => handleTabClick(s.id)}
-          className={cn(
-            SUB_NAV_BUTTON,
-            activeSection === s.id
-              ? "bg-primary/10 text-primary"
-              : "text-muted-foreground hover:bg-muted hover:text-foreground"
-          )}
-        >
-          <span className="text-sm leading-none">{s.icon}</span>
-          <span>{s.label}</span>
-        </button>
-      ))}
-    </div>
-  );
+  // selected. Takes the company being rendered FOR so we can hide tabs
+  // that don't make sense at that scope. Currently:
+  //   - 'kpis' (KPIs & Unit Economics) is AllCare-only until per-company
+  //     KPI data ships for other portcos. Hidden for Consolidated and
+  //     for every company except AllCare.
+  const renderNestedTabs = (forCompany /* string | null */) => {
+    const tabs = visiblePortfolioTabs.filter(s => {
+      if (s.id === 'kpis' && forCompany !== 'AllCare') return false;
+      return true;
+    });
+    return (
+      <div className="ml-3 mt-1 mb-2 border-l border-border/50 pl-2 space-y-0.5">
+        {tabs.map(s => (
+          <button
+            key={s.id}
+            onClick={() => handleTabClick(s.id)}
+            className={cn(
+              SUB_NAV_BUTTON,
+              activeSection === s.id
+                ? "bg-primary/10 text-primary"
+                : "text-muted-foreground hover:bg-muted hover:text-foreground"
+            )}
+          >
+            <span className="text-sm leading-none">{s.icon}</span>
+            <span>{s.label}</span>
+          </button>
+        ))}
+      </div>
+    );
+  };
 
   return (
     <>
@@ -270,7 +280,7 @@ export default function DashboardSidebar({
                         <span>Consolidated</span>
                         <Chevron expanded={isExpanded} />
                       </button>
-                      {isExpanded && renderNestedTabs()}
+                      {isExpanded && renderNestedTabs(null)}
                     </div>
                   );
                 })()}
@@ -304,7 +314,7 @@ export default function DashboardSidebar({
                         <span>{name}</span>
                         <Chevron expanded={isExpanded} />
                       </button>
-                      {isExpanded && renderNestedTabs()}
+                      {isExpanded && renderNestedTabs(name)}
                     </div>
                   );
                 })}
