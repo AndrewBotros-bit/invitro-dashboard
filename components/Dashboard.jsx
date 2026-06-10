@@ -2200,7 +2200,12 @@ export default function InVitroDashboard({ data: rawData, user }) {
                     { key: 'rev',    label: 'Revenue',                bold: false, color: () => 'text-foreground', sub: null },
                     { key: 'gp',     label: 'Gross Profit',           bold: false, color: (v) => v >= 0 ? 'text-emerald-600' : 'text-red-500',
                       sub: (row) => ({ label: 'margin', value: fmtPct(pct(row.gp, row.rev)) }) },
-                    { key: 'exp',    label: 'Expenses (SG&A + R&D)',  bold: false, color: () => 'text-foreground',
+                    { key: 'exp',    label: selectedCompany === 'InVitro Studio'
+                                          ? 'Expenses (Fixed + Direct)'
+                                          : selectedCompany
+                                            ? 'Expenses (SG&A + R&D + Studio)'
+                                            : 'Expenses (SG&A + R&D)',
+                                     bold: false, color: () => 'text-foreground',
                       sub: (row) => ({ label: '% of rev', value: fmtPct(pct(row.exp, row.rev)) }) },
                     { key: 'ebitda', label: 'EBITDA',                 bold: true,  color: (v) => v >= 0 ? 'text-emerald-600' : 'text-red-500',
                       sub: (row) => ({ label: 'margin', value: fmtPct(pct(row.ebitda, row.rev)) }) },
