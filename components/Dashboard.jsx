@@ -1034,7 +1034,11 @@ export default function InVitroDashboard({ data: rawData, user }) {
   const getExpenseLabel = () => {
     if (!selectedCompany) return 'Total Expenses';
     if (selectedCompany === 'InVitro Studio') return 'Fixed + Direct Expenses';
-    return 'SG&A + R&D + Studio Allocation';
+    // Per CFO direction: the Expenses tab shows opex WITHOUT the Studio
+    // cross-charge allocation. The label is explicit so users understand
+    // the number isn't fully-loaded — the Overview KPI cards still show
+    // the fully-loaded view.
+    return 'SG&A + R&D (excl. Studio)';
   };
   // For the chart: consolidated shows per-company breakdown, individual shows single company
   const expenseChartCompanies = selectedCompany
@@ -1257,6 +1261,45 @@ export default function InVitroDashboard({ data: rawData, user }) {
   };
   const rangeExpenses = expensesInRange(rangeFrom, rangeTo);
   const avgMonthlyExpense = monthCount > 0 ? rangeExpenses / monthCount : 0;
+
+  // Same shape as expensesInRange, but EXCLUDES the 'Studio Expense'
+  // allocation for non-Studio companies. The Expenses tab (per CFO
+  // direction) wants to show only the company's own SG&A + R&D opex —
+  // the Studio allocation is a cross-charge that lives in its own
+  // accounting layer, not the per-department GL ledger. Per-company:
+  //   InVitro Studio → Fixed + Direct (its OWN costs; no allocation
+  //                    to itself, so identical to expensesInRange)
+  //   Other portcos  → SG&A + R&D Expenses only (no Studio cross-charge)
+  // Consolidated uses 'Total Expenses' minus a 'Studio Expense' sum
+  // across all portcos, computed inline below.
+  const expensesInRangeExclStudio = (from, to) => {
+    const inWindow = (v) => {
+      const vi = v.year * 100 + v.month;
+      return vi >= from.year * 100 + from.month && vi <= to.year * 100 + to.month;
+    };
+    if (selectedCompany) {
+      const co = data.pnl.find(c => c.name === selectedCompany);
+      if (!co) return 0;
+      if (co.name === 'InVitro Studio') {
+        return mergeMonthlyValues(co.metrics['Fixed Expenses'], co.metrics['Direct Expenses'])
+          .filter(inWindow).reduce((s, v) => s + (v.value ?? 0), 0);
+      }
+      return (co.metrics['SG&A + R&D Expenses'] ?? [])
+        .filter(inWindow).reduce((s, v) => s + (v.value ?? 0), 0);
+    }
+    // Consolidated: Total Expenses minus the Studio Expense allocation
+    // (which is BAKED INTO each portco's Total Expenses on the ALL
+    // Holdings rollup). Subtract Σ(Studio Expense) across all portcos
+    // to net it out.
+    const allH = data.pnl.find(c => c.name === 'ALL Holdings');
+    const total = (allH?.metrics['Total Expenses'] ?? []).filter(inWindow).reduce((s, v) => s + (v.value ?? 0), 0);
+    const studioAllocSum = data.pnl
+      .filter(c => c.name !== 'InVitro Studio' && c.name !== 'ALL Holdings')
+      .reduce((s, c) => s + ((c.metrics?.['Studio Expense'] ?? [])
+        .filter(inWindow).reduce((a, v) => a + (v.value ?? 0), 0)), 0);
+    return total - studioAllocSum;
+  };
+  const rangeExpensesExclStudio = expensesInRangeExclStudio(rangeFrom, rangeTo);
 
   // Cash runway from consolidated sheet row 180 (only for consolidated view)
   const cashRunwayValues = !selectedCompany ? (data.cashRunwayRow ?? []).filter(inRange) : [];
@@ -2096,18 +2139,23 @@ export default function InVitroDashboard({ data: rawData, user }) {
                     .reduce((s, c) => s + ((c.metrics?.[getGPMetric(c.name)] ?? [])
                       .filter(v => inPeriod(v, p))
                       .reduce((a, v) => a + (v.value ?? 0), 0)), 0);
-                  // Per-company expense routing:
+                  // Per-company expense routing for the Overview build-up:
                   //   InVitro Studio → 'Fixed Expenses' + 'Direct Expenses'
                   //     (rows 41 + 42 of the P&L tab — Studio doesn't publish
                   //     a single Total Expenses or SG&A+R&D roll-up line).
-                  //   All others → 'SG&A + R&D Expenses' (single line).
-                  // For Consolidated view we sum each company using its own
-                  // routing — so Studio contributes Fixed+Direct, the rest
-                  // contribute SG&A+R&D. This matches the Expenses tab's
-                  // mergeMonthlyValues convention so totals reconcile.
-                  const expMetricsFor = (name) => name === 'InVitro Studio'
-                    ? ['Fixed Expenses', 'Direct Expenses']
-                    : ['SG&A + R&D Expenses'];
+                  //   Other portco (per-company view): 'SG&A + R&D Expenses' +
+                  //     'Studio Expense' — fully-loaded cost including the
+                  //     Studio cross-charge allocated to this portco.
+                  //   Other portco (Consolidated view): 'SG&A + R&D Expenses'
+                  //     ONLY — Studio's own Fixed+Direct row already captures
+                  //     the total Studio cost, and adding allocations here
+                  //     would double-count by accounting identity
+                  //     (Σ portco.studio_expense ≡ Studio.fixed+direct).
+                  const expMetricsFor = (name) => {
+                    if (name === 'InVitro Studio') return ['Fixed Expenses', 'Direct Expenses'];
+                    if (selectedCompany) return ['SG&A + R&D Expenses', 'Studio Expense'];
+                    return ['SG&A + R&D Expenses'];
+                  };
                   const sumExpInPeriod = (p, excludes) => Math.abs(data.pnl
                     .filter(c => !excludes.includes(c.name))
                     .reduce((s, c) => {
@@ -4168,9 +4216,15 @@ export default function InVitroDashboard({ data: rawData, user }) {
           {activeSection === 'expenses' && (<>
             <div className="flex flex-wrap gap-4 mb-6">
               <KPICard title={`${getExpenseLabel()} — ${rangeLabel}`}
-                value={fmt(Math.abs(rangeExpenses))}
+                value={fmt(Math.abs(rangeExpensesExclStudio))}
                 subtitle={(() => {
-                  if (selectedCompany) return selectedCompany;
+                  // Studio cross-charge is excluded from this view; the
+                  // subtitle prefixes "Excluding Studio Expenses" for
+                  // non-Studio companies so the user sees the policy
+                  // explicitly. Studio's own view is unaffected (its
+                  // costs aren't allocated to itself).
+                  const studioNote = selectedCompany === 'InVitro Studio' ? null : 'Excluding Studio Expenses';
+                  if (selectedCompany) return [studioNote, selectedCompany].filter(Boolean).join(' · ');
                   // Compute ad hoc expense for consolidated view — sum ALL metrics in "Add hocks"
                   const adHocCo = data.pnl.find(c => c.name === 'Add hocks');
                   let adHocVal = 0;
@@ -4185,11 +4239,12 @@ export default function InVitroDashboard({ data: rawData, user }) {
                     }
                   }
                   adHocVal = Math.abs(adHocVal);
-                  const exclAdHoc = Math.abs(rangeExpenses) - adHocVal;
-                  return adHocVal > 0 ? `Incl. ${fmt(adHocVal)} ad hocs · Excl: ${fmt(exclAdHoc)}` : 'all entities';
+                  const exclAdHoc = Math.abs(rangeExpensesExclStudio) - adHocVal;
+                  const adHocPart = adHocVal > 0 ? `Incl. ${fmt(adHocVal)} ad hocs · Excl: ${fmt(exclAdHoc)}` : 'all entities';
+                  return [studioNote, adHocPart].filter(Boolean).join(' · ');
                 })()}
-                comparison={compareEnabled && <ComparisonBadge current={Math.abs(rangeExpenses)}
-                  compValue={Math.abs(expensesInRange(compRange.from, compRange.to))}
+                comparison={compareEnabled && <ComparisonBadge current={Math.abs(rangeExpensesExclStudio)}
+                  compValue={Math.abs(expensesInRangeExclStudio(compRange.from, compRange.to))}
                   compLabel={compLabel} invertColor />}
               />
               <KPICard title={`Avg Monthly Expense`}
