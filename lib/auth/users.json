@@ -168,7 +168,7 @@
           "InVitro Studio",
           "AllCare"
         ],
-        "expenseGLDetail": true,
+        "expenseGLDetail": false,
         "gpDrilldown": [
           "AllCare"
         ],
