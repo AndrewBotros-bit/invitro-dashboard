@@ -180,5 +180,48 @@
       "lpName": "Ayman Ismail"
     },
     "email": "Ayman.Ismail@corp-aic.com"
+  },
+  {
+    "username": "Mohamed.Noufal",
+    "name": "Mohamed Noufal",
+    "passwordHash": "$2b$10$fmSOPFcmJCapeI2a5WtUoehZB3c.p2zU.ucoorOh.gB.M70/ecjIu",
+    "role": "viewer",
+    "permissions": {
+      "companies": [
+        "InVitro Studio",
+        "AllCare External",
+        "AllRx External",
+        "Osta",
+        "Needles"
+      ],
+      "tabs": [
+        "overview",
+        "revenue",
+        "profitability",
+        "expenses",
+        "insights",
+        "cashflow",
+        "kpis"
+      ],
+      "breakdowns": {
+        "revenueDrilldown": [
+          "AllCare"
+        ],
+        "expenseDrilldown": [
+          "InVitro Studio",
+          "AllCare"
+        ],
+        "expenseGLDetail": false,
+        "gpDrilldown": [
+          "AllCare"
+        ],
+        "cashflowDrilldown": true,
+        "auditConsole": false,
+        "hcDetails": false,
+        "shareholderSplit": false
+      },
+      "lpName": "Ayman Ismail"
+    },
+    "email": "Mohamed.Noufal@dmc-curve.com"
   }
 ]
