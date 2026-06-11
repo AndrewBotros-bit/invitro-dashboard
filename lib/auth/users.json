@@ -223,5 +223,48 @@
       "lpName": "Ayman Ismail"
     },
     "email": "Mohamed.Noufal@dmc-curve.com"
+  },
+  {
+    "username": "Karim.Soliman",
+    "name": "Karim Soliman",
+    "passwordHash": "$2b$10$cuA0ZZCJNFfEmhcnOudLAOmhsqDRm8NI9NhUuPt7P.W2u0oi42RU2",
+    "role": "viewer",
+    "permissions": {
+      "companies": [
+        "InVitro Studio",
+        "AllCare External",
+        "AllRx External",
+        "Osta",
+        "Needles"
+      ],
+      "tabs": [
+        "overview",
+        "revenue",
+        "profitability",
+        "expenses",
+        "insights",
+        "cashflow",
+        "kpis"
+      ],
+      "breakdowns": {
+        "revenueDrilldown": [
+          "AllCare"
+        ],
+        "expenseDrilldown": [
+          "InVitro Studio",
+          "AllCare"
+        ],
+        "expenseGLDetail": false,
+        "gpDrilldown": [
+          "AllCare"
+        ],
+        "cashflowDrilldown": true,
+        "auditConsole": false,
+        "hcDetails": false,
+        "shareholderSplit": false
+      },
+      "lpName": "Ayman Ismail"
+    },
+    "email": "karim.i.soliman@icloud.com"
   }
 ]
