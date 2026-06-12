@@ -305,7 +305,7 @@
         "cashflowDrilldown": true,
         "auditConsole": false,
         "hcDetails": false,
-        "shareholderSplit": false
+        "shareholderSplit": true
       },
       "lpName": "Ayman Ismail"
     }
