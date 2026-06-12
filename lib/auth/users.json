@@ -266,5 +266,48 @@
       "lpName": "Ayman Ismail"
     },
     "email": "karim.i.soliman@icloud.com"
+  },
+  {
+    "username": "Ayman.Test",
+    "name": "Ayman test",
+    "passwordHash": "$2b$10$UJlBW0IEXIvALNdJBl6nnucYHTTjuNuhaq8w7O0a1UB.tvHDPdbty",
+    "role": "viewer",
+    "permissions": {
+      "companies": [
+        "InVitro Studio",
+        "AllCare External",
+        "AllRx External",
+        "Osta",
+        "Needles"
+      ],
+      "tabs": [
+        "overview",
+        "revenue",
+        "profitability",
+        "expenses",
+        "insights",
+        "cashflow",
+        "kpis",
+        "irr"
+      ],
+      "breakdowns": {
+        "revenueDrilldown": [
+          "AllCare"
+        ],
+        "expenseDrilldown": [
+          "InVitro Studio",
+          "AllCare"
+        ],
+        "expenseGLDetail": false,
+        "gpDrilldown": [
+          "AllCare"
+        ],
+        "cashflowDrilldown": true,
+        "auditConsole": false,
+        "hcDetails": false,
+        "shareholderSplit": false
+      },
+      "lpName": "Ayman Ismail"
+    }
   }
 ]
