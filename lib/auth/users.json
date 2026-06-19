@@ -258,7 +258,7 @@
         "gpDrilldown": [
           "AllCare"
         ],
-        "cashflowDrilldown": true,
+        "cashflowDrilldown": false,
         "auditConsole": false,
         "hcDetails": false,
         "shareholderSplit": false
