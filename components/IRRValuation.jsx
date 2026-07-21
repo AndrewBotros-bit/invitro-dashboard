@@ -92,7 +92,7 @@ const VEHICLE_CONVERSION_YEAR = {
  */
 const FUND_COMMITMENTS = {
   'InVitro Fund': {
-    totalCommitment: 2_100_000,
+    totalCommitment: 2_125_000,
     commitmentPeriodYears: [2024, 2027],
     perLP: {
       'Fr. Botros Samy': 400_000,
@@ -103,7 +103,7 @@ const FUND_COMMITMENTS = {
       'Daniella Karras': 250_000,
       'Hala Karras':     100_000,
       'Marie Youssef':    50_000,
-      'George Ayad':     100_000,
+      'George Ayad':     125_000,
     },
   },
 };
