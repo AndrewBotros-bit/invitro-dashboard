@@ -23,6 +23,7 @@ const ALL_COMPANIES = ['AllRx', 'AllCare', 'Osta', 'Needles', 'InVitro Studio'];
 // arrays.
 const COMPANIES_INCLUDING_CONSOLIDATED = [...ALL_COMPANIES, 'Consolidated', 'AllRx External', 'AllCare External'];
 const ALL_TABS = ['overview', 'revenue', 'expenses', 'profitability', 'cashflow', 'kpis', 'irr', 'insights'];
+const ALL_VIEW_MODES = ['monthly', 'quarterly', 'yearly'];
 // 'expenseGLDetail' gates Layer 2 of the expense breakdown drawer — the
 // GL-level sub-cards (Non-HC + Adhocks). Layer 1 (dept totals) is gated
 // by 'expenseDrilldown'; Layer 3 (HC headcount roster) by 'hcDetails'.
@@ -55,12 +56,20 @@ function stripHash(u) {
 
 function validatePermissions(permissions) {
   if (!permissions || typeof permissions !== 'object') return 'permissions must be an object';
-  const { companies, tabs, breakdowns, lpName } = permissions;
+  const { companies, tabs, viewModes, breakdowns, lpName } = permissions;
   if (companies !== '*' && !(Array.isArray(companies) && companies.every(c => COMPANIES_INCLUDING_CONSOLIDATED.includes(c)))) {
     return 'companies must be "*" or array of valid company names (incl. "Consolidated")';
   }
   if (tabs !== '*' && !(Array.isArray(tabs) && tabs.every(t => ALL_TABS.includes(t)))) {
     return 'tabs must be "*" or array of valid tab ids';
+  }
+  // viewModes is OPTIONAL (missing = "*" default for backward compat).
+  // When present, must be "*" or a non-empty array of valid modes.
+  if (viewModes !== undefined && viewModes !== '*') {
+    if (!Array.isArray(viewModes) || viewModes.length === 0
+        || !viewModes.every(m => ALL_VIEW_MODES.includes(m))) {
+      return 'viewModes must be "*" or non-empty array of ' + ALL_VIEW_MODES.join(' | ');
+    }
   }
   if (breakdowns !== '*') {
     if (!breakdowns || typeof breakdowns !== 'object') return 'breakdowns must be "*" or object';

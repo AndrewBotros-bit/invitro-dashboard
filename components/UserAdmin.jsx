@@ -126,10 +126,17 @@ const ROLE_PRESETS = {
   },
 };
 
+// View mode ids — order here defines the checkbox order in the form.
+const ALL_VIEW_MODES = ['monthly', 'quarterly', 'yearly'];
+
 const EMPTY_FORM = {
   username: '', name: '', email: '', password: '', role: 'viewer',
   companies_mode: 'all', companies_list: [],
   tabs_mode: 'all', tabs_list: [],
+  // viewModes: 'all' → all three modes available; 'subset' → only checked
+  // ones. Default 'all' matches historic behavior (no user was previously
+  // restricted, so backward-compat means everyone gets all three).
+  view_mode: 'all', view_list: [...ALL_VIEW_MODES],
   bd_revenue_mode: 'all', bd_revenue_list: [],
   bd_expense_mode: 'all', bd_expense_list: [],
   bd_gp_mode: 'all', bd_gp_list: [],
@@ -148,6 +155,16 @@ function userToFormState(u) {
   else if (Array.isArray(p.companies)) { form.companies_mode = 'subset'; form.companies_list = p.companies; }
   if (p.tabs === '*') form.tabs_mode = 'all';
   else if (Array.isArray(p.tabs)) { form.tabs_mode = 'subset'; form.tabs_list = p.tabs; }
+  // viewModes: missing → default all (backward compat). '*' → all.
+  // Array → subset. If array is empty or missing valid entries, snap to
+  // 'all' to keep the user functional.
+  if (p.viewModes === undefined || p.viewModes === '*') {
+    form.view_mode = 'all'; form.view_list = [...ALL_VIEW_MODES];
+  } else if (Array.isArray(p.viewModes) && p.viewModes.length > 0) {
+    form.view_mode = 'subset';
+    form.view_list = p.viewModes.filter(m => ALL_VIEW_MODES.includes(m));
+    if (form.view_list.length === 0) { form.view_mode = 'all'; form.view_list = [...ALL_VIEW_MODES]; }
+  }
   if (p.breakdowns === '*') {
     form.bd_revenue_mode = 'all'; form.bd_expense_mode = 'all'; form.bd_gp_mode = 'all';
     form.bd_audit = true; form.bd_hc = true; form.bd_shareholder = true; form.bd_expenseGL = true;
@@ -179,6 +196,7 @@ function formStateToPayload(form, isEdit) {
   const permissions = {
     companies: form.companies_mode === 'all' ? '*' : form.companies_list,
     tabs: form.tabs_mode === 'all' ? '*' : form.tabs_list,
+    viewModes: form.view_mode === 'all' ? '*' : form.view_list,
     breakdowns: {
       revenueDrilldown: form.bd_revenue_mode === 'all' ? true : form.bd_revenue_mode === 'none' ? false : form.bd_revenue_list,
       expenseDrilldown: form.bd_expense_mode === 'all' ? true : form.bd_expense_mode === 'none' ? false : form.bd_expense_list,
@@ -218,6 +236,18 @@ function permissionBadges(u) {
     text: `${p.tabs.length}/${ALL_TABS.length} tabs`,
     tone: p.tabs.length === 0 ? 'warn' : 'neutral',
   });
+
+  // View modes — silent when full access (default). Chip shows only when
+  // access is restricted so admins can spot the exception at a glance.
+  if (Array.isArray(p.viewModes)) {
+    badges.push({
+      key: 'vm',
+      text: p.viewModes.length === 0
+        ? '0 view modes'
+        : p.viewModes.map(m => m[0].toUpperCase() + m.slice(1)).join(' / '),
+      tone: p.viewModes.length === 0 ? 'warn' : 'neutral',
+    });
+  }
 
   // Breakdowns count
   if (p.breakdowns === '*') {
@@ -926,6 +956,41 @@ export default function UserAdmin({ currentUser, lpNames = [] }) {
                           </label>
                         ))}
                       </div>
+                    )}
+                  </div>
+                </fieldset>
+
+                {/* View modes — gates which of Monthly / Quarterly / Yearly
+                    the user can toggle in the header. "All" (default) keeps
+                    historic behavior; "Select" restricts to the checked
+                    modes. If a user's current mode is disallowed at load,
+                    Dashboard auto-snaps to the first allowed mode. */}
+                <fieldset className="border border-border rounded-lg p-3">
+                  <legend className="text-xs font-medium text-foreground uppercase tracking-wide px-1">View Modes</legend>
+                  <div className="space-y-2">
+                    <label className="flex items-center gap-2 text-sm cursor-pointer">
+                      <input type="radio" name="view_mode" checked={form.view_mode === 'all'}
+                        onChange={() => setForm({ ...form, view_mode: 'all', view_list: [...ALL_VIEW_MODES] })} />
+                      All view modes (Monthly, Quarterly, Yearly)
+                    </label>
+                    <label className="flex items-center gap-2 text-sm cursor-pointer">
+                      <input type="radio" name="view_mode" checked={form.view_mode === 'subset'}
+                        onChange={() => setForm({ ...form, view_mode: 'subset' })} />
+                      Select specific view modes
+                    </label>
+                    {form.view_mode === 'subset' && (
+                      <div className="ml-6 grid grid-cols-3 gap-2">
+                        {ALL_VIEW_MODES.map(m => (
+                          <label key={m} className="flex items-center gap-2 text-sm cursor-pointer capitalize">
+                            <input type="checkbox" checked={form.view_list.includes(m)}
+                              onChange={() => setForm({ ...form, view_list: toggleListItem(form.view_list, m) })} />
+                            {m}
+                          </label>
+                        ))}
+                      </div>
+                    )}
+                    {form.view_mode === 'subset' && form.view_list.length === 0 && (
+                      <p className="text-[11px] text-red-500 ml-6">At least one view mode must be selected.</p>
                     )}
                   </div>
                 </fieldset>

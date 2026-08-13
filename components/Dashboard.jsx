@@ -473,6 +473,16 @@ export default function InVitroDashboard({ data: rawData, user }) {
   };
 
   const canSeeTab = (tab) => perms.tabs === '*' || (Array.isArray(perms.tabs) && perms.tabs.includes(tab));
+  // View mode gate: missing perms.viewModes → default all (backward compat).
+  // '*' → all. Array → only those. Fallback to allow all if the array is
+  // empty (defensive — API validation should prevent this).
+  const allowedViewModes = (() => {
+    const vm = perms.viewModes;
+    if (vm === undefined || vm === '*') return ['monthly', 'quarterly', 'yearly'];
+    if (Array.isArray(vm) && vm.length > 0) return vm;
+    return ['monthly', 'quarterly', 'yearly'];
+  })();
+  const canSeeViewMode = (m) => allowedViewModes.includes(m);
   const canBreakdown = (key, company = null) => {
     if (perms.breakdowns === '*') return true;
     const val = perms.breakdowns?.[key];
@@ -548,7 +558,12 @@ export default function InVitroDashboard({ data: rawData, user }) {
   const [expandedHCDivision, setExpandedHCDivision] = useState(null); // 'G&A:Executive' (dept:division) or null
 
   // View mode & date range state
-  const [viewMode, setViewMode] = useState('monthly'); // 'monthly' | 'quarterly' | 'yearly'
+  // Initial viewMode: default 'monthly' UNLESS the user's permission
+  // excludes it — in which case snap to the first allowed mode. Prevents
+  // starting in a mode the user can't switch back to.
+  const [viewMode, setViewMode] = useState(() => {
+    return allowedViewModes.includes('monthly') ? 'monthly' : allowedViewModes[0];
+  }); // 'monthly' | 'quarterly' | 'yearly'
 
   // IRR & Valuation has different time semantics than the other tabs (point-
   // in-time per year, not a range), so it keeps its own state. Initial year
@@ -1695,43 +1710,53 @@ export default function InVitroDashboard({ data: rawData, user }) {
               </>
             ) : (
               <>
-            {/* Monthly / Quarterly / Yearly toggle */}
+            {/* Monthly / Quarterly / Yearly toggle. Each button is gated
+                by canSeeViewMode — buttons for disallowed modes are hidden
+                entirely so the toggle contracts to only what the user can
+                actually pick. If only one mode is allowed, the toggle
+                collapses to a single (visually still tab-styled) button. */}
             <div className="flex bg-muted rounded-lg p-0.5">
-              <button
-                onClick={() => { setViewMode('monthly'); setExpenseDrilldown(null); if (compareEnabled) { setCompareFromKey(`${rangeFrom.year - 1}-${rangeFrom.month}`); setCompareToKey(`${rangeTo.year - 1}-${rangeTo.month}`); } }}
-                className={`px-3 py-1.5 text-xs font-medium rounded-md transition-all ${viewMode === 'monthly' ? 'bg-white text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'}`}
-              >
-                Monthly
-              </button>
-              <button
-                onClick={() => {
-                  setViewMode('quarterly');
-                  setExpenseDrilldown(null);
-                  // Snap range to quarter boundaries: rangeFromKey moves to
-                  // start of its containing quarter; rangeToKey to end of its
-                  // containing quarter. Mirrors the yearly button's Jan/Dec
-                  // snap so the picker dropdowns show the matching values.
-                  const [fY, fM] = rangeFromKey.split('-').map(Number);
-                  const [tY, tM] = rangeToKey.split('-').map(Number);
-                  const fQ = Math.ceil(fM / 3);
-                  const tQ = Math.ceil(tM / 3);
-                  setRangeFromKey(`${fY}-${(fQ - 1) * 3 + 1}`);
-                  setRangeToKey(`${tY}-${tQ * 3}`);
-                  if (compareEnabled) {
-                    setCompareFromKey(`${fY - 1}-${(fQ - 1) * 3 + 1}`);
-                    setCompareToKey(`${tY - 1}-${tQ * 3}`);
-                  }
-                }}
-                className={`px-3 py-1.5 text-xs font-medium rounded-md transition-all ${viewMode === 'quarterly' ? 'bg-white text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'}`}
-              >
-                Quarterly
-              </button>
-              <button
-                onClick={() => { setViewMode('yearly'); setExpenseDrilldown(null); if (compareEnabled) { setCompareFromKey(`${yearFrom - 1}-1`); setCompareToKey(`${yearTo - 1}-12`); } }}
-                className={`px-3 py-1.5 text-xs font-medium rounded-md transition-all ${viewMode === 'yearly' ? 'bg-white text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'}`}
-              >
-                Yearly
-              </button>
+              {canSeeViewMode('monthly') && (
+                <button
+                  onClick={() => { setViewMode('monthly'); setExpenseDrilldown(null); if (compareEnabled) { setCompareFromKey(`${rangeFrom.year - 1}-${rangeFrom.month}`); setCompareToKey(`${rangeTo.year - 1}-${rangeTo.month}`); } }}
+                  className={`px-3 py-1.5 text-xs font-medium rounded-md transition-all ${viewMode === 'monthly' ? 'bg-white text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'}`}
+                >
+                  Monthly
+                </button>
+              )}
+              {canSeeViewMode('quarterly') && (
+                <button
+                  onClick={() => {
+                    setViewMode('quarterly');
+                    setExpenseDrilldown(null);
+                    // Snap range to quarter boundaries: rangeFromKey moves to
+                    // start of its containing quarter; rangeToKey to end of its
+                    // containing quarter. Mirrors the yearly button's Jan/Dec
+                    // snap so the picker dropdowns show the matching values.
+                    const [fY, fM] = rangeFromKey.split('-').map(Number);
+                    const [tY, tM] = rangeToKey.split('-').map(Number);
+                    const fQ = Math.ceil(fM / 3);
+                    const tQ = Math.ceil(tM / 3);
+                    setRangeFromKey(`${fY}-${(fQ - 1) * 3 + 1}`);
+                    setRangeToKey(`${tY}-${tQ * 3}`);
+                    if (compareEnabled) {
+                      setCompareFromKey(`${fY - 1}-${(fQ - 1) * 3 + 1}`);
+                      setCompareToKey(`${tY - 1}-${tQ * 3}`);
+                    }
+                  }}
+                  className={`px-3 py-1.5 text-xs font-medium rounded-md transition-all ${viewMode === 'quarterly' ? 'bg-white text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'}`}
+                >
+                  Quarterly
+                </button>
+              )}
+              {canSeeViewMode('yearly') && (
+                <button
+                  onClick={() => { setViewMode('yearly'); setExpenseDrilldown(null); if (compareEnabled) { setCompareFromKey(`${yearFrom - 1}-1`); setCompareToKey(`${yearTo - 1}-12`); } }}
+                  className={`px-3 py-1.5 text-xs font-medium rounded-md transition-all ${viewMode === 'yearly' ? 'bg-white text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'}`}
+                >
+                  Yearly
+                </button>
+              )}
             </div>
 
             {/* Date range selectors — three variants per viewMode:
