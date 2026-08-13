@@ -309,7 +309,7 @@ function generateStrongPassword(length = 16) {
 
 // ─── Main component ───────────────────────────────────────────────────────
 
-export default function UserAdmin({ currentUser, lpNames = [] }) {
+export default function UserAdmin({ currentUser, lpNames = [], lpCompaniesMap = {} }) {
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [form, setForm] = useState(EMPTY_FORM);
@@ -872,7 +872,23 @@ export default function UserAdmin({ currentUser, lpNames = [] }) {
                         </span>
                       )}
                     </label>
-                    <select value={form.lpName} onChange={e => setForm({ ...form, lpName: e.target.value })}
+                    <select
+                      value={form.lpName}
+                      onChange={e => {
+                        const newLp = e.target.value;
+                        // When admin picks an LP, auto-scope Companies to the
+                        // portcos that LP is actually invested in. Overwrites
+                        // any existing companies_list — admin can still add
+                        // more via the checkbox grid after. When admin clears
+                        // the LP (picks "(none)"), we leave Companies alone
+                        // so previously-manually-checked entries are kept.
+                        const nextForm = { ...form, lpName: newLp };
+                        if (newLp && Array.isArray(lpCompaniesMap[newLp]) && lpCompaniesMap[newLp].length > 0) {
+                          nextForm.companies_mode = 'subset';
+                          nextForm.companies_list = [...lpCompaniesMap[newLp]];
+                        }
+                        setForm(nextForm);
+                      }}
                       className={cn(
                         "mt-1 flex h-9 w-full rounded-md border bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring",
                         form.lpName ? "border-violet-300 ring-1 ring-violet-100" : "border-input"
@@ -884,6 +900,16 @@ export default function UserAdmin({ currentUser, lpNames = [] }) {
                       Independent of role presets. When set, the IRR &amp; Valuation tab filters to vehicles where this LP appears,
                       with their stake highlighted. Leave blank for non-LP users.
                     </p>
+                    {form.lpName && Array.isArray(lpCompaniesMap[form.lpName]) && lpCompaniesMap[form.lpName].length > 0 && (
+                      <p className="text-[10px] text-violet-700 mt-1">
+                        Auto-scoped Companies to {lpCompaniesMap[form.lpName].join(', ')} — you can add more below.
+                      </p>
+                    )}
+                    {form.lpName && Array.isArray(lpCompaniesMap[form.lpName]) && lpCompaniesMap[form.lpName].length === 0 && (
+                      <p className="text-[10px] text-amber-700 mt-1">
+                        {form.lpName} has no recorded portco investments — Companies left unchanged.
+                      </p>
+                    )}
                   </div>
                 </div>
 

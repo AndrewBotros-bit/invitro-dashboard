@@ -30,14 +30,35 @@ export default async function AdminUsersPage() {
   }
 
   // Pull LP names from the IRR sheet for the admin form's LP dropdown.
-  // Graceful fallback to [] if the sheet load fails — admin form still works.
+  // Also build lpCompaniesMap so UserAdmin can auto-check the companies
+  // an LP is invested in when admin picks their name. Mirrors the walk
+  // done by Dashboard.jsx's lpAutoCompanies — same IRR alias handling
+  // ("AllCare + Curenta" → "AllCare"). Graceful fallback if sheet load
+  // fails: dropdown empty, auto-check silently no-ops.
   let lpNames = [];
+  let lpCompaniesMap = {};
   try {
     const data = await fetchAllData();
     lpNames = data?.irrValuation?.allLpNames ?? [];
+    const IRR_TO_PNL_ALIAS = { 'AllCare + Curenta': 'AllCare' };
+    const vehicles = data?.irrValuation?.vehicles ?? [];
+    const companies = data?.irrValuation?.companies ?? [];
+    for (const lp of lpNames) {
+      const lpVehicles = vehicles.filter(v => v.lps?.some(x => x.name === lp));
+      const allowed = new Set();
+      for (const v of lpVehicles) {
+        for (const co of companies) {
+          const series = co.investments?.[v.name] || [];
+          if (series.some(x => x != null && x > 0)) {
+            allowed.add(IRR_TO_PNL_ALIAS[co.name] || co.name);
+          }
+        }
+      }
+      lpCompaniesMap[lp] = [...allowed];
+    }
   } catch (err) {
     console.warn('[admin/users] Could not load LP names:', err.message);
   }
 
-  return <UserAdmin currentUser={user} lpNames={lpNames} />;
+  return <UserAdmin currentUser={user} lpNames={lpNames} lpCompaniesMap={lpCompaniesMap} />;
 }
