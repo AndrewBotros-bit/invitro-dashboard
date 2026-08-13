@@ -290,6 +290,10 @@
         "kpis",
         "irr"
       ],
+      "viewModes": [
+        "quarterly",
+        "yearly"
+      ],
       "breakdowns": {
         "revenueDrilldown": [
           "AllCare"
