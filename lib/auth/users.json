@@ -274,11 +274,8 @@
     "role": "viewer",
     "permissions": {
       "companies": [
-        "InVitro Studio",
         "AllCare External",
-        "AllRx External",
-        "Osta",
-        "Needles"
+        "Osta"
       ],
       "tabs": [
         "overview",
