@@ -383,7 +383,25 @@ export default function UserAdmin({ currentUser, lpNames = [], lpCompaniesMap = 
     e.preventDefault();
     setError(''); setStatus('Saving...');
     const isEdit = editingUsername !== null;
-    const payload = formStateToPayload(form, isEdit);
+    // Auto-scope Companies to the selected LP's invested portcos JUST
+    // before submit. This runs regardless of what the checkbox grid
+    // currently shows — so switching LPs and then hitting Update User
+    // always re-scopes to the new LP's set. Only applies when the LP
+    // has recorded portco investments (empty auto-scope would surprise
+    // the admin by wiping their list); if empty, the current
+    // companies_list is preserved.
+    let effectiveForm = form;
+    if (form.lpName && Array.isArray(lpCompaniesMap[form.lpName]) && lpCompaniesMap[form.lpName].length > 0) {
+      effectiveForm = {
+        ...form,
+        companies_mode: 'subset',
+        companies_list: [...lpCompaniesMap[form.lpName]],
+      };
+      // Also snap the form state so the UI reflects what got saved
+      // (useful when the admin stays on the same edit view post-save).
+      setForm(effectiveForm);
+    }
+    const payload = formStateToPayload(effectiveForm, isEdit);
     if (!isEdit && (!form.username || !form.password)) { setStatus(''); setError('Username and password required'); return; }
     if (!form.name) { setStatus(''); setError('Name is required'); return; }
     const url = isEdit ? `/api/admin/users?username=${encodeURIComponent(editingUsername)}` : '/api/admin/users';
@@ -874,21 +892,7 @@ export default function UserAdmin({ currentUser, lpNames = [], lpCompaniesMap = 
                     </label>
                     <select
                       value={form.lpName}
-                      onChange={e => {
-                        const newLp = e.target.value;
-                        // When admin picks an LP, auto-scope Companies to the
-                        // portcos that LP is actually invested in. Overwrites
-                        // any existing companies_list — admin can still add
-                        // more via the checkbox grid after. When admin clears
-                        // the LP (picks "(none)"), we leave Companies alone
-                        // so previously-manually-checked entries are kept.
-                        const nextForm = { ...form, lpName: newLp };
-                        if (newLp && Array.isArray(lpCompaniesMap[newLp]) && lpCompaniesMap[newLp].length > 0) {
-                          nextForm.companies_mode = 'subset';
-                          nextForm.companies_list = [...lpCompaniesMap[newLp]];
-                        }
-                        setForm(nextForm);
-                      }}
+                      onChange={e => setForm({ ...form, lpName: e.target.value })}
                       className={cn(
                         "mt-1 flex h-9 w-full rounded-md border bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring",
                         form.lpName ? "border-violet-300 ring-1 ring-violet-100" : "border-input"
@@ -900,14 +904,18 @@ export default function UserAdmin({ currentUser, lpNames = [], lpCompaniesMap = 
                       Independent of role presets. When set, the IRR &amp; Valuation tab filters to vehicles where this LP appears,
                       with their stake highlighted. Leave blank for non-LP users.
                     </p>
+                    {/* On-save preview: shows what the Companies list will
+                        become when the admin clicks Update User. The
+                        auto-scope itself runs in onSave, not here — the
+                        checkbox grid stays as-is while the admin edits. */}
                     {form.lpName && Array.isArray(lpCompaniesMap[form.lpName]) && lpCompaniesMap[form.lpName].length > 0 && (
                       <p className="text-[10px] text-violet-700 mt-1">
-                        Auto-scoped Companies to {lpCompaniesMap[form.lpName].join(', ')} — you can add more below.
+                        On save: Companies will be auto-scoped to <strong>{lpCompaniesMap[form.lpName].join(', ')}</strong>.
                       </p>
                     )}
                     {form.lpName && Array.isArray(lpCompaniesMap[form.lpName]) && lpCompaniesMap[form.lpName].length === 0 && (
                       <p className="text-[10px] text-amber-700 mt-1">
-                        {form.lpName} has no recorded portco investments — Companies left unchanged.
+                        {form.lpName} has no recorded portco investments — Companies will be left unchanged on save.
                       </p>
                     )}
                   </div>
