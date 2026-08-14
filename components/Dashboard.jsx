@@ -435,6 +435,12 @@ export default function InVitroDashboard({ data: rawData, user }) {
   // normalize IRR names → P&L names through this alias map so the
   // auto-derive picks the same string the rest of the app uses.
   const IRR_TO_PNL_ALIAS = { 'AllCare + Curenta': 'AllCare' };
+  // LP/shareholder convention: LPs never see internal AllCare or AllRx —
+  // only the External (public-target) variants. Applied AFTER the IRR
+  // alias resolves the sheet's combined block. Non-AllCare/AllRx portcos
+  // pass through unchanged. Mirrors the same map in app/admin/users/page.jsx
+  // so User Admin's auto-scope and the runtime derivation agree.
+  const LP_EXTERNAL_MAP = { 'AllCare': 'AllCare External', 'AllRx': 'AllRx External' };
   const lpName = perms.lpName || null;
   const lpAutoCompanies = (() => {
     if (!lpName) return null;
@@ -446,7 +452,9 @@ export default function InVitroDashboard({ data: rawData, user }) {
       for (const co of (data?.irrValuation?.companies || [])) {
         const series = co.investments?.[v.name] || [];
         if (series.some(x => x != null && x > 0)) {
-          allowed.add(IRR_TO_PNL_ALIAS[co.name] || co.name);
+          const pnlName = IRR_TO_PNL_ALIAS[co.name] || co.name;
+          const finalName = LP_EXTERNAL_MAP[pnlName] || pnlName;
+          allowed.add(finalName);
         }
       }
     }
