@@ -274,8 +274,8 @@
     "role": "viewer",
     "permissions": {
       "companies": [
-        "AllRx",
-        "AllCare"
+        "AllCare External",
+        "Osta"
       ],
       "tabs": [
         "overview",
@@ -308,7 +308,7 @@
         "hcDetails": false,
         "shareholderSplit": false
       },
-      "lpName": "Ihab Dorotta"
+      "lpName": "George Ayad"
     }
   }
 ]
