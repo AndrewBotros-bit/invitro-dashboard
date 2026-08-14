@@ -275,7 +275,10 @@
     "permissions": {
       "companies": [
         "AllRx External",
-        "AllCare External"
+        "AllCare External",
+        "Osta",
+        "Needles",
+        "InVitro Studio"
       ],
       "tabs": [
         "overview",
@@ -308,7 +311,7 @@
         "hcDetails": false,
         "shareholderSplit": false
       },
-      "lpName": "Ihab Dorotta"
+      "lpName": "Ayman Ismail"
     }
   }
 ]
