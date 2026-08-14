@@ -274,7 +274,7 @@
     "role": "viewer",
     "permissions": {
       "companies": [
-        "AllCare External",
+        "AllCare",
         "Osta"
       ],
       "tabs": [
@@ -308,7 +308,7 @@
         "hcDetails": false,
         "shareholderSplit": false
       },
-      "lpName": "Ayman Ismail"
+      "lpName": "Medhat Mikhail"
     }
   }
 ]
