@@ -33,14 +33,25 @@ export default async function AdminUsersPage() {
   // Also build lpCompaniesMap so UserAdmin can auto-check the companies
   // an LP is invested in when admin picks their name. Mirrors the walk
   // done by Dashboard.jsx's lpAutoCompanies — same IRR alias handling
-  // ("AllCare + Curenta" → "AllCare"). Graceful fallback if sheet load
-  // fails: dropdown empty, auto-check silently no-ops.
+  // ("AllCare + Curenta" → "AllCare").
+  //
+  // LP/shareholder convention: an LP's exposure to AllRx or AllCare is
+  // shown via the External (public-target) variant — never the internal
+  // entry. So after alias resolution, we swap AllRx → AllRx External and
+  // AllCare → AllCare External. Other portcos pass through unchanged.
+  // This matches how existing LP users' companies arrays are shaped
+  // (Ayman.Ismail, Karim.Soliman, etc. all have "AllCare External" and
+  // "AllRx External", not the internal names).
+  //
+  // Graceful fallback if sheet load fails: dropdown empty, auto-scope
+  // silently no-ops.
   let lpNames = [];
   let lpCompaniesMap = {};
   try {
     const data = await fetchAllData();
     lpNames = data?.irrValuation?.allLpNames ?? [];
     const IRR_TO_PNL_ALIAS = { 'AllCare + Curenta': 'AllCare' };
+    const LP_EXTERNAL_MAP = { 'AllCare': 'AllCare External', 'AllRx': 'AllRx External' };
     const vehicles = data?.irrValuation?.vehicles ?? [];
     const companies = data?.irrValuation?.companies ?? [];
     for (const lp of lpNames) {
@@ -50,7 +61,9 @@ export default async function AdminUsersPage() {
         for (const co of companies) {
           const series = co.investments?.[v.name] || [];
           if (series.some(x => x != null && x > 0)) {
-            allowed.add(IRR_TO_PNL_ALIAS[co.name] || co.name);
+            const pnlName = IRR_TO_PNL_ALIAS[co.name] || co.name;
+            const finalName = LP_EXTERNAL_MAP[pnlName] || pnlName;
+            allowed.add(finalName);
           }
         }
       }
