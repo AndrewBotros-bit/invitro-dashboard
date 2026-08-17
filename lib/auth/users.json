@@ -358,5 +358,50 @@
       "lpName": "Marc Farhat"
     },
     "email": "marcfarhat@yahoo.com"
+  },
+  {
+    "username": "Abdulamirfadel",
+    "name": "Abdulamir Kahtan Fadel",
+    "passwordHash": "$2b$10$wybaxHyMPFqp9eYxiwh.v.hSL/U5LbIsh1.u1rCHHzpweSRi8UBSe",
+    "role": "viewer",
+    "permissions": {
+      "companies": [
+        "AllRx External",
+        "AllCare External"
+      ],
+      "tabs": [
+        "overview",
+        "revenue",
+        "profitability",
+        "expenses",
+        "insights",
+        "cashflow",
+        "kpis",
+        "irr"
+      ],
+      "viewModes": [
+        "quarterly",
+        "yearly"
+      ],
+      "breakdowns": {
+        "revenueDrilldown": [
+          "AllCare"
+        ],
+        "expenseDrilldown": [
+          "InVitro Studio",
+          "AllCare"
+        ],
+        "expenseGLDetail": false,
+        "gpDrilldown": [
+          "AllCare"
+        ],
+        "cashflowDrilldown": false,
+        "auditConsole": false,
+        "hcDetails": false,
+        "shareholderSplit": false
+      },
+      "lpName": "Abdulamir Kahtan Fadel"
+    },
+    "email": "aakf2012@icloud.com"
   }
 ]
