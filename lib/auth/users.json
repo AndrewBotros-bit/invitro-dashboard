@@ -313,5 +313,50 @@
       },
       "lpName": "Ayman Ismail"
     }
+  },
+  {
+    "username": "marcfarhat",
+    "name": "Marc Farhat",
+    "passwordHash": "$2b$10$W.Pmvz3h5Q.wzy3/vf1JouvqGgxN4kKJWDbMvSOm/pRphrxrD0/8u",
+    "role": "viewer",
+    "permissions": {
+      "companies": [
+        "AllRx External",
+        "AllCare External"
+      ],
+      "tabs": [
+        "overview",
+        "revenue",
+        "profitability",
+        "expenses",
+        "insights",
+        "cashflow",
+        "kpis",
+        "irr"
+      ],
+      "viewModes": [
+        "quarterly",
+        "yearly"
+      ],
+      "breakdowns": {
+        "revenueDrilldown": [
+          "AllCare"
+        ],
+        "expenseDrilldown": [
+          "InVitro Studio",
+          "AllCare"
+        ],
+        "expenseGLDetail": false,
+        "gpDrilldown": [
+          "AllCare"
+        ],
+        "cashflowDrilldown": false,
+        "auditConsole": false,
+        "hcDetails": false,
+        "shareholderSplit": false
+      },
+      "lpName": "Marc Farhat"
+    },
+    "email": "marcfarhat@yahoo.com"
   }
 ]
