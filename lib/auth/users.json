@@ -667,7 +667,7 @@
   {
     "username": "georgeayad",
     "name": "George Ayad",
-    "passwordHash": "$2b$10$tjpP4cr3btWd7uafHvfXae5MgWVBF0YXhMn742NLzCWvK5jXNTbl6",
+    "passwordHash": "$2b$10$CQ91Xi2rDyhB0kP5jskbUO9VKrM1o.uPKqu1lTC6exooSJ8S3UBnu",
     "role": "viewer",
     "permissions": {
       "companies": [
