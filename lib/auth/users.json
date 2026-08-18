@@ -978,5 +978,50 @@
       "lpName": "Rasha Abdrabou"
     },
     "email": "wessamlabib@gmail.com"
+  },
+  {
+    "username": "samehhalaka",
+    "name": "Sameh Halaka",
+    "passwordHash": "$2b$10$B2dJNgFZQ3EBuzNgCOLvFeiFcI8yWcdI/EuD4WYz5MbdFIgkx3.82",
+    "role": "viewer",
+    "permissions": {
+      "companies": [
+        "AllRx External",
+        "AllCare External"
+      ],
+      "tabs": [
+        "overview",
+        "revenue",
+        "profitability",
+        "expenses",
+        "insights",
+        "cashflow",
+        "kpis",
+        "irr"
+      ],
+      "viewModes": [
+        "quarterly",
+        "yearly"
+      ],
+      "breakdowns": {
+        "revenueDrilldown": [
+          "AllCare"
+        ],
+        "expenseDrilldown": [
+          "InVitro Studio",
+          "AllCare"
+        ],
+        "expenseGLDetail": false,
+        "gpDrilldown": [
+          "AllCare"
+        ],
+        "cashflowDrilldown": false,
+        "auditConsole": false,
+        "hcDetails": false,
+        "shareholderSplit": false
+      },
+      "lpName": "Sameh Halaka"
+    },
+    "email": "Samehhalaka@gccegypt.com"
   }
 ]
