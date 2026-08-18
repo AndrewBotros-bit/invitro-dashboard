@@ -708,5 +708,50 @@
       "lpName": "George Ayad"
     },
     "email": "ayad_g@hotmail.com"
+  },
+  {
+    "username": "hassanfawaz",
+    "name": "Hassan Fawaz",
+    "passwordHash": "$2b$10$yWcj1CyVm9XwEfz9V6X/p.ymJXF1mR2aI5zQ1cx0R84MCXpmJrTFe",
+    "role": "viewer",
+    "permissions": {
+      "companies": [
+        "AllRx External",
+        "AllCare External"
+      ],
+      "tabs": [
+        "overview",
+        "revenue",
+        "profitability",
+        "expenses",
+        "insights",
+        "cashflow",
+        "kpis",
+        "irr"
+      ],
+      "viewModes": [
+        "quarterly",
+        "yearly"
+      ],
+      "breakdowns": {
+        "revenueDrilldown": [
+          "AllCare"
+        ],
+        "expenseDrilldown": [
+          "InVitro Studio",
+          "AllCare"
+        ],
+        "expenseGLDetail": false,
+        "gpDrilldown": [
+          "AllCare"
+        ],
+        "cashflowDrilldown": false,
+        "auditConsole": false,
+        "hcDetails": false,
+        "shareholderSplit": false
+      },
+      "lpName": "Hassan Mohammad Fawaz"
+    },
+    "email": "hassanalfawaz@gmail.com"
   }
 ]
