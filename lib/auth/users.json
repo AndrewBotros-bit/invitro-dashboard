@@ -888,5 +888,50 @@
       "lpName": "Luis Garcia"
     },
     "email": "garcialuis@post.harvard.edu"
+  },
+  {
+    "username": "medhatmekhail",
+    "name": "Medhat Mekhail",
+    "passwordHash": "$2b$10$UapGo17nuM8/5kDCnAxBAuwWwOuv8vx1kKrka47rZKZ1jR4VWSMm2",
+    "role": "viewer",
+    "permissions": {
+      "companies": [
+        "AllCare External",
+        "Osta"
+      ],
+      "tabs": [
+        "overview",
+        "revenue",
+        "profitability",
+        "expenses",
+        "insights",
+        "cashflow",
+        "kpis",
+        "irr"
+      ],
+      "viewModes": [
+        "quarterly",
+        "yearly"
+      ],
+      "breakdowns": {
+        "revenueDrilldown": [
+          "AllCare"
+        ],
+        "expenseDrilldown": [
+          "InVitro Studio",
+          "AllCare"
+        ],
+        "expenseGLDetail": false,
+        "gpDrilldown": [
+          "AllCare"
+        ],
+        "cashflowDrilldown": false,
+        "auditConsole": false,
+        "hcDetails": false,
+        "shareholderSplit": false
+      },
+      "lpName": "Medhat Mikhail"
+    },
+    "email": "mmpainmd2001@yahoo.com"
   }
 ]
