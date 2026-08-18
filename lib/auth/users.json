@@ -457,5 +457,50 @@
       "lpName": "Atef Rafla"
     },
     "email": "araflamd@gmail.com"
+  },
+  {
+    "username": "betulaslandogan",
+    "name": "Betul Aslandogan",
+    "passwordHash": "$2b$10$rFAmROu62IJICfpt1Fdrte52JOiNH7hdWYUsBgnfjWnkrfTi7ADPG",
+    "role": "viewer",
+    "permissions": {
+      "companies": [
+        "AllRx External",
+        "AllCare External"
+      ],
+      "tabs": [
+        "overview",
+        "revenue",
+        "profitability",
+        "expenses",
+        "insights",
+        "cashflow",
+        "kpis",
+        "irr"
+      ],
+      "viewModes": [
+        "quarterly",
+        "yearly"
+      ],
+      "breakdowns": {
+        "revenueDrilldown": [
+          "AllCare"
+        ],
+        "expenseDrilldown": [
+          "InVitro Studio",
+          "AllCare"
+        ],
+        "expenseGLDetail": false,
+        "gpDrilldown": [
+          "AllCare"
+        ],
+        "cashflowDrilldown": false,
+        "auditConsole": false,
+        "hcDetails": false,
+        "shareholderSplit": false
+      },
+      "lpName": "Betul Aslandogan"
+    },
+    "email": "betulas@gmail.com"
   }
 ]
