@@ -843,5 +843,50 @@
       "lpName": "Laila Pence"
     },
     "email": "laila.pence@gmail.com"
+  },
+  {
+    "username": "luisgarcia",
+    "name": "Luis Enrique Garcia",
+    "passwordHash": "$2b$10$yyODpJGqEk1bbgGesAsDM.tHJdbTa.S7emWLjOm/73N5jRZxmaMme",
+    "role": "viewer",
+    "permissions": {
+      "companies": [
+        "AllRx External",
+        "AllCare External"
+      ],
+      "tabs": [
+        "overview",
+        "revenue",
+        "profitability",
+        "expenses",
+        "insights",
+        "cashflow",
+        "kpis",
+        "irr"
+      ],
+      "viewModes": [
+        "quarterly",
+        "yearly"
+      ],
+      "breakdowns": {
+        "revenueDrilldown": [
+          "AllCare"
+        ],
+        "expenseDrilldown": [
+          "InVitro Studio",
+          "AllCare"
+        ],
+        "expenseGLDetail": false,
+        "gpDrilldown": [
+          "AllCare"
+        ],
+        "cashflowDrilldown": false,
+        "auditConsole": false,
+        "hcDetails": false,
+        "shareholderSplit": false
+      },
+      "lpName": "Luis Garcia"
+    },
+    "email": "garcialuis@post.harvard.edu"
   }
 ]
