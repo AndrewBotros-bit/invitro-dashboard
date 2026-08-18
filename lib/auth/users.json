@@ -431,5 +431,31 @@
       "lpName": "Ambrish Mody"
     },
     "email": "ambrishmody@gmail.com"
+  },
+  {
+    "username": "atefrafla",
+    "name": "Atef Rafla",
+    "passwordHash": "$2b$10$yRX9J.fTdOCo1mqh7/Wjj.FcJFpOwXYjEYXMvI033yFAHYyyZfFxG",
+    "role": "viewer",
+    "permissions": {
+      "companies": [
+        "AllCare External",
+        "Osta"
+      ],
+      "tabs": "*",
+      "viewModes": "*",
+      "breakdowns": {
+        "revenueDrilldown": true,
+        "expenseDrilldown": true,
+        "expenseGLDetail": false,
+        "gpDrilldown": true,
+        "cashflowDrilldown": false,
+        "auditConsole": false,
+        "hcDetails": false,
+        "shareholderSplit": false
+      },
+      "lpName": "Atef Rafla"
+    },
+    "email": "araflamd@gmail.com"
   }
 ]
