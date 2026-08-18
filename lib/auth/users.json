@@ -663,5 +663,50 @@
       "lpName": "Fr. Botros Samy"
     },
     "email": "adel.samy@wadidegla.com"
+  },
+  {
+    "username": "georgeayad",
+    "name": "George Ayad",
+    "passwordHash": "$2b$10$tjpP4cr3btWd7uafHvfXae5MgWVBF0YXhMn742NLzCWvK5jXNTbl6",
+    "role": "viewer",
+    "permissions": {
+      "companies": [
+        "AllCare External",
+        "Osta"
+      ],
+      "tabs": [
+        "overview",
+        "revenue",
+        "profitability",
+        "expenses",
+        "insights",
+        "cashflow",
+        "kpis",
+        "irr"
+      ],
+      "viewModes": [
+        "quarterly",
+        "yearly"
+      ],
+      "breakdowns": {
+        "revenueDrilldown": [
+          "AllCare"
+        ],
+        "expenseDrilldown": [
+          "InVitro Studio",
+          "AllCare"
+        ],
+        "expenseGLDetail": false,
+        "gpDrilldown": [
+          "AllCare"
+        ],
+        "cashflowDrilldown": false,
+        "auditConsole": false,
+        "hcDetails": false,
+        "shareholderSplit": false
+      },
+      "lpName": "George Ayad"
+    },
+    "email": "ayad_g@hotmail.com"
   }
 ]
