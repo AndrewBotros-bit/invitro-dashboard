@@ -93,34 +93,6 @@
     }
   },
   {
-    "username": "Mario.Karras",
-    "name": "Mario Karras",
-    "passwordHash": "$2b$10$KuGUKNir69yhhjfaQAFbEeD/7duutVpTpgS4jfy3xlfoxjsvceuTK",
-    "role": "viewer",
-    "permissions": {
-      "companies": [
-        "AllRx",
-        "AllCare",
-        "Osta"
-      ],
-      "tabs": [
-        "overview",
-        "revenue",
-        "profitability",
-        "irr",
-        "insights"
-      ],
-      "breakdowns": {
-        "revenueDrilldown": false,
-        "expenseDrilldown": false,
-        "auditConsole": false,
-        "hcDetails": false
-      },
-      "lpName": "Mario Karras"
-    },
-    "email": "mario.karras@invitrocapital.com"
-  },
-  {
     "username": "Ramy.Barsoum",
     "name": "Ramy Barsoum",
     "passwordHash": "$2b$10$b9fRDupeGpGBMJBRtg/8d.SiXBEMfdN02gY6zwkCjpGFl5QTOEyoS",
