@@ -618,5 +618,50 @@
       "lpName": "Mario Karras"
     },
     "email": "mariokarras1@gmail.com"
+  },
+  {
+    "username": "frbotrossamy",
+    "name": "Father Botros",
+    "passwordHash": "$2b$10$Pc/wiuZkIfCDDYc9jDMFDeXqbzDd7DR52z.TFm3X38tzlKOiLdsjS",
+    "role": "viewer",
+    "permissions": {
+      "companies": [
+        "AllCare External",
+        "Osta"
+      ],
+      "tabs": [
+        "overview",
+        "revenue",
+        "profitability",
+        "expenses",
+        "insights",
+        "cashflow",
+        "kpis",
+        "irr"
+      ],
+      "viewModes": [
+        "quarterly",
+        "yearly"
+      ],
+      "breakdowns": {
+        "revenueDrilldown": [
+          "AllCare"
+        ],
+        "expenseDrilldown": [
+          "InVitro Studio",
+          "AllCare"
+        ],
+        "expenseGLDetail": false,
+        "gpDrilldown": [
+          "AllCare"
+        ],
+        "cashflowDrilldown": false,
+        "auditConsole": false,
+        "hcDetails": false,
+        "shareholderSplit": false
+      },
+      "lpName": "Fr. Botros Samy"
+    },
+    "email": "adel.samy@wadidegla.com"
   }
 ]
