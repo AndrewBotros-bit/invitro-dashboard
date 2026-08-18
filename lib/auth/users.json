@@ -502,5 +502,51 @@
       "lpName": "Betul Aslandogan"
     },
     "email": "betulas@gmail.com"
+  },
+  {
+    "username": "daniellakarras",
+    "name": "Daniella Karras",
+    "passwordHash": "$2b$10$ylyNxH94TczzgHvJV75OkeWtfeHsaznTVNXHJQiqloCM.ROZ1/Eu6",
+    "role": "viewer",
+    "permissions": {
+      "companies": [
+        "AllRx External",
+        "AllCare External",
+        "Osta"
+      ],
+      "tabs": [
+        "overview",
+        "revenue",
+        "profitability",
+        "expenses",
+        "insights",
+        "cashflow",
+        "kpis",
+        "irr"
+      ],
+      "viewModes": [
+        "quarterly",
+        "yearly"
+      ],
+      "breakdowns": {
+        "revenueDrilldown": [
+          "AllCare"
+        ],
+        "expenseDrilldown": [
+          "InVitro Studio",
+          "AllCare"
+        ],
+        "expenseGLDetail": false,
+        "gpDrilldown": [
+          "AllCare"
+        ],
+        "cashflowDrilldown": false,
+        "auditConsole": false,
+        "hcDetails": false,
+        "shareholderSplit": false
+      },
+      "lpName": "Daniella Karras"
+    },
+    "email": "daniellaskarras@gmail.com"
   }
 ]
