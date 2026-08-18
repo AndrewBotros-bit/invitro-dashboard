@@ -403,5 +403,33 @@
       "lpName": "Abdulamir Kahtan Fadel"
     },
     "email": "aakf2012@icloud.com"
+  },
+  {
+    "username": "ambrishmody",
+    "name": "Ambrish Mody",
+    "passwordHash": "$2b$10$yVw0n48VC814kajZMm7dNullrA8FYlYiZD7XMsAMb9V1lpqkBUMHO",
+    "role": "viewer",
+    "permissions": {
+      "companies": [
+        "AllCare External",
+        "Osta",
+        "Needles",
+        "InVitro Studio"
+      ],
+      "tabs": "*",
+      "viewModes": "*",
+      "breakdowns": {
+        "revenueDrilldown": true,
+        "expenseDrilldown": true,
+        "expenseGLDetail": false,
+        "gpDrilldown": true,
+        "cashflowDrilldown": false,
+        "auditConsole": false,
+        "hcDetails": false,
+        "shareholderSplit": false
+      },
+      "lpName": "Ambrish Mody"
+    },
+    "email": "ambrishmody@gmail.com"
   }
 ]
