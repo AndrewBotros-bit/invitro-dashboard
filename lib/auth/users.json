@@ -205,11 +205,11 @@
     "role": "viewer",
     "permissions": {
       "companies": [
-        "InVitro Studio",
-        "AllCare External",
         "AllRx External",
+        "AllCare External",
         "Osta",
-        "Needles"
+        "Needles",
+        "InVitro Studio"
       ],
       "tabs": [
         "overview",
@@ -218,8 +218,10 @@
         "expenses",
         "insights",
         "cashflow",
-        "kpis"
+        "kpis",
+        "irr"
       ],
+      "viewModes": "*",
       "breakdowns": {
         "revenueDrilldown": [
           "AllCare"
