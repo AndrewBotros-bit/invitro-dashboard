@@ -1023,5 +1023,50 @@
       "lpName": "Sameh Halaka"
     },
     "email": "Samehhalaka@gccegypt.com"
+  },
+  {
+    "username": "marieyoussef",
+    "name": "Marie Youssef",
+    "passwordHash": "$2b$10$xD3YQmArN23635f9dZ4jS.XVeM56yA0.Jrf5UujgKmuIQT93WlNTi",
+    "role": "viewer",
+    "permissions": {
+      "companies": [
+        "AllCare External",
+        "Osta"
+      ],
+      "tabs": [
+        "overview",
+        "revenue",
+        "profitability",
+        "expenses",
+        "insights",
+        "cashflow",
+        "kpis",
+        "irr"
+      ],
+      "viewModes": [
+        "quarterly",
+        "yearly"
+      ],
+      "breakdowns": {
+        "revenueDrilldown": [
+          "AllCare"
+        ],
+        "expenseDrilldown": [
+          "InVitro Studio",
+          "AllCare"
+        ],
+        "expenseGLDetail": false,
+        "gpDrilldown": [
+          "AllCare"
+        ],
+        "cashflowDrilldown": false,
+        "auditConsole": false,
+        "hcDetails": false,
+        "shareholderSplit": false
+      },
+      "lpName": "Marie Youssef"
+    },
+    "email": "samersamir666@yahoo.com"
   }
 ]
