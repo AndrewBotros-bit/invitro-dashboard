@@ -247,16 +247,13 @@
   },
   {
     "username": "Ayman.Test",
-    "name": "Ayman test",
+    "name": "Test",
     "passwordHash": "$2b$10$UJlBW0IEXIvALNdJBl6nnucYHTTjuNuhaq8w7O0a1UB.tvHDPdbty",
     "role": "viewer",
     "permissions": {
       "companies": [
-        "AllRx External",
         "AllCare External",
-        "Osta",
-        "Needles",
-        "InVitro Studio"
+        "Osta"
       ],
       "tabs": [
         "overview",
@@ -289,7 +286,7 @@
         "hcDetails": false,
         "shareholderSplit": false
       },
-      "lpName": "Ayman Ismail"
+      "lpName": "Fr. Botros Samy"
     }
   },
   {
