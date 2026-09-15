@@ -709,7 +709,19 @@ export default function IRRValuation({ data, user, selectedYear: selectedYearPro
         if (!lpInVehicle) continue;
         const vehicleOwnsCoPct = co.ownership?.[v.name]?.[yearIdx] ?? 0;
         if (vehicleOwnsCoPct === 0) continue;
-        const lpInVehiclePct = lpInVehicle.ownership?.[yearIdx] ?? 0;
+        // Prefer Timeline sheet's authoritative year-end ownership for the
+        // fund vehicle so the Consolidated card's `totalAll` matches the
+        // per-vehicle "My Performance" card. Without this override the two
+        // cards use different NAVs (IRR-sheet ownership vs Timeline
+        // ownership) and their XIRRs diverge even though flows are identical.
+        const tlOwnByYear = irr?.fundTimelines?.[v.name]?.perLp?.[lpNameArg]?.ownershipByYear;
+        const selectedYearNumLT = years?.[yearIdx];
+        const tlPct = tlOwnByYear && selectedYearNumLT != null
+          ? (tlOwnByYear[selectedYearNumLT] != null ? tlOwnByYear[selectedYearNumLT] * 100 : null)
+          : null;
+        const lpInVehiclePct = tlPct != null
+          ? tlPct
+          : (lpInVehicle.ownership?.[yearIdx] ?? 0);
         if (lpInVehiclePct === 0) continue;
         // Effective ownership: vehicle's % of portco × LP's % of vehicle
         const effectivePct = (vehicleOwnsCoPct * lpInVehiclePct) / 100;
