@@ -456,14 +456,19 @@ function computeLpReturns(lp, vehicle, yearIdx, years, fundTimeline) {
 
     if (isFund) {
       // Preferred path: real monthly dates from the Timeline sheet.
-      // Removed `basis === split.initial` gate — for a fund with no
-      // recycling (InVitro Fund) both onInitial and onTotal branches
-      // produce identical XIRR because XIRR is time-weighted on flows,
-      // not on basis. The strict-equal check was silently blocking the
-      // monthly path when `basis` came in as anything other than the
-      // exact same reference/value.
-      const timelineFlows = timelineLp?.flows;
-      if (timelineFlows && timelineFlows.length > 0 && selectedYearNum != null) {
+      // Filter to only flows on or before the terminal NAV date — Timeline
+      // holds the LP's full committed schedule (past + future calls); for
+      // a selected-year view, calls dated after Dec 31 of that year
+      // haven't happened yet and would push the terminal NAV before a
+      // remaining outflow. XIRR fails to converge on that impossible
+      // sequence (Newton-Raphson can't find a rate that reconciles a
+      // pay-out AFTER a supposed exit) and silently falls back to
+      // annual buckets.
+      const terminalMs = selectedYearNum != null ? Date.UTC(selectedYearNum, 11, 31) : null;
+      const timelineFlows = (timelineLp?.flows ?? []).filter(f =>
+        terminalMs == null || Date.UTC(f.year, f.month - 1, f.day) <= terminalMs
+      );
+      if (timelineFlows.length > 0 && selectedYearNum != null) {
         const firstMs = Date.UTC(timelineFlows[0].year, timelineFlows[0].month - 1, timelineFlows[0].day);
         const YR_MS = 365.25 * 86400e3;
         const flows = timelineFlows.map(f => ({
@@ -472,7 +477,7 @@ function computeLpReturns(lp, vehicle, yearIdx, years, fundTimeline) {
         }));
         flows.push({
           amount: lpValue,
-          yearsFromStart: (Date.UTC(selectedYearNum, 11, 31) - firstMs) / YR_MS,
+          yearsFromStart: (terminalMs - firstMs) / YR_MS,
         });
         const rate = xirr(flows);
         if (rate != null) return { moic, irr: rate * 100, method: 'monthly-xirr' };
@@ -942,8 +947,12 @@ export default function IRRValuation({ data, user, selectedYear: selectedYearPro
                 let consIrr = null;
                 let consIrrMethod = 'cagr';
                 const fundTL = irr?.fundTimelines?.['InVitro Fund'];
-                const lpFlows = fundTL?.perLp?.[lpName]?.flows;
-                if (lpFlows && lpFlows.length > 0 && totalAll > 0 && years?.[yearIdx] != null) {
+                // Filter to on/before terminal date — same fix as computeLpReturns.
+                const terminalMs = years?.[yearIdx] != null ? Date.UTC(years[yearIdx], 11, 31) : null;
+                const lpFlows = (fundTL?.perLp?.[lpName]?.flows ?? []).filter(f =>
+                  terminalMs == null || Date.UTC(f.year, f.month - 1, f.day) <= terminalMs
+                );
+                if (lpFlows.length > 0 && totalAll > 0 && terminalMs != null) {
                   const firstMs = Date.UTC(lpFlows[0].year, lpFlows[0].month - 1, lpFlows[0].day);
                   const YR_MS = 365.25 * 86400e3;
                   const flows = lpFlows.map(f => ({
@@ -952,7 +961,7 @@ export default function IRRValuation({ data, user, selectedYear: selectedYearPro
                   }));
                   flows.push({
                     amount: totalAll,
-                    yearsFromStart: (Date.UTC(years[yearIdx], 11, 31) - firstMs) / YR_MS,
+                    yearsFromStart: (terminalMs - firstMs) / YR_MS,
                   });
                   const rate = xirr(flows);
                   if (rate != null) {
