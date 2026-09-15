@@ -456,9 +456,14 @@ function computeLpReturns(lp, vehicle, yearIdx, years, fundTimeline) {
 
     if (isFund) {
       // Preferred path: real monthly dates from the Timeline sheet.
+      // Removed `basis === split.initial` gate — for a fund with no
+      // recycling (InVitro Fund) both onInitial and onTotal branches
+      // produce identical XIRR because XIRR is time-weighted on flows,
+      // not on basis. The strict-equal check was silently blocking the
+      // monthly path when `basis` came in as anything other than the
+      // exact same reference/value.
       const timelineFlows = timelineLp?.flows;
-      const isInitialBranch = basis === split.initial;
-      if (timelineFlows && timelineFlows.length > 0 && isInitialBranch && selectedYearNum != null) {
+      if (timelineFlows && timelineFlows.length > 0 && selectedYearNum != null) {
         const firstMs = Date.UTC(timelineFlows[0].year, timelineFlows[0].month - 1, timelineFlows[0].day);
         const YR_MS = 365.25 * 86400e3;
         const flows = timelineFlows.map(f => ({
