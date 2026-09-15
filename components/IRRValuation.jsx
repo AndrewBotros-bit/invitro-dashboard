@@ -1644,7 +1644,14 @@ export default function IRRValuation({ data, user, selectedYear: selectedYearPro
                     <KpiTile label={isFund ? 'Called to Date' : 'Cost Basis'} value={fmt(isFund ? myInvestment : myInitial)} compact />
                     <KpiTile label={
                       isFund
-                        ? `My IRR (${myReturns?.xirrPath === 'monthly-xirr' ? 'monthly' : myReturns?.xirrPath === 'annual-xirr' ? 'annual' : 'CAGR'})`
+                        ? (() => {
+                            const path = myReturns?.xirrPath === 'monthly-xirr' ? 'M' : myReturns?.xirrPath === 'annual-xirr' ? 'A' : 'C';
+                            const dbg = myReturns?.debug;
+                            const trace = dbg
+                              ? ` [${path} tl=${dbg.hasFundTimeline?'Y':'N'} lp=${dbg.hasTimelineLp?'Y':'N'} f=${dbg.flowsCount}]`
+                              : ` (${path})`;
+                            return `My IRR${trace}`;
+                          })()
                         : 'IRR'
                     } value={myIrr != null ? `${myIrr.toFixed(1)}%` : '—'}
                       tone={myIrr == null ? 'neutral' : myIrr >= 0 ? 'positive' : 'negative'} compact />
