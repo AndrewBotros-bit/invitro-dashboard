@@ -2001,6 +2001,7 @@ export default function IRRValuation({ data, user, selectedYear: selectedYearPro
                             {myCommitment && <TableHead className="text-right text-xs">Unfunded</TableHead>}
                             <TableHead className="text-right text-xs">Stake NAV</TableHead>
                             <TableHead className="text-right text-xs">TVPI</TableHead>
+                            <TableHead className="text-right text-xs">IRR</TableHead>
                           </TableRow>
                         </TableHeader>
                         <TableBody>
@@ -2039,6 +2040,31 @@ export default function IRRValuation({ data, user, selectedYear: selectedYearPro
                             const tvpiRaw = cumCalled > 0 && stakeNav != null ? stakeNav / cumCalled : null;
                             const isFirstActive = idx === firstActiveIdx;
                             const tvpi = isFirstActive ? null : tvpiRaw;
+                            // Per-year monthly XIRR — money-weighted return the LP
+                            // would show if they marked to fair value at Dec 31 of
+                            // this row's year. Uses the same Timeline monthly flows
+                            // as the top-of-card IRR, just filtered to on-or-before
+                            // the row-year terminal. First year of participation is
+                            // N/M (J-curve). Falls back to null when the row has no
+                            // stake NAV (early years the fund hadn't valued yet).
+                            let rowIrr = null;
+                            if (!isFirstActive && stakeNav != null && stakeNav > 0 && tlLp?.flows?.length > 0) {
+                              const rowTerminalMs = Date.UTC(year, 11, 31);
+                              const rowFlowsBefore = tlLp.flows.filter(f =>
+                                Date.UTC(f.year, f.month - 1, f.day) <= rowTerminalMs
+                              );
+                              if (rowFlowsBefore.length > 0) {
+                                const firstMs = Date.UTC(rowFlowsBefore[0].year, rowFlowsBefore[0].month - 1, rowFlowsBefore[0].day);
+                                const YR_MS = 365.25 * 86400e3;
+                                const cf = rowFlowsBefore.map(f => ({
+                                  amount: -f.amount,
+                                  yearsFromStart: (Date.UTC(f.year, f.month - 1, f.day) - firstMs) / YR_MS,
+                                }));
+                                cf.push({ amount: stakeNav, yearsFromStart: (rowTerminalMs - firstMs) / YR_MS });
+                                const r = xirr(cf);
+                                if (r != null) rowIrr = r * 100;
+                              }
+                            }
                             // Skip pre-investment / post-exit empty years
                             if (called === 0 && cumCalled === 0 && (stakeNav == null || stakeNav === 0)) return null;
                             const isSelectedYear = idx === yearIdx;
@@ -2062,6 +2088,14 @@ export default function IRRValuation({ data, user, selectedYear: selectedYearPro
                                 )} title={isFirstActive ? 'N/M — first year of participation (J-curve; not yet meaningful)' : undefined}>
                                   {tvpi != null ? `${tvpi.toFixed(2)}x` : (isFirstActive ? 'N/M' : '—')}
                                 </TableCell>
+                                <TableCell className={cn(
+                                  "text-right text-xs tabular-nums",
+                                  rowIrr != null && rowIrr >= 0 && "text-emerald-700",
+                                  rowIrr != null && rowIrr < 0 && "text-red-600",
+                                  rowIrr == null && isFirstActive && "text-muted-foreground italic",
+                                )} title={isFirstActive ? 'N/M — first year of participation (J-curve; not yet meaningful)' : undefined}>
+                                  {rowIrr != null ? `${rowIrr.toFixed(1)}%` : (isFirstActive ? 'N/M' : '—')}
+                                </TableCell>
                               </TableRow>
                             );
                           });
@@ -2075,6 +2109,7 @@ export default function IRRValuation({ data, user, selectedYear: selectedYearPro
                         <strong className="text-foreground"> Unfunded</strong> = remaining commitment you haven&apos;t paid in yet.
                         <strong className="text-foreground"> Stake NAV</strong> = your ownership × the fund&apos;s net asset value at year-end.
                         <strong className="text-foreground"> TVPI</strong> = Stake NAV ÷ Cum Called (Total Value to Paid-In; ≥ 1.00× means you&apos;re in the green). Shown as <em>N/M</em> in the first year of participation — the fund&apos;s J-curve makes year-one TVPI sub-1 by construction, not by underperformance.
+                        <strong className="text-foreground"> IRR</strong> = money-weighted XIRR on your capital calls + this row&apos;s Stake NAV as terminal value at Dec 31; recomputes per row so you see the trajectory year by year.
                         Capital amounts are gross of management fees (the cheque you wrote).
                       </p>
                     </div>
