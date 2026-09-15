@@ -527,21 +527,10 @@ function computeLpReturns(lp, vehicle, yearIdx, years, fundTimeline) {
     // Tells the UI which IRR method was used so it can label/footnote
     // appropriately (cagr for vehicles, xirr for funds).
     irrMethod: isFund ? 'xirr' : 'cagr',
-    // Which flavor of XIRR actually ran, so the UI can badge accordingly:
-    // 'monthly-xirr' → real per-LP dates from Timeline (correct)
-    // 'annual-xirr'  → yearly buckets (fallback, timeline unreachable)
-    // 'cagr'         → last-resort geometric mean
+    // Which flavor of XIRR actually ran (monthly-xirr | annual-xirr | cagr).
+    // Kept for the "month-precise" badge on the Capital Call Schedule.
     xirrPath: onInitial.method ?? 'cagr',
     xirrHasMonthlyDates: onInitial.method === 'monthly-xirr',
-    // TEMP diagnostic — expose the state that gates the monthly path so
-    // the UI can display it inline. Remove once we've fixed prod.
-    debug: {
-      hasFundTimeline: !!fundTimeline,
-      hasTimelineLp: !!timelineLp,
-      flowsCount: timelineLp?.flows?.length ?? 0,
-      hasOwnership: !!timelineLp?.ownershipByYear && Object.keys(timelineLp.ownershipByYear).length > 0,
-      selectedYear: selectedYearNum,
-    },
   };
 }
 
@@ -1651,18 +1640,8 @@ export default function IRRValuation({ data, user, selectedYear: selectedYearPro
                         cumulative total. The recycled portion is surfaced
                         in the "Capital Activity" breakdown below. */}
                     <KpiTile label={isFund ? 'Called to Date' : 'Cost Basis'} value={fmt(isFund ? myInvestment : myInitial)} compact />
-                    <KpiTile label={
-                      isFund
-                        ? (() => {
-                            const path = myReturns?.xirrPath === 'monthly-xirr' ? 'M' : myReturns?.xirrPath === 'annual-xirr' ? 'A' : 'C';
-                            const dbg = myReturns?.debug;
-                            const trace = dbg
-                              ? ` [${path} tl=${dbg.hasFundTimeline?'Y':'N'} lp=${dbg.hasTimelineLp?'Y':'N'} f=${dbg.flowsCount}]`
-                              : ` (${path})`;
-                            return `My IRR${trace}`;
-                          })()
-                        : 'IRR'
-                    } value={myIrr != null ? `${myIrr.toFixed(1)}%` : '—'}
+                    <KpiTile label={isFund ? 'My IRR' : 'IRR'}
+                      value={myIrr != null ? `${myIrr.toFixed(1)}%` : '—'}
                       tone={myIrr == null ? 'neutral' : myIrr >= 0 ? 'positive' : 'negative'} compact />
                     <KpiTile label={isFund ? 'My MOIC' : 'MOIC'} value={myMoic != null ? `${myMoic.toFixed(1)}x` : '—'}
                       tone={myMoic == null ? 'neutral' : myMoic >= 1 ? 'positive' : 'negative'} compact />
