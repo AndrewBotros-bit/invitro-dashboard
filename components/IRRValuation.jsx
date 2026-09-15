@@ -528,6 +528,15 @@ function computeLpReturns(lp, vehicle, yearIdx, years, fundTimeline) {
     // 'cagr'         → last-resort geometric mean
     xirrPath: onInitial.method ?? 'cagr',
     xirrHasMonthlyDates: onInitial.method === 'monthly-xirr',
+    // TEMP diagnostic — expose the state that gates the monthly path so
+    // the UI can display it inline. Remove once we've fixed prod.
+    debug: {
+      hasFundTimeline: !!fundTimeline,
+      hasTimelineLp: !!timelineLp,
+      flowsCount: timelineLp?.flows?.length ?? 0,
+      hasOwnership: !!timelineLp?.ownershipByYear && Object.keys(timelineLp.ownershipByYear).length > 0,
+      selectedYear: selectedYearNum,
+    },
   };
 }
 
@@ -1635,7 +1644,14 @@ export default function IRRValuation({ data, user, selectedYear: selectedYearPro
                     <KpiTile label={isFund ? 'Called to Date' : 'Cost Basis'} value={fmt(isFund ? myInvestment : myInitial)} compact />
                     <KpiTile label={
                       isFund
-                        ? `My IRR (${myReturns?.xirrPath === 'monthly-xirr' ? 'monthly' : myReturns?.xirrPath === 'annual-xirr' ? 'annual' : 'CAGR'})`
+                        ? (() => {
+                            const path = myReturns?.xirrPath === 'monthly-xirr' ? 'monthly' : myReturns?.xirrPath === 'annual-xirr' ? 'annual' : 'CAGR';
+                            const dbg = myReturns?.debug;
+                            const trace = dbg
+                              ? ` [tl=${dbg.hasFundTimeline?'Y':'N'} lp=${dbg.hasTimelineLp?'Y':'N'} flows=${dbg.flowsCount} own=${dbg.hasOwnership?'Y':'N'} y=${dbg.selectedYear ?? '?'}]`
+                              : '';
+                            return `My IRR (${path})${trace}`;
+                          })()
                         : 'IRR'
                     } value={myIrr != null ? `${myIrr.toFixed(1)}%` : '—'}
                       tone={myIrr == null ? 'neutral' : myIrr >= 0 ? 'positive' : 'negative'} compact />
