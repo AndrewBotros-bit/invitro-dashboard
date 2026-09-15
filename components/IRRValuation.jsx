@@ -456,69 +456,43 @@ function computeLpReturns(lp, vehicle, yearIdx, years, fundTimeline) {
 
     if (isFund) {
       // Preferred path: real monthly dates from the Timeline sheet.
-      // Only kicks in for the "initial" branch (basis = split.initial) —
-      // Timeline flows ARE the cash calls, no recycling concept applies.
-      // For the "onTotal" branch (basis includes recycled), keep the
-      // event-idx path since recycled events are IRR-sheet-derived.
       const timelineFlows = timelineLp?.flows;
       const isInitialBranch = basis === split.initial;
-      // TEMPORARY diagnostic — remove after we confirm which branch fires.
-      // Only logs for the primary "onInitial" branch to keep noise low.
-      if (typeof window !== 'undefined' && isInitialBranch && lp.name) {
-        console.log(`[IRR-DEBUG ${lp.name}]`, {
-          vehicleName: vehicle.name,
-          hasFundTimeline: !!fundTimeline,
-          fundTimelineLpKeys: fundTimeline?.perLp ? Object.keys(fundTimeline.perLp) : null,
-          hasTimelineLp: !!timelineLp,
-          timelineFlowsLen: timelineFlows?.length ?? 0,
-          isInitialBranch,
-          selectedYearNum,
-          basis,
-          splitInitial: split.initial,
-          lpValue,
-          ownPct,
-        });
-      }
       if (timelineFlows && timelineFlows.length > 0 && isInitialBranch && selectedYearNum != null) {
         const firstMs = Date.UTC(timelineFlows[0].year, timelineFlows[0].month - 1, timelineFlows[0].day);
         const YR_MS = 365.25 * 86400e3;
         const flows = timelineFlows.map(f => ({
-          amount: -f.amount, // outflow from LP perspective
+          amount: -f.amount,
           yearsFromStart: (Date.UTC(f.year, f.month - 1, f.day) - firstMs) / YR_MS,
         }));
-        // Terminal NAV date = Dec 31 of selected year (fund NAV snapshot).
         flows.push({
           amount: lpValue,
           yearsFromStart: (Date.UTC(selectedYearNum, 11, 31) - firstMs) / YR_MS,
         });
         const rate = xirr(flows);
-        if (rate != null) return { moic, irr: rate * 100 };
+        if (rate != null) return { moic, irr: rate * 100, method: 'monthly-xirr' };
       }
 
-      // Fallback path: annual events (from the IRR sheet). Same as before,
-      // but with the terminal NAV placed at year-END (Dec 31), not at the
-      // year index start — matches how the sheet's ownership value is
-      // reported. This alone tightens the annual-XIRR number.
+      // Fallback: annual events from the IRR sheet, with terminal NAV
+      // at Dec 31 (year+1) rather than year-index instant.
       if (events && events.length > 0 && years) {
         const firstEventYear = years[events[0].yearIdx];
-        const selectedYearEnd = years[yearIdx] + 1; // Dec 31 ≈ next Jan 1
+        const selectedYearEnd = years[yearIdx] + 1;
         const flows = events.map(e => ({
           amount: -e.amount,
           yearsFromStart: years[e.yearIdx] - firstEventYear,
         }));
         flows.push({ amount: lpValue, yearsFromStart: selectedYearEnd - firstEventYear });
         const rate = xirr(flows);
-        if (rate != null) return { moic, irr: rate * 100 };
+        if (rate != null) return { moic, irr: rate * 100, method: 'annual-xirr' };
       }
     }
 
-    // CAGR fallback using LP-SPECIFIC hold years (not the vehicle's).
-    // Late-joiner LPs annualize over their own time-at-work, which is
-    // the honest LP framing.
+    // CAGR fallback.
     const irr = lpHoldYears && lpHoldYears > 0
       ? (Math.pow(moic, 1 / lpHoldYears) - 1) * 100
       : null;
-    return { moic, irr };
+    return { moic, irr, method: 'cagr' };
   };
 
   const onInitial = calcReturn(split.initial, split.initialEvents);
@@ -543,10 +517,12 @@ function computeLpReturns(lp, vehicle, yearIdx, years, fundTimeline) {
     // Tells the UI which IRR method was used so it can label/footnote
     // appropriately (cagr for vehicles, xirr for funds).
     irrMethod: isFund ? 'xirr' : 'cagr',
-    // True when the XIRR used real per-LP monthly dates from the Timeline
-    // sheet (not annual buckets). The UI can badge this differently so
-    // the CFO sees which LPs have month-precise IRR vs annual-approx.
-    xirrHasMonthlyDates: !!(isFund && timelineLp?.flows?.length > 0),
+    // Which flavor of XIRR actually ran, so the UI can badge accordingly:
+    // 'monthly-xirr' → real per-LP dates from Timeline (correct)
+    // 'annual-xirr'  → yearly buckets (fallback, timeline unreachable)
+    // 'cagr'         → last-resort geometric mean
+    xirrPath: onInitial.method ?? 'cagr',
+    xirrHasMonthlyDates: onInitial.method === 'monthly-xirr',
   };
 }
 
@@ -1652,7 +1628,11 @@ export default function IRRValuation({ data, user, selectedYear: selectedYearPro
                         cumulative total. The recycled portion is surfaced
                         in the "Capital Activity" breakdown below. */}
                     <KpiTile label={isFund ? 'Called to Date' : 'Cost Basis'} value={fmt(isFund ? myInvestment : myInitial)} compact />
-                    <KpiTile label={isFund ? 'My IRR' : 'IRR'} value={myIrr != null ? `${myIrr.toFixed(1)}%` : '—'}
+                    <KpiTile label={
+                      isFund
+                        ? `My IRR (${myReturns?.xirrPath === 'monthly-xirr' ? 'monthly' : myReturns?.xirrPath === 'annual-xirr' ? 'annual' : 'CAGR'})`
+                        : 'IRR'
+                    } value={myIrr != null ? `${myIrr.toFixed(1)}%` : '—'}
                       tone={myIrr == null ? 'neutral' : myIrr >= 0 ? 'positive' : 'negative'} compact />
                     <KpiTile label={isFund ? 'My MOIC' : 'MOIC'} value={myMoic != null ? `${myMoic.toFixed(1)}x` : '—'}
                       tone={myMoic == null ? 'neutral' : myMoic >= 1 ? 'positive' : 'negative'} compact />
@@ -2015,7 +1995,22 @@ export default function IRRValuation({ data, user, selectedYear: selectedYearPro
                           </TableRow>
                         </TableHeader>
                         <TableBody>
-                          {years.map((year, idx) => {
+                          {(() => {
+                            // First year of the LP's participation (year where
+                            // called first goes positive) — TVPI in that year
+                            // is N/M ("Not Meaningful") per LP-reporting
+                            // convention: a fund's J-curve makes 1st-year TVPI
+                            // always sub-1 and it's not a real underperformance
+                            // signal until at least one full year post-deploy.
+                            let firstActiveIdx = -1;
+                            for (let i = 0; i < years.length; i++) {
+                              const y = years[i];
+                              const c = timelineCalledByYear
+                                ? (timelineCalledByYear[y] ?? 0)
+                                : (myLp.investment?.[i] ?? 0);
+                              if (c > 0) { firstActiveIdx = i; break; }
+                            }
+                            return years.map((year, idx) => {
                             const called = timelineCalledByYear
                               ? (timelineCalledByYear[year] ?? 0)
                               : (myLp.investment?.[idx] ?? 0);
@@ -2032,7 +2027,9 @@ export default function IRRValuation({ data, user, selectedYear: selectedYearPro
                               : (myLp.ownership?.[idx] ?? 0);
                             const vehVal = v.ownershipValue?.[idx];
                             const stakeNav = vehVal != null && ownPctYr > 0 ? vehVal * (ownPctYr / 100) : null;
-                            const tvpi = cumCalled > 0 && stakeNav != null ? stakeNav / cumCalled : null;
+                            const tvpiRaw = cumCalled > 0 && stakeNav != null ? stakeNav / cumCalled : null;
+                            const isFirstActive = idx === firstActiveIdx;
+                            const tvpi = isFirstActive ? null : tvpiRaw;
                             // Skip pre-investment / post-exit empty years
                             if (called === 0 && cumCalled === 0 && (stakeNav == null || stakeNav === 0)) return null;
                             const isSelectedYear = idx === yearIdx;
@@ -2052,10 +2049,14 @@ export default function IRRValuation({ data, user, selectedYear: selectedYearPro
                                   "text-right text-xs tabular-nums",
                                   tvpi != null && tvpi >= 1 && "text-emerald-700",
                                   tvpi != null && tvpi < 1 && "text-red-600",
-                                )}>{tvpi != null ? `${tvpi.toFixed(2)}x` : '—'}</TableCell>
+                                  tvpi == null && isFirstActive && "text-muted-foreground italic",
+                                )} title={isFirstActive ? 'N/M — first year of participation (J-curve; not yet meaningful)' : undefined}>
+                                  {tvpi != null ? `${tvpi.toFixed(2)}x` : (isFirstActive ? 'N/M' : '—')}
+                                </TableCell>
                               </TableRow>
                             );
-                          })}
+                          });
+                          })()}
                         </TableBody>
                       </Table>
                       </div>
@@ -2064,7 +2065,7 @@ export default function IRRValuation({ data, user, selectedYear: selectedYearPro
                         <strong className="text-foreground"> Cum Called</strong> = total paid-in to date.
                         <strong className="text-foreground"> Unfunded</strong> = remaining commitment you haven&apos;t paid in yet.
                         <strong className="text-foreground"> Stake NAV</strong> = your ownership × the fund&apos;s net asset value at year-end.
-                        <strong className="text-foreground"> TVPI</strong> = Stake NAV ÷ Cum Called (Total Value to Paid-In; ≥ 1.00× means you&apos;re in the green).
+                        <strong className="text-foreground"> TVPI</strong> = Stake NAV ÷ Cum Called (Total Value to Paid-In; ≥ 1.00× means you&apos;re in the green). Shown as <em>N/M</em> in the first year of participation — the fund&apos;s J-curve makes year-one TVPI sub-1 by construction, not by underperformance.
                         Capital amounts are gross of management fees (the cheque you wrote).
                       </p>
                     </div>
