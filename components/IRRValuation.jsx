@@ -462,6 +462,23 @@ function computeLpReturns(lp, vehicle, yearIdx, years, fundTimeline) {
       // event-idx path since recycled events are IRR-sheet-derived.
       const timelineFlows = timelineLp?.flows;
       const isInitialBranch = basis === split.initial;
+      // TEMPORARY diagnostic — remove after we confirm which branch fires.
+      // Only logs for the primary "onInitial" branch to keep noise low.
+      if (typeof window !== 'undefined' && isInitialBranch && lp.name) {
+        console.log(`[IRR-DEBUG ${lp.name}]`, {
+          vehicleName: vehicle.name,
+          hasFundTimeline: !!fundTimeline,
+          fundTimelineLpKeys: fundTimeline?.perLp ? Object.keys(fundTimeline.perLp) : null,
+          hasTimelineLp: !!timelineLp,
+          timelineFlowsLen: timelineFlows?.length ?? 0,
+          isInitialBranch,
+          selectedYearNum,
+          basis,
+          splitInitial: split.initial,
+          lpValue,
+          ownPct,
+        });
+      }
       if (timelineFlows && timelineFlows.length > 0 && isInitialBranch && selectedYearNum != null) {
         const firstMs = Date.UTC(timelineFlows[0].year, timelineFlows[0].month - 1, timelineFlows[0].day);
         const YR_MS = 365.25 * 86400e3;
