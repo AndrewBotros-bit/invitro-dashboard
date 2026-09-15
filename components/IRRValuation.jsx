@@ -108,6 +108,33 @@ const FUND_COMMITMENTS = {
   },
 };
 
+/**
+ * Fund lifecycle phase per year — used to badge Capital Call Schedule
+ * rows so the reader interprets J-curve numbers in context. The CFO's
+ * mental model for InVitro Fund I:
+ *   - 2024: fund launches, first LP capital calls
+ *   - 2025: fund deploys those calls into portcos
+ *   - 2026+: hold period — portcos mature, NAV mark-to-market meaningful
+ * Rows in the "calling" and "deployment" phases carry the N/M convention
+ * for TVPI/IRR — J-curve makes both sub-1 / negative by construction and
+ * they're not honest performance signals yet.
+ */
+const FUND_LIFECYCLE = {
+  'InVitro Fund': {
+    2024: { label: 'Calling',       jCurve: true },
+    2025: { label: 'Deployment',    jCurve: true },
+    2026: { label: 'Hold · Y1',     jCurve: false },
+    2027: { label: 'Hold · Y2',     jCurve: false },
+    2028: { label: 'Hold · Y3',     jCurve: false },
+    2029: { label: 'Hold · Y4',     jCurve: false },
+    2030: { label: 'Hold · Y5',     jCurve: false },
+    2031: { label: 'Harvest',       jCurve: false },
+    2032: { label: 'Harvest',       jCurve: false },
+    2033: { label: 'Wind-down',     jCurve: false },
+    2034: { label: 'Term end',      jCurve: false },
+  },
+};
+
 function isFundStructured(vehicleName) {
   return !!FUND_COMMITMENTS[vehicleName];
 }
@@ -2007,11 +2034,8 @@ export default function IRRValuation({ data, user, selectedYear: selectedYearPro
                         <TableBody>
                           {(() => {
                             // First year of the LP's participation (year where
-                            // called first goes positive) — TVPI in that year
-                            // is N/M ("Not Meaningful") per LP-reporting
-                            // convention: a fund's J-curve makes 1st-year TVPI
-                            // always sub-1 and it's not a real underperformance
-                            // signal until at least one full year post-deploy.
+                            // called first goes positive) — used as a fallback
+                            // when the vehicle has no lifecycle config.
                             let firstActiveIdx = -1;
                             for (let i = 0; i < years.length; i++) {
                               const y = years[i];
@@ -2020,7 +2044,9 @@ export default function IRRValuation({ data, user, selectedYear: selectedYearPro
                                 : (myLp.investment?.[i] ?? 0);
                               if (c > 0) { firstActiveIdx = i; break; }
                             }
+                            const lifecycle = FUND_LIFECYCLE[v.name] ?? null;
                             return years.map((year, idx) => {
+                            const phase = lifecycle?.[year] ?? null;
                             const called = timelineCalledByYear
                               ? (timelineCalledByYear[year] ?? 0)
                               : (myLp.investment?.[idx] ?? 0);
@@ -2038,8 +2064,14 @@ export default function IRRValuation({ data, user, selectedYear: selectedYearPro
                             const vehVal = v.ownershipValue?.[idx];
                             const stakeNav = vehVal != null && ownPctYr > 0 ? vehVal * (ownPctYr / 100) : null;
                             const tvpiRaw = cumCalled > 0 && stakeNav != null ? stakeNav / cumCalled : null;
-                            const isFirstActive = idx === firstActiveIdx;
-                            const tvpi = isFirstActive ? null : tvpiRaw;
+                            // Suppress TVPI/IRR when the row is in a J-curve phase
+                            // (calling / deployment) per the fund's lifecycle config —
+                            // sub-1 TVPI and negative IRR in these years reflect the
+                            // fee drag + un-marked-up NAV, not real underperformance.
+                            // Falls back to the old "first active year" rule when
+                            // the vehicle has no lifecycle config.
+                            const isJCurve = phase ? phase.jCurve : (idx === firstActiveIdx);
+                            const tvpi = isJCurve ? null : tvpiRaw;
                             // Per-year monthly XIRR — money-weighted return the LP
                             // would show if they marked to fair value at Dec 31 of
                             // this row's year. Uses the same Timeline monthly flows
@@ -2048,7 +2080,7 @@ export default function IRRValuation({ data, user, selectedYear: selectedYearPro
                             // N/M (J-curve). Falls back to null when the row has no
                             // stake NAV (early years the fund hadn't valued yet).
                             let rowIrr = null;
-                            if (!isFirstActive && stakeNav != null && stakeNav > 0 && tlLp?.flows?.length > 0) {
+                            if (!isJCurve && stakeNav != null && stakeNav > 0 && tlLp?.flows?.length > 0) {
                               const rowTerminalMs = Date.UTC(year, 11, 31);
                               const rowFlowsBefore = tlLp.flows.filter(f =>
                                 Date.UTC(f.year, f.month - 1, f.day) <= rowTerminalMs
@@ -2070,7 +2102,17 @@ export default function IRRValuation({ data, user, selectedYear: selectedYearPro
                             const isSelectedYear = idx === yearIdx;
                             return (
                               <TableRow key={year} className={isSelectedYear ? 'bg-primary/10 font-medium' : ''}>
-                                <TableCell className="text-xs tabular-nums">{year}</TableCell>
+                                <TableCell className="text-xs">
+                                  <div className="tabular-nums">{year}</div>
+                                  {phase && (
+                                    <div className={cn(
+                                      "text-[9px] font-normal uppercase tracking-wide leading-tight mt-0.5",
+                                      phase.jCurve ? "text-amber-700" : "text-emerald-700"
+                                    )}>
+                                      {phase.label}
+                                    </div>
+                                  )}
+                                </TableCell>
                                 <TableCell className="text-right text-xs tabular-nums">{called !== 0 ? fmt(called) : '—'}</TableCell>
                                 <TableCell className="text-right text-xs tabular-nums font-medium">{fmt(cumCalled)}</TableCell>
                                 {myCommitment && (
@@ -2084,17 +2126,17 @@ export default function IRRValuation({ data, user, selectedYear: selectedYearPro
                                   "text-right text-xs tabular-nums",
                                   tvpi != null && tvpi >= 1 && "text-emerald-700",
                                   tvpi != null && tvpi < 1 && "text-red-600",
-                                  tvpi == null && isFirstActive && "text-muted-foreground italic",
-                                )} title={isFirstActive ? 'N/M — first year of participation (J-curve; not yet meaningful)' : undefined}>
-                                  {tvpi != null ? `${tvpi.toFixed(2)}x` : (isFirstActive ? 'N/M' : '—')}
+                                  tvpi == null && isJCurve && "text-muted-foreground italic",
+                                )} title={isJCurve ? `N/M — ${phase?.label ?? 'first year'} phase (J-curve; TVPI sub-1 by construction, not by underperformance)` : undefined}>
+                                  {tvpi != null ? `${tvpi.toFixed(2)}x` : (isJCurve ? 'N/M' : '—')}
                                 </TableCell>
                                 <TableCell className={cn(
                                   "text-right text-xs tabular-nums",
                                   rowIrr != null && rowIrr >= 0 && "text-emerald-700",
                                   rowIrr != null && rowIrr < 0 && "text-red-600",
-                                  rowIrr == null && isFirstActive && "text-muted-foreground italic",
-                                )} title={isFirstActive ? 'N/M — first year of participation (J-curve; not yet meaningful)' : undefined}>
-                                  {rowIrr != null ? `${rowIrr.toFixed(1)}%` : (isFirstActive ? 'N/M' : '—')}
+                                  rowIrr == null && isJCurve && "text-muted-foreground italic",
+                                )} title={isJCurve ? `N/M — ${phase?.label ?? 'first year'} phase (J-curve; IRR negative by construction, not by underperformance)` : undefined}>
+                                  {rowIrr != null ? `${rowIrr.toFixed(1)}%` : (isJCurve ? 'N/M' : '—')}
                                 </TableCell>
                               </TableRow>
                             );
@@ -2108,8 +2150,9 @@ export default function IRRValuation({ data, user, selectedYear: selectedYearPro
                         <strong className="text-foreground"> Cum Called</strong> = total paid-in to date.
                         <strong className="text-foreground"> Unfunded</strong> = remaining commitment you haven&apos;t paid in yet.
                         <strong className="text-foreground"> Stake NAV</strong> = your ownership × the fund&apos;s net asset value at year-end.
-                        <strong className="text-foreground"> TVPI</strong> = Stake NAV ÷ Cum Called (Total Value to Paid-In; ≥ 1.00× means you&apos;re in the green). Shown as <em>N/M</em> in the first year of participation — the fund&apos;s J-curve makes year-one TVPI sub-1 by construction, not by underperformance.
+                        <strong className="text-foreground"> TVPI</strong> = Stake NAV ÷ Cum Called (Total Value to Paid-In; ≥ 1.00× means you&apos;re in the green).
                         <strong className="text-foreground"> IRR</strong> = money-weighted XIRR on your capital calls + this row&apos;s Stake NAV as terminal value at Dec 31; recomputes per row so you see the trajectory year by year.
+                        Rows in <span className="text-amber-700 font-semibold">Calling</span> and <span className="text-amber-700 font-semibold">Deployment</span> phases show TVPI and IRR as <em>N/M</em> — the J-curve makes both sub-par by construction (fee drag + un-marked NAV), not by underperformance. Meaningful returns begin at the <span className="text-emerald-700 font-semibold">Hold</span> phase.
                         Capital amounts are gross of management fees (the cheque you wrote).
                       </p>
                     </div>
