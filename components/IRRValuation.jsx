@@ -405,8 +405,19 @@ function xirr(flows, guess = 0.1) {
  *
  * Returns IRRs in percent units (43 means 43%).
  */
-function computeLpReturns(lp, vehicle, yearIdx, years) {
-  const ownPct = lp.ownership?.[yearIdx] ?? 0;
+function computeLpReturns(lp, vehicle, yearIdx, years, fundTimeline) {
+  // When the fund Timeline sheet provides a per-LP monthly schedule for
+  // this LP, its authoritative ownership% overrides the annual IRR-sheet
+  // number so what we display and what we XIRR-anchor on stay consistent.
+  const timelineLp = fundTimeline?.perLp?.[lp.name];
+  const timelineOwnByYear = timelineLp?.ownershipByYear;
+  const selectedYearNum = years?.[yearIdx];
+  const ownPctFromTimeline = timelineOwnByYear && selectedYearNum != null
+    ? (timelineOwnByYear[selectedYearNum] ?? null)
+    : null;
+  const ownPct = ownPctFromTimeline != null
+    ? ownPctFromTimeline * 100
+    : (lp.ownership?.[yearIdx] ?? 0);
   const vehicleValue = vehicle.ownershipValue?.[yearIdx] ?? 0;
   const lpValue = vehicleValue * (ownPct / 100);
 
@@ -443,17 +454,45 @@ function computeLpReturns(lp, vehicle, yearIdx, years) {
     if (basis <= 0 || lpValue <= 0) return { moic: null, irr: null };
     const moic = lpValue / basis;
 
-    if (isFund && events && events.length > 0) {
-      const firstYearIdx = events[0].yearIdx;
-      const flows = events.map(e => ({
-        amount: -e.amount, // outflow from LP perspective
-        yearsFromStart: e.yearIdx - firstYearIdx,
-      }));
-      // Terminal NAV = positive inflow at the current year.
-      flows.push({ amount: lpValue, yearsFromStart: yearIdx - firstYearIdx });
-      const rate = xirr(flows);
-      if (rate != null) return { moic, irr: rate * 100 };
-      // XIRR didn't converge — fall through to CAGR
+    if (isFund) {
+      // Preferred path: real monthly dates from the Timeline sheet.
+      // Only kicks in for the "initial" branch (basis = split.initial) —
+      // Timeline flows ARE the cash calls, no recycling concept applies.
+      // For the "onTotal" branch (basis includes recycled), keep the
+      // event-idx path since recycled events are IRR-sheet-derived.
+      const timelineFlows = timelineLp?.flows;
+      const isInitialBranch = basis === split.initial;
+      if (timelineFlows && timelineFlows.length > 0 && isInitialBranch && selectedYearNum != null) {
+        const firstMs = Date.UTC(timelineFlows[0].year, timelineFlows[0].month - 1, timelineFlows[0].day);
+        const YR_MS = 365.25 * 86400e3;
+        const flows = timelineFlows.map(f => ({
+          amount: -f.amount, // outflow from LP perspective
+          yearsFromStart: (Date.UTC(f.year, f.month - 1, f.day) - firstMs) / YR_MS,
+        }));
+        // Terminal NAV date = Dec 31 of selected year (fund NAV snapshot).
+        flows.push({
+          amount: lpValue,
+          yearsFromStart: (Date.UTC(selectedYearNum, 11, 31) - firstMs) / YR_MS,
+        });
+        const rate = xirr(flows);
+        if (rate != null) return { moic, irr: rate * 100 };
+      }
+
+      // Fallback path: annual events (from the IRR sheet). Same as before,
+      // but with the terminal NAV placed at year-END (Dec 31), not at the
+      // year index start — matches how the sheet's ownership value is
+      // reported. This alone tightens the annual-XIRR number.
+      if (events && events.length > 0 && years) {
+        const firstEventYear = years[events[0].yearIdx];
+        const selectedYearEnd = years[yearIdx] + 1; // Dec 31 ≈ next Jan 1
+        const flows = events.map(e => ({
+          amount: -e.amount,
+          yearsFromStart: years[e.yearIdx] - firstEventYear,
+        }));
+        flows.push({ amount: lpValue, yearsFromStart: selectedYearEnd - firstEventYear });
+        const rate = xirr(flows);
+        if (rate != null) return { moic, irr: rate * 100 };
+      }
     }
 
     // CAGR fallback using LP-SPECIFIC hold years (not the vehicle's).
@@ -487,6 +526,10 @@ function computeLpReturns(lp, vehicle, yearIdx, years) {
     // Tells the UI which IRR method was used so it can label/footnote
     // appropriately (cagr for vehicles, xirr for funds).
     irrMethod: isFund ? 'xirr' : 'cagr',
+    // True when the XIRR used real per-LP monthly dates from the Timeline
+    // sheet (not annual buckets). The UI can badge this differently so
+    // the CFO sees which LPs have month-precise IRR vs annual-approx.
+    xirrHasMonthlyDates: !!(isFund && timelineLp?.flows?.length > 0),
   };
 }
 
@@ -869,15 +912,37 @@ export default function IRRValuation({ data, user, selectedYear: selectedYearPro
                 // it — only the multiplier math uses the cash slice.
                 const cashBasis = lookThrough._cashTotals?.totalLpCash ?? 0;
                 const consMoic = cashBasis > 0 ? totalAll / cashBasis : null;
-                // Consolidated IRR (CAGR) anchored on the earliest year ANY
-                // contribution to ANY portco started. Approximate — full
-                // XIRR would aggregate per-year flows across direct + every
-                // vehicle slice across every portco; the per-vehicle
-                // XIRR (on the My Performance card) is still the authoritative
-                // per-vehicle number. Same cash-basis MOIC feeds the CAGR
-                // formula so IRR % reflects cash-on-cash return.
+                // Consolidated IRR — real XIRR on the LP's actual cash
+                // outflows to the fund + terminal NAV = totalAll at Dec 31
+                // of the selected year. This is the same money-weighted
+                // rate the per-vehicle "My Performance" XIRR reports,
+                // scaled up to the LP's whole portfolio. Falls back to
+                // CAGR only if no Timeline data OR XIRR fails to converge
+                // — CAGR treats all $ as invested on day one, understating
+                // the true return.
                 let consIrr = null;
-                if (consMoic != null && consMoic > 0 && earliestYearIdxAll !== Infinity) {
+                let consIrrMethod = 'cagr';
+                const fundTL = irr?.fundTimelines?.['InVitro Fund'];
+                const lpFlows = fundTL?.perLp?.[lpName]?.flows;
+                if (lpFlows && lpFlows.length > 0 && totalAll > 0 && years?.[yearIdx] != null) {
+                  const firstMs = Date.UTC(lpFlows[0].year, lpFlows[0].month - 1, lpFlows[0].day);
+                  const YR_MS = 365.25 * 86400e3;
+                  const flows = lpFlows.map(f => ({
+                    amount: -f.amount,
+                    yearsFromStart: (Date.UTC(f.year, f.month - 1, f.day) - firstMs) / YR_MS,
+                  }));
+                  flows.push({
+                    amount: totalAll,
+                    yearsFromStart: (Date.UTC(years[yearIdx], 11, 31) - firstMs) / YR_MS,
+                  });
+                  const rate = xirr(flows);
+                  if (rate != null) {
+                    consIrr = rate * 100;
+                    consIrrMethod = 'xirr';
+                  }
+                }
+                // Fallback: CAGR (previous behavior) when we can't XIRR.
+                if (consIrr == null && consMoic != null && consMoic > 0 && earliestYearIdxAll !== Infinity) {
                   const holdYears = years[yearIdx] - years[earliestYearIdxAll];
                   if (holdYears > 0) consIrr = (Math.pow(consMoic, 1 / holdYears) - 1) * 100;
                 }
@@ -1295,10 +1360,14 @@ export default function IRRValuation({ data, user, selectedYear: selectedYearPro
         const moicPrior = compEnabled ? (v.moic?.[compIdx] ?? null) : null;
         const cos = vehicleCompanies(v.name);
         const myLp = lpName ? v.lps.find(lp => lp.name === lpName) : null;
+        // Fund Timeline is per-vehicle — pulled by name so future funds
+        // (a second vehicle in FUND_COMMITMENTS) can each carry their own
+        // month-precise schedule without ambiguity.
+        const fundTimeline = irr?.fundTimelines?.[v.name];
         // LP-specific returns: ownership %, value, cumulative invested,
         // MOIC, IRR — computed using the actual sheet-provided investment
         // amounts (not vehicle investment × ownership %).
-        const myReturns = myLp ? computeLpReturns(myLp, v, yearIdx, years) : null;
+        const myReturns = myLp ? computeLpReturns(myLp, v, yearIdx, years, fundTimeline) : null;
         const myOwnPct = myReturns?.ownPct ?? 0;
         const myValue = myReturns?.lpValue ?? 0;
         const myInvestment = myReturns?.cumInvest ?? 0;
@@ -1877,10 +1946,31 @@ export default function IRRValuation({ data, user, selectedYear: selectedYearPro
                       Mgmt fees deducted at call time are reflected in the
                       net amount stored in the IRR sheet (not shown as a
                       separate column here — can be added later if needed). */}
-                  {isFund && myLp.investment?.some(x => x != null && x !== 0) && (
+                  {isFund && myLp.investment?.some(x => x != null && x !== 0) && (() => {
+                    // When Timeline data is available for this LP, the
+                    // schedule table sources its per-year "Called" from
+                    // real monthly flows (not the IRR sheet's annual
+                    // buckets). This fixes the fiscal-year artifact where
+                    // e.g. Fr. Botros's Sept 2024 contribution was
+                    // rolled into 2025's annual column. Ownership% also
+                    // switches to the Timeline's authoritative per-year
+                    // value when present.
+                    const tlLp = fundTimeline?.perLp?.[myLp.name];
+                    const timelineCalledByYear = tlLp?.flows
+                      ? tlLp.flows.reduce((acc, f) => {
+                          acc[f.year] = (acc[f.year] ?? 0) + f.amount;
+                          return acc;
+                        }, {})
+                      : null;
+                    return (
                     <div className="mt-4 pt-4 border-t border-primary/20">
                       <p className="text-[11px] font-semibold uppercase tracking-wide text-primary mb-2">
                         Capital Call Schedule
+                        {timelineCalledByYear && (
+                          <span className="ml-2 text-[9px] font-normal text-muted-foreground">
+                            (month-precise · from Fund Timeline)
+                          </span>
+                        )}
                       </p>
                       <div className="overflow-x-auto">
                       <Table>
@@ -1897,13 +1987,20 @@ export default function IRRValuation({ data, user, selectedYear: selectedYearPro
                         </TableHeader>
                         <TableBody>
                           {years.map((year, idx) => {
-                            const called = myLp.investment?.[idx] ?? 0;
-                            const cumCalled = (myLp.investment ?? [])
-                              .slice(0, idx + 1)
-                              .reduce((a, v) => a + (v ?? 0), 0);
+                            const called = timelineCalledByYear
+                              ? (timelineCalledByYear[year] ?? 0)
+                              : (myLp.investment?.[idx] ?? 0);
+                            const cumCalled = timelineCalledByYear
+                              ? years.slice(0, idx + 1)
+                                  .reduce((a, y) => a + (timelineCalledByYear[y] ?? 0), 0)
+                              : (myLp.investment ?? [])
+                                  .slice(0, idx + 1)
+                                  .reduce((a, v) => a + (v ?? 0), 0);
                             const pctCommitted = myCommitment ? (cumCalled / myCommitment) * 100 : null;
                             const unfunded = myCommitment ? Math.max(0, myCommitment - cumCalled) : null;
-                            const ownPctYr = myLp.ownership?.[idx] ?? 0;
+                            const ownPctYr = tlLp?.ownershipByYear?.[year] != null
+                              ? tlLp.ownershipByYear[year] * 100
+                              : (myLp.ownership?.[idx] ?? 0);
                             const vehVal = v.ownershipValue?.[idx];
                             const stakeNav = vehVal != null && ownPctYr > 0 ? vehVal * (ownPctYr / 100) : null;
                             const tvpi = cumCalled > 0 && stakeNav != null ? stakeNav / cumCalled : null;
@@ -1939,10 +2036,11 @@ export default function IRRValuation({ data, user, selectedYear: selectedYearPro
                         <strong className="text-foreground"> Unfunded</strong> = remaining commitment you haven&apos;t paid in yet.
                         <strong className="text-foreground"> Stake NAV</strong> = your ownership × the fund&apos;s net asset value at year-end.
                         <strong className="text-foreground"> TVPI</strong> = Stake NAV ÷ Cum Called (Total Value to Paid-In; ≥ 1.00× means you&apos;re in the green).
-                        Capital amounts are net of any management fees deducted at call.
+                        Capital amounts are gross of management fees (the cheque you wrote).
                       </p>
                     </div>
-                  )}
+                    );
+                  })()}
 
                   {/* Capital Activity breakdown — only shown when recycling has happened */}
                   {hasRecycling && (
@@ -2014,7 +2112,7 @@ export default function IRRValuation({ data, user, selectedYear: selectedYearPro
                     </TableHeader>
                     <TableBody>
                       {rosterLps.map(lp => {
-                        const r = computeLpReturns(lp, v, yearIdx, years);
+                        const r = computeLpReturns(lp, v, yearIdx, years, fundTimeline);
                         const { ownPct, lpValue, cumInvest, initialContrib, recycledAlloc,
                           moic: lpMoic, irr: lpIrr, moicOnTotal, irrOnTotal, irrMethod,
                           lpHoldYears, lpFirstYear } = r;
