@@ -16,6 +16,7 @@ import { Button } from "@/components/ui/button";
 import { generateInsights } from "@/lib/insights";
 import { Drawer, DrawerContent, DrawerHeader, DrawerTitle, DrawerDescription, DrawerClose } from "@/components/ui/drawer";
 import DashboardSidebar from "@/components/DashboardSidebar";
+import LpDocuments from "@/components/LpDocuments";
 import { CompanyAboutPanel } from "@/components/CompanyAboutPanel";
 import IRRValuation from "@/components/IRRValuation";
 
@@ -4953,6 +4954,10 @@ export default function InVitroDashboard({ data: rawData, user }) {
               </Card>
             )}
           </>)}
+
+          {activeSection === 'documents' && (
+            <LpDocuments userName={user?.name} />
+          )}
 
           {activeSection === 'irr' && (
             <IRRValuation

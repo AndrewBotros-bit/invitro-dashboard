@@ -18,6 +18,11 @@ const CONSOLIDATED_KEY = '__consolidated__';
 // Revenue" one nested selection instead of two independent ones.
 const INVESTMENT_TABS = [
   { id: 'irr', label: 'IRR & Valuation', icon: '📈' },
+  // Documents section — admin uploads files here per LP; the LP sees
+  // their own folder. Shown to every authenticated user (Dashboard's
+  // canSeeTab hook can hide it for kiosks / view-only accounts if
+  // needed).
+  { id: 'documents', label: 'Documents', icon: '📄' },
 ];
 
 const PORTFOLIO_TABS = [

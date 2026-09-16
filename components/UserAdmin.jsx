@@ -295,6 +295,153 @@ function ConfirmModal({ open, title, message, confirmLabel = 'Confirm', danger =
   );
 }
 
+// ─── Per-user documents panel (admin-side upload/download/delete) ─────────
+
+function DocumentsPanel({ username, userDisplayName }) {
+  const [docs, setDocs] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const [status, setStatus] = useState('');
+  const [error, setError] = useState('');
+
+  async function refresh() {
+    if (!username) return;
+    setLoading(true); setError('');
+    try {
+      const res = await fetch(`/api/admin/documents/${encodeURIComponent(username)}`);
+      const j = await res.json();
+      if (!res.ok) throw new Error(j.error || 'List failed');
+      setDocs(j.docs || []);
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => { refresh(); }, [username]);
+
+  async function onUpload(e) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setUploading(true); setError(''); setStatus('');
+    const fd = new FormData();
+    fd.append('file', file);
+    try {
+      const res = await fetch(`/api/admin/documents/${encodeURIComponent(username)}`, {
+        method: 'POST',
+        body: fd,
+      });
+      const j = await res.json();
+      if (!res.ok) throw new Error(j.error || 'Upload failed');
+      const emailNote = j.notify?.ok ? ' — email sent'
+        : j.notify?.skipped ? ` — email skipped (${j.notify.reason})`
+        : j.notify?.error ? ` — email failed: ${j.notify.error}`
+        : '';
+      setStatus(`Uploaded "${file.name}"${emailNote}`);
+      await refresh();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setUploading(false);
+      // Reset the input so the same file can be re-uploaded if needed
+      e.target.value = '';
+    }
+  }
+
+  async function onDelete(key, filename) {
+    if (!confirm(`Delete "${filename}"? This can't be undone.`)) return;
+    setError(''); setStatus('');
+    try {
+      const res = await fetch(
+        `/api/admin/documents/${encodeURIComponent(username)}?key=${encodeURIComponent(key)}`,
+        { method: 'DELETE' }
+      );
+      const j = await res.json();
+      if (!res.ok) throw new Error(j.error || 'Delete failed');
+      setStatus(`Deleted "${filename}"`);
+      await refresh();
+    } catch (err) {
+      setError(err.message);
+    }
+  }
+
+  const fmtSize = n => n < 1024 ? `${n} B`
+    : n < 1024 * 1024 ? `${(n / 1024).toFixed(1)} KB`
+    : `${(n / 1024 / 1024).toFixed(1)} MB`;
+  const fmtDate = iso => iso ? new Date(iso).toLocaleString('en-US', {
+    year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit',
+  }) : '—';
+
+  return (
+    <Card className="mt-4">
+      <CardHeader className="pb-3">
+        <CardTitle className="text-sm">
+          Documents for {userDisplayName || username}
+          <span className="ml-2 text-xs font-normal text-muted-foreground">({docs.length})</span>
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        {loading && <p className="text-sm text-muted-foreground">Loading…</p>}
+        {!loading && docs.length === 0 && (
+          <p className="text-sm text-muted-foreground">No documents uploaded for this user yet.</p>
+        )}
+        {!loading && docs.length > 0 && (
+          <div className="border rounded-lg overflow-hidden">
+            <table className="w-full text-sm">
+              <thead className="bg-muted/50 text-xs uppercase text-muted-foreground">
+                <tr>
+                  <th className="text-left px-3 py-2">Filename</th>
+                  <th className="text-right px-3 py-2">Size</th>
+                  <th className="text-right px-3 py-2">Uploaded</th>
+                  <th className="text-right px-3 py-2 w-24">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {docs.map(d => (
+                  <tr key={d.key} className="border-t">
+                    <td className="px-3 py-2 font-medium truncate">{d.filename}</td>
+                    <td className="px-3 py-2 text-right tabular-nums text-muted-foreground">{fmtSize(d.size)}</td>
+                    <td className="px-3 py-2 text-right tabular-nums text-muted-foreground text-xs">{fmtDate(d.uploadedAt)}</td>
+                    <td className="px-3 py-2 text-right">
+                      <div className="flex justify-end gap-1">
+                        <a href={`/api/documents/download?key=${encodeURIComponent(d.key)}`}
+                           className="text-xs px-2 py-1 rounded border hover:bg-muted"
+                           title="Download">↓</a>
+                        <button type="button"
+                          onClick={() => onDelete(d.key, d.filename)}
+                          className="text-xs px-2 py-1 rounded border text-red-600 hover:bg-red-50"
+                          title="Delete">×</button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+
+        <div className="flex items-center gap-3 pt-2">
+          <label className={cn(
+            "cursor-pointer inline-flex items-center gap-2 rounded-lg border-2 border-dashed px-4 py-2 text-sm font-medium",
+            uploading ? "opacity-50 pointer-events-none" : "hover:bg-muted",
+          )}>
+            <input type="file" className="hidden" onChange={onUpload} disabled={uploading}
+              accept=".pdf,.png,.jpg,.jpeg,.csv,.xlsx,.xls" />
+            {uploading ? 'Uploading…' : '+ Upload file'}
+          </label>
+          <span className="text-xs text-muted-foreground">
+            PDF, image, CSV, or spreadsheet · max 25 MB · LP gets an email if RESEND_API_KEY is set
+          </span>
+        </div>
+
+        {error && <p className="text-sm text-red-600 font-medium">{error}</p>}
+        {status && <p className="text-sm text-emerald-600 font-medium">{status}</p>}
+      </CardContent>
+    </Card>
+  );
+}
+
 // ─── Strong random password (client-side, crypto.getRandomValues) ──────────
 
 function generateStrongPassword(length = 16) {
@@ -1102,6 +1249,17 @@ export default function UserAdmin({ currentUser, lpNames = [], lpCompaniesMap = 
               </form>
             </CardContent>
           </Card>
+
+          {/* Per-user documents panel. Only rendered when editing an
+              existing user — creating a new user has to save first before
+              they can receive documents (the /api/admin/documents route
+              404s on unknown usernames). */}
+          {editingUsername && (
+            <DocumentsPanel
+              username={editingUsername}
+              userDisplayName={form.name || editingUsername}
+            />
+          )}
         </div>
       </div>
 
