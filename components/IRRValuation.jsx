@@ -460,12 +460,38 @@ function computeLpReturns(lp, vehicle, yearIdx, years, fundTimeline, periods) {
     ? Date.parse(periods[yearIdx].endDate)
     : (selectedYearNum != null ? Date.UTC(selectedYearNum, 11, 31) : null);
 
+  const isFund = isFundStructured(vehicle.name);
+
+  // Basis (cumulative capital called) source:
+  //   - Fund vehicles with Timeline data → sum of real Timeline flows
+  //     dated ≤ this period's end. The IRR sheet's Investment column
+  //     for fund LPs is now a CUMULATIVE snapshot per period (Q1/Q2/Q3
+  //     of a year all show the same running total, jumps only when a
+  //     new call lands), so sum-of-series over-counts. Timeline is
+  //     per-payment and unambiguous.
+  //   - All other vehicles → keep the historical per-period-series
+  //     summation via splitContributions.
   const series = lp.investment ?? [];
   const recyclingStartYear = VEHICLE_RECYCLING_START_YEAR[vehicle.name];
-  const split = splitContributions(series, yearIdx, years, recyclingStartYear);
+  let split;
+  if (isFund && timelineLp?.flows?.length > 0 && selectedPeriodEndMs != null) {
+    const flowsUpTo = timelineLp.flows.filter(f =>
+      Date.UTC(f.year, f.month - 1, f.day) <= selectedPeriodEndMs
+    );
+    const total = flowsUpTo.reduce((s, f) => s + f.amount, 0);
+    // Map Timeline flows into the (yearIdx, amount) event shape the
+    // rest of the function expects — yearIdx aligned to each flow's
+    // year for CAGR / annual-fallback anchoring.
+    const initialEvents = flowsUpTo.map(f => {
+      const yr = f.year;
+      const idx = years.findIndex(y => y === yr);
+      return { yearIdx: idx >= 0 ? idx : 0, amount: f.amount };
+    });
+    split = { initial: total, recycled: 0, initialEvents, recycledEvents: [] };
+  } else {
+    split = splitContributions(series, yearIdx, years, recyclingStartYear);
+  }
   const cumInvest = split.initial + split.recycled;
-
-  const isFund = isFundStructured(vehicle.name);
 
   // LP-specific hold years: from this LP's FIRST investment year to the
   // currently-selected year. Per Andrew: "each LP has his own initial year."
