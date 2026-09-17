@@ -596,6 +596,43 @@ function xirr(flows, guess = 0.1) {
 }
 
 /**
+ * Fund-level money-weighted IRR, computed from the Fund Timeline.
+ *
+ * The sheet's "IRR, % (annualized)" row is populated for the other four
+ * vehicles but blank for InVitro Fund until Q4 2026, which left the
+ * fund's IRR tile showing "—" in every current period. Rather than wait
+ * on the sheet we derive it the same way each LP's own IRR is derived:
+ * every LP capital call dated on or before the period end is an outflow,
+ * the fund's NAV at that date is the terminal inflow, solved with the
+ * same XIRR used elsewhere on this page.
+ *
+ * Returns a percentage, or null when there is nothing to solve (no
+ * flows, no NAV, or no convergence) so the sheet value stays preferred
+ * and the tile falls back to "—".
+ */
+function computeFundXirr(fundTimeline, navAtPeriodEnd, periodEndMs) {
+  const perLp = fundTimeline?.perLp;
+  if (!perLp || periodEndMs == null || !(navAtPeriodEnd > 0)) return null;
+  const paid = [];
+  for (const lp of Object.values(perLp)) {
+    for (const f of lp?.flows ?? []) {
+      const ms = Date.UTC(f.year, f.month - 1, f.day);
+      if (ms <= periodEndMs) paid.push({ ms, amount: f.amount });
+    }
+  }
+  if (!paid.length) return null;
+  const firstMs = Math.min(...paid.map(f => f.ms));
+  const YR_MS = 365.25 * 86400e3;
+  const flows = paid.map(f => ({
+    amount: -f.amount,
+    yearsFromStart: (f.ms - firstMs) / YR_MS,
+  }));
+  flows.push({ amount: navAtPeriodEnd, yearsFromStart: (periodEndMs - firstMs) / YR_MS });
+  const rate = xirr(flows);
+  return rate == null ? null : rate * 100;
+}
+
+/**
  * Compute LP-specific returns for the selected year using two framings:
  *
  *   onInitial (Carta-style — primary display)
@@ -1750,6 +1787,14 @@ export default function IRRValuation({ data, user, selectedYear: selectedYearPro
         const fundPrepaid = fundCallSummary?.prepaid ?? 0;
         const fundLpsOverdue = fundCallSummary?.lpsOverdue ?? 0;
         const fundInWindow = fundCallSummary?.inWindow ?? 0;
+        // The sheet wins where it has a value. Where it does not — the
+        // fund's IRR row is blank until Q4 2026 — derive it from the
+        // Timeline calls against this period's NAV so the tile carries a
+        // number instead of a dash. Flagged in the tooltip as computed.
+        const irrIsDerived = irrPct == null && isFund;
+        const irrDisplayPct = irrIsDerived
+          ? computeFundXirr(fundTimeline, ownership, periodEndMs)
+          : irrPct;
         const fundPctCalled = isFund && fundTotalCommit > 0 ? (fundCalledToDate / fundTotalCommit) * 100 : null;
         const fundPctFunded = isFund && fundTotalCommit > 0 ? (fundFundedToDate / fundTotalCommit) * 100 : null;
 
@@ -1854,9 +1899,14 @@ export default function IRRValuation({ data, user, selectedYear: selectedYearPro
                   delta={compEnabled && <DeltaBadge current={ownership} prior={ownershipPrior} compareYear={compareYear} />} />
                 <KpiTile label="Total Investment" value={fmt(investment)}
                   delta={compEnabled && <DeltaBadge current={investment} prior={investmentPrior} compareYear={compareYear} />} />
-                <KpiTile label="IRR" value={irrPct != null ? `${irrPct.toFixed(1)}%` : '—'}
-                  tone={irrPct == null ? 'neutral' : irrPct >= 0 ? 'positive' : 'negative'}
-                  delta={compEnabled && <DeltaBadge current={irrPct} prior={irrPrior} compareYear={compareYear} />} />
+                <KpiTile
+                  label={irrIsDerived && irrDisplayPct != null ? 'IRR (computed)' : 'IRR'}
+                  title={irrIsDerived && irrDisplayPct != null
+                    ? 'Not in the sheet for this period — XIRR of the Fund Timeline capital calls against this period’s NAV'
+                    : undefined}
+                  value={irrDisplayPct != null ? `${irrDisplayPct.toFixed(1)}%` : '—'}
+                  tone={irrDisplayPct == null ? 'neutral' : irrDisplayPct >= 0 ? 'positive' : 'negative'}
+                  delta={compEnabled && <DeltaBadge current={irrDisplayPct} prior={irrPrior} compareYear={compareYear} />} />
                 <KpiTile label="MOIC" value={moic != null ? `${moic.toFixed(1)}x` : '—'}
                   tone={moic == null ? 'neutral' : moic >= 1 ? 'positive' : 'negative'}
                   delta={compEnabled && <DeltaBadge current={moic} prior={moicPrior} compareYear={compareYear} />} />
@@ -2774,17 +2824,19 @@ export default function IRRValuation({ data, user, selectedYear: selectedYearPro
 }
 
 /** Compact KPI tile used inside a card header strip. */
-function KpiTile({ label, value, tone = 'neutral', compact = false, delta = null }) {
+function KpiTile({ label, value, tone = 'neutral', compact = false, delta = null, title }) {
   const toneCls = {
     positive: 'text-emerald-600',
     negative: 'text-red-500',
     neutral: 'text-foreground',
   }[tone];
   return (
-    <div className={cn(
-      "rounded-md border bg-card p-3",
-      compact && "p-2.5"
-    )}>
+    <div
+      title={title}
+      className={cn(
+        "rounded-md border bg-card p-3",
+        compact && "p-2.5"
+      )}>
       <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">{label}</p>
       <p className={cn("font-bold tabular-nums mt-0.5", compact ? "text-base" : "text-lg", toneCls)}>{value}</p>
       {delta}
