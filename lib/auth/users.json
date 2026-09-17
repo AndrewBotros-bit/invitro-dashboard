@@ -11,18 +11,6 @@
     }
   },
   {
-    "username": "claude-q-lp",
-    "passwordHash": "$2b$10$t2oWXAJ1Lts9MY8dArcaEu2vjg49V2iIYnb0Lss3kf.GVl/TEI2Xi",
-    "name": "Claude Q (temp LP)",
-    "role": "viewer",
-    "permissions": {
-      "companies": "*",
-      "tabs": "*",
-      "breakdowns": "*",
-      "lpName": "Fr. Botros Samy"
-    }
-  },
-  {
     "username": "Germin",
     "name": "Germin Elzoghby",
     "passwordHash": "$2b$10$Sob.1kCEW5.tuzDSueelJON/aN8yV.NHLZIL4WhVjgo5yfoWXb59C",
