@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { cookies } from 'next/headers';
 import { verifySessionToken, COOKIE_NAME } from '@/lib/auth';
-import { listUserDocuments, getSeenKeys } from '@/lib/documents';
+import { listUserDocuments, getSeenKeys, documentOwnerKey } from '@/lib/documents';
 
 /**
  * LP-facing document list. Session-scoped — always returns only the
@@ -15,9 +15,12 @@ export async function GET() {
   const user = verifySessionToken(session.value);
   if (!user) return NextResponse.json({ error: 'Invalid session' }, { status: 401 });
   try {
+    // Keyed by investor, not login — an LP with two accounts sees the
+    // same folder and the same read receipts from either one.
+    const owner = documentOwnerKey(user);
     const [docs, seen] = await Promise.all([
-      listUserDocuments(user.username),
-      getSeenKeys(user.username),
+      listUserDocuments(owner),
+      getSeenKeys(owner),
     ]);
     // `isNew` = never downloaded by this LP. Newest first so a fresh K-1
     // is the first thing they see.

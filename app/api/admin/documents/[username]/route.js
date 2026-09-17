@@ -6,6 +6,7 @@ import {
   uploadUserDocument,
   deleteUserDocument,
   keyBelongsToUser,
+  documentOwnerKey,
 } from '@/lib/documents';
 import { sendDocumentUploadedEmail } from '@/lib/document-email';
 
@@ -43,7 +44,7 @@ export async function GET(_request, { params }) {
   const target = findUser(username);
   if (!target) return NextResponse.json({ error: 'User not found' }, { status: 404 });
   try {
-    const docs = await listUserDocuments(username);
+    const docs = await listUserDocuments(documentOwnerKey(target));
     return NextResponse.json({ username: target.username, name: target.name, docs });
   } catch (err) {
     return NextResponse.json({ error: err.message || 'List failed' }, { status: 500 });
@@ -79,7 +80,7 @@ export async function POST(request, { params }) {
 
   const buf = Buffer.from(await file.arrayBuffer());
   try {
-    const { key } = await uploadUserDocument(username, file.name, buf, file.type);
+    const { key } = await uploadUserDocument(documentOwnerKey(target), file.name, buf, file.type);
     // Best-effort email notification; upload succeeds either way.
     const notify = await sendDocumentUploadedEmail({
       toEmail: target.email,
@@ -99,10 +100,14 @@ export async function DELETE(request, { params }) {
   if (guard.error) return NextResponse.json({ error: guard.error }, { status: guard.status });
 
   const { username } = params;
+  // Needed to resolve the investor this login belongs to — deleting is
+  // checked against the owner's folder, not the login's name.
+  const target = findUser(username);
+  if (!target) return NextResponse.json({ error: 'User not found' }, { status: 404 });
   const { searchParams } = new URL(request.url);
   const key = searchParams.get('key');
   if (!key) return NextResponse.json({ error: 'key required' }, { status: 400 });
-  if (!keyBelongsToUser(key, username)) {
+  if (!keyBelongsToUser(key, documentOwnerKey(target))) {
     return NextResponse.json({ error: 'Key does not belong to this user' }, { status: 400 });
   }
   try {

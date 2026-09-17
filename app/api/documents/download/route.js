@@ -1,6 +1,6 @@
 import { cookies } from 'next/headers';
 import { verifySessionToken, isAdmin, COOKIE_NAME } from '@/lib/auth';
-import { fetchDocumentBytes, keyBelongsToUser, markDocumentSeen } from '@/lib/documents';
+import { fetchDocumentBytes, keyBelongsToUser, markDocumentSeen, documentOwnerKey } from '@/lib/documents';
 
 /**
  * Authenticated document download.
@@ -25,7 +25,7 @@ export async function GET(request) {
 
   // Admins can pull anyone's file. Everyone else can only pull from
   // their own folder — even if they guessed a valid key.
-  if (!isAdmin(user) && !keyBelongsToUser(key, user.username)) {
+  if (!isAdmin(user) && !keyBelongsToUser(key, documentOwnerKey(user))) {
     return new Response('Forbidden', { status: 403 });
   }
 
@@ -36,7 +36,7 @@ export async function GET(request) {
   // themselves — an admin previewing a file must not mark it as read on
   // the LP's behalf, or the LP loses the signal that it arrived.
   if (!isAdmin(user)) {
-    await markDocumentSeen(user.username, key);
+    await markDocumentSeen(documentOwnerKey(user), key);
   }
 
   return new Response(doc.buffer, {
