@@ -932,6 +932,32 @@ export default function IRRValuation({ data, user, selectedYear: selectedYearPro
     const vehicleInitTotal = new Map();      // vehicleName → total initial deployment to non-Studio
     const vehicleRecTotal = new Map();       // vehicleName → total recycled deployment to non-Studio
     const vehicleEarliestYearIdx = new Map();
+    // NAV reconciliation. Per-company stake = valuation × the sheet's
+    // ownership % — but that % row is rounded to one decimal while the
+    // sheet's own "Shareholders ownership, $" NAV row is computed at full
+    // precision. For the fund at Q3 2026 the true holding is 4.2861% and
+    // the sheet stores 4.3%, so summing the per-company stakes overstates
+    // NAV by $9,113 and the Look-Through total came out $2K above the
+    // per-vehicle card for the same LP. We scale the per-company values
+    // so they add back to the authoritative NAV row: the split across
+    // portcos is preserved, the total agrees, and the two cards stop
+    // disagreeing about one number. Scale is ~1.0 wherever the sheet is
+    // already self-consistent.
+    const vehicleNavScale = new Map();
+    for (const v of irr.vehicles || []) {
+      let computedNav = 0;
+      for (const co of irr.companies || []) {
+        if (!isOperatingPortco(co.name)) continue;
+        const val = co.financials?.valuation?.[yearIdx] ?? 0;
+        const pct = co.ownership?.[v.name]?.[yearIdx] ?? 0;
+        computedNav += (val * pct) / 100;
+      }
+      const sheetNav = v.ownershipValue?.[yearIdx] ?? 0;
+      vehicleNavScale.set(
+        v.name,
+        computedNav > 0 && sheetNav > 0 ? sheetNav / computedNav : 1,
+      );
+    }
     for (const v of irr.vehicles || []) {
       const lpInVehicle = v.lps?.find(lp => lp.name === lpNameArg);
       if (!lpInVehicle) continue;
@@ -1024,7 +1050,10 @@ export default function IRRValuation({ data, user, selectedYear: selectedYearPro
         if (lpInVehiclePct === 0) continue;
         // Effective ownership: vehicle's % of portco × LP's % of vehicle
         const effectivePct = (vehicleOwnsCoPct * lpInVehiclePct) / 100;
-        const effectiveValue = valuation * (effectivePct / 100);
+        // Scaled so the portco stakes sum back to the vehicle's own NAV
+        // row rather than to the rounded-ownership recomputation.
+        const effectiveValue =
+          valuation * (effectivePct / 100) * (vehicleNavScale.get(v.name) ?? 1);
         // PHASE-SPLIT attribution: LP's initial cash → allocated to where
         // the vehicle deployed during its initial phase; LP's recycled
         // cash → allocated to where the vehicle deployed during recycling.
