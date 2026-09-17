@@ -72,27 +72,32 @@ const VEHICLE_CONVERSION_YEAR = {
 };
 
 /**
- * Fund commitments — distinguishes "investment vehicles" (direct holdings,
- * no commitment concept) from "funds" (committed-capital structure with
- * multi-year capital calls).
+ * Fund STRUCTURE — which vehicles are funds (committed capital, called in
+ * instalments) rather than direct-holding vehicles, and the shape of their
+ * call schedule.
  *
- * For each fund-structured vehicle, declare:
- *   - totalCommitment: total LP pledge across all LPs
- *   - commitmentPeriodYears: [firstYear, lastYear] — when calls happen
- *   - perLP: each LP's individual commitment amount
+ * Deliberately carries NO money. Commitment amounts used to live here as
+ * `totalCommitment` and a `perLP` table, and they rotted: the map said
+ * George Ayad had committed $125K while the Fund Timeline sheet said
+ * $250K, so his own page understated his commitment by half. Every
+ * amount now comes from the Timeline sheet, in line with the repo rule
+ * that financial data is not hardcoded in source.
  *
- * Vehicles NOT in this map are treated as direct-investment vehicles
- * (Barsoum Brothers, Curenta Enterprise, InVitro Ventures). No
- * Committed/Called/Unfunded display for them.
+ * What stays here is structure the sheet does not express:
+ *   - commitmentPeriodYears: [firstYear, lastYear] — instalments are
+ *     split evenly across these years
+ *   - callScheduleMonth / callWindowEndMonth — the annual call window
  *
- * Edit this when:
- *   - LP commitment amounts change (rebalancing, new LPs joining)
- *   - A new fund structure launches
- *   - An LP defaults or buys more
+ * Vehicles absent from this map are direct-investment vehicles (Barsoum
+ * Brothers, Curenta Enterprise, InVitro Ventures) and get no
+ * Committed/Called/Funded display.
+ *
+ * Edit this only when a fund's STRUCTURE changes — a new fund launches,
+ * or the call period or window moves. LPs joining, leaving or resizing
+ * their commitment need no change here at all.
  */
 const FUND_COMMITMENTS = {
   'InVitro Fund': {
-    totalCommitment: 2_125_000,
     commitmentPeriodYears: [2024, 2027],
     // Calls go out in the Sep–Nov window of each year in the commitment
     // period, in equal annual installments (4 years → 25% each).
@@ -106,17 +111,6 @@ const FUND_COMMITMENTS = {
     // September began, when they simply had not reached their due date.
     callScheduleMonth: 9,
     callWindowEndMonth: 11,
-    perLP: {
-      'Fr. Botros Samy': 400_000,
-      'Atef Rafla':      400_000,
-      'Medhat Mikhail':  300_000,
-      'Laila Pence':     250_000,
-      'Mario Karras':    250_000,
-      'Daniella Karras': 250_000,
-      'Hala Karras':     100_000,
-      'Marie Youssef':    50_000,
-      'George Ayad':     125_000,
-    },
   },
 };
 
@@ -151,33 +145,26 @@ function isFundStructured(vehicleName) {
   return !!FUND_COMMITMENTS[vehicleName];
 }
 /**
- * An LP's commitment. The Fund Timeline sheet carries each LP's committed
- * amount and is the live source of truth; FUND_COMMITMENTS.perLP is a
- * stale hardcoded mirror kept only as a fallback for vehicles with no
- * Timeline data. (They already disagree: the map had George Ayad at
- * $125K while the sheet says $250K.)
+ * An LP's commitment, from the Fund Timeline sheet — the only source.
+ * Returns null when the sheet has no record, so the UI shows "—" rather
+ * than a number nobody can trace back to the books.
  */
 function getLpCommitment(vehicleName, lpName, fundTimeline) {
-  const fromTimeline = fundTimeline?.perLp?.[lpName]?.commitment;
-  if (fromTimeline != null) return fromTimeline;
-  return FUND_COMMITMENTS[vehicleName]?.perLP?.[lpName] ?? null;
+  return fundTimeline?.perLp?.[lpName]?.commitment ?? null;
 }
 
 /**
- * Fund-level committed capital — sum of the Timeline sheet's per-LP
- * commitments, falling back to the hardcoded total when Timeline is
- * unavailable. Derived rather than hardcoded so a new LP or a
- * rebalanced commitment flows through without a code change.
+ * Fund-level committed capital — the sum of the Timeline sheet's per-LP
+ * commitments. Derived rather than declared, so an LP joining, leaving
+ * or resizing flows straight through with no code change.
  */
 function fundCommittedTotal(vehicleName, fundTimeline) {
   const perLp = fundTimeline?.perLp;
-  if (perLp) {
-    const entries = Object.values(perLp).filter(l => l?.commitment != null);
-    if (entries.length > 0) {
-      return entries.reduce((s, l) => s + l.commitment, 0);
-    }
-  }
-  return FUND_COMMITMENTS[vehicleName]?.totalCommitment ?? null;
+  if (!perLp) return null;
+  const entries = Object.values(perLp).filter(l => l?.commitment != null);
+  return entries.length > 0
+    ? entries.reduce((s, l) => s + l.commitment, 0)
+    : null;
 }
 
 /**
@@ -969,17 +956,17 @@ export default function IRRValuation({ data, user, selectedYear: selectedYearPro
     const vehicleInitTotal = new Map();      // vehicleName → total initial deployment to non-Studio
     const vehicleRecTotal = new Map();       // vehicleName → total recycled deployment to non-Studio
     const vehicleEarliestYearIdx = new Map();
-    // NAV reconciliation. Per-company stake = valuation × the sheet's
-    // ownership % — but that % row is rounded to one decimal while the
-    // sheet's own "Shareholders ownership, $" NAV row is computed at full
-    // precision. For the fund at Q3 2026 the true holding is 4.2861% and
-    // the sheet stores 4.3%, so summing the per-company stakes overstates
-    // NAV by $9,113 and the Look-Through total came out $2K above the
-    // per-vehicle card for the same LP. We scale the per-company values
-    // so they add back to the authoritative NAV row: the split across
-    // portcos is preserved, the total agrees, and the two cards stop
-    // disagreeing about one number. Scale is ~1.0 wherever the sheet is
-    // already self-consistent.
+    // NAV reconciliation guard. Per-company stake = valuation × the
+    // sheet's ownership %, which only reconciles to the sheet's own
+    // "Shareholders ownership, $" NAV row if that % carries enough
+    // precision. It briefly did not: the ownership rows were formatted to
+    // one decimal (4.3% for a true 4.2861%), which overstated fund NAV by
+    // $9,113 and made the Look-Through card report $466K against the
+    // per-vehicle card's $464K for the same LP. Andrew has since widened
+    // the sheet's ownership rows to three decimals, so the scale is now
+    // ~1.0000 and this corrects only sub-dollar rounding — it stays as a
+    // guard so a future row added at one decimal cannot silently
+    // reintroduce a five-figure discrepancy between the two cards.
     const vehicleNavScale = new Map();
     for (const v of irr.vehicles || []) {
       let computedNav = 0;
