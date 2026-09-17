@@ -212,8 +212,28 @@ function sumFundFundedThroughPeriod(fundTimeline, periodEndMs) {
 function lpFundedThroughPeriod(fundTimeline, lpName, periodEndMs) {
   const flows = fundTimeline?.perLp?.[lpName]?.flows;
   if (!flows?.length || periodEndMs == null) return null;
+  // Contributions only. Today every Timeline row is money coming IN, but
+  // a distribution would arrive as a negative amount and must not be
+  // netted off paid-in capital — that is what DPI is for, below.
   return flows.reduce(
-    (s, f) => s + (Date.UTC(f.year, f.month - 1, f.day) <= periodEndMs ? f.amount : 0),
+    (s, f) => s + (f.amount > 0 && Date.UTC(f.year, f.month - 1, f.day) <= periodEndMs ? f.amount : 0),
+    0,
+  );
+}
+
+/**
+ * Cash RETURNED to an LP as of the period end — the numerator of DPI.
+ *
+ * Distributions appear in the Fund Timeline as negative amounts. None
+ * exist yet: InVitro Fund has made no realisations, so this is 0 across
+ * the board and DPI reads 0.00x. It is derived rather than hardcoded so
+ * the day a distribution row is entered, DPI starts moving on its own.
+ */
+function lpDistributionsThroughPeriod(fundTimeline, lpName, periodEndMs) {
+  const flows = fundTimeline?.perLp?.[lpName]?.flows;
+  if (!flows?.length || periodEndMs == null) return 0;
+  return flows.reduce(
+    (s, f) => s + (f.amount < 0 && Date.UTC(f.year, f.month - 1, f.day) <= periodEndMs ? -f.amount : 0),
     0,
   );
 }
@@ -1368,6 +1388,7 @@ export default function IRRValuation({ data, user, selectedYear: selectedYearPro
                             consMoic == null ? "text-violet-900" :
                             consMoic >= 1 ? "text-emerald-700" : "text-red-600"
                           )}>{consMoic != null ? `${consMoic.toFixed(2)}×` : '—'}</p>
+                          <p className="text-[9px] text-violet-700/80 mt-0.5">unrealised</p>
                         </div>
                         <div>
                           <p className="text-[10px] text-violet-700 uppercase tracking-wide">IRR</p>
@@ -1376,6 +1397,9 @@ export default function IRRValuation({ data, user, selectedYear: selectedYearPro
                             consIrr == null ? "text-violet-900" :
                             consIrr >= 0 ? "text-emerald-700" : "text-red-600"
                           )}>{consIrr != null ? `${consIrr.toFixed(1)}%` : '—'}</p>
+                          {/* Nothing has been distributed, and neither fees nor
+                              carry are modelled — say so where the number is. */}
+                          <p className="text-[9px] text-violet-700/80 mt-0.5">gross · unrealised</p>
                         </div>
                       </div>
                     </div>
@@ -1887,9 +1911,16 @@ export default function IRRValuation({ data, user, selectedYear: selectedYearPro
                 <KpiTile label="Total Investment" value={fmt(investment)}
                   delta={compEnabled && <DeltaBadge current={investment} prior={investmentPrior} compareYear={compareYear} />} />
                 <KpiTile
-                  label={irrIsDerived && irrDisplayPct != null ? 'IRR (computed)' : 'IRR'}
-                  title={irrIsDerived && irrDisplayPct != null
-                    ? 'Not in the sheet for this period — XIRR of the Fund Timeline capital calls against this period’s NAV'
+                  label={isFund
+                    ? (irrIsDerived && irrDisplayPct != null ? 'IRR (computed, gross)' : 'IRR (gross, unrealised)')
+                    : 'IRR'}
+                  title={isFund
+                    ? [
+                        irrIsDerived && irrDisplayPct != null
+                          ? 'Not in the sheet for this period — XIRR of the Fund Timeline capital calls against this period’s NAV.'
+                          : null,
+                        'Annualised on an unrealised valuation mark, gross of management fees and carry. No distributions have been made.',
+                      ].filter(Boolean).join(' ')
                     : undefined}
                   value={irrDisplayPct != null ? `${irrDisplayPct.toFixed(1)}%` : '—'}
                   tone={irrDisplayPct == null ? 'neutral' : irrDisplayPct >= 0 ? 'positive' : 'negative'}
@@ -2005,6 +2036,11 @@ export default function IRRValuation({ data, user, selectedYear: selectedYearPro
                 const myPrepaid = myCalled != null ? Math.max(0, myInvestment - myCalled) : 0;
                 const myInWindow = myCalled != null
                   ? Math.max(0, myCalled - myInvestment - myOverdue) : 0;
+                // Cash actually returned ÷ cash paid in. 0.00× until the
+                // fund realises something.
+                const myDistributions = isFund
+                  ? lpDistributionsThroughPeriod(fundTimeline, myLp.name, periodEndMs) : 0;
+                const myDpi = myInvestment > 0 ? myDistributions / myInvestment : 0;
                 const myUnfunded = myCommitment ? myCommitment - (myCalled ?? myInvestment) : null;
                 return (
                 <div className="rounded-xl border-2 border-primary bg-gradient-to-br from-primary/15 via-primary/8 to-primary/5 shadow-md overflow-hidden">
@@ -2096,10 +2132,15 @@ export default function IRRValuation({ data, user, selectedYear: selectedYearPro
                     {/* myInvestment is cash received, so this is Funded, not
                         Called — it's also the IRR/MOIC basis below. */}
                     <KpiTile label={isFund ? 'Funded to Date' : 'Cost Basis'} value={fmt(isFund ? myInvestment : myInitial)} compact />
-                    <KpiTile label={isFund ? 'My IRR' : 'IRR'}
+                    <KpiTile label={isFund ? 'My IRR (gross, unrealised)' : 'IRR'}
+                      title={isFund
+                        ? 'Annualised on an unrealised NAV mark, gross of management fees and carry. Nothing has been distributed (DPI 0.00×), so this is a valuation-driven figure, not a realised return.'
+                        : undefined}
                       value={myIrr != null ? `${myIrr.toFixed(1)}%` : '—'}
                       tone={myIrr == null ? 'neutral' : myIrr >= 0 ? 'positive' : 'negative'} compact />
-                    <KpiTile label={isFund ? 'My MOIC' : 'MOIC'} value={myMoic != null ? `${myMoic.toFixed(1)}x` : '—'}
+                    <KpiTile label={isFund ? 'My MOIC (unrealised)' : 'MOIC'}
+                      title={isFund ? `DPI ${myDpi.toFixed(2)}× — cash actually returned to you against ${fmt(myInvestment)} paid in.` : undefined}
+                      value={myMoic != null ? `${myMoic.toFixed(1)}x` : '—'}
                       tone={myMoic == null ? 'neutral' : myMoic >= 1 ? 'positive' : 'negative'} compact />
                   </div>
 
@@ -2452,6 +2493,9 @@ export default function IRRValuation({ data, user, selectedYear: selectedYearPro
                             {myCommitment && <TableHead className="text-right text-xs">Unfunded</TableHead>}
                             <TableHead className="text-right text-xs">Stake NAV</TableHead>
                             <TableHead className="text-right text-xs">TVPI</TableHead>
+                            {/* DPI sits beside TVPI so the split between paper
+                                value and cash actually returned is unmissable. */}
+                            <TableHead className="text-right text-xs">DPI</TableHead>
                             <TableHead className="text-right text-xs">IRR</TableHead>
                           </TableRow>
                         </TableHeader>
@@ -2509,6 +2553,14 @@ export default function IRRValuation({ data, user, selectedYear: selectedYearPro
                             const vehVal = v.ownershipValue?.[idx];
                             const stakeNav = vehVal != null && ownPctYr > 0 ? vehVal * (ownPctYr / 100) : null;
                             const tvpiRaw = cumCalled > 0 && stakeNav != null ? stakeNav / cumCalled : null;
+                            // DPI is unaffected by the J-curve caveat: cash
+                            // returned is cash returned, and 0.00x is the
+                            // honest reading, not a "not meaningful".
+                            const rowEndMs = periods?.[idx]?.endDate
+                              ? Date.parse(periods[idx].endDate)
+                              : Date.UTC(year, 11, 31);
+                            const rowDistributions = lpDistributionsThroughPeriod(fundTimeline, myLp.name, rowEndMs);
+                            const rowDpi = cumCalled > 0 ? rowDistributions / cumCalled : 0;
                             const isJCurve = phase ? phase.jCurve : (idx === firstActiveIdx);
                             const tvpi = isJCurve ? null : tvpiRaw;
                             // Per-period XIRR — terminal NAV = this row's Stake NAV at the period's real end date.
@@ -2566,6 +2618,16 @@ export default function IRRValuation({ data, user, selectedYear: selectedYearPro
                                 )} title={isJCurve ? `N/M — ${phase?.label ?? 'first year'} phase (J-curve; TVPI sub-1 by construction, not by underperformance)` : undefined}>
                                   {tvpi != null ? `${tvpi.toFixed(2)}x` : (isJCurve ? 'N/M' : '—')}
                                 </TableCell>
+                                <TableCell
+                                  className={cn(
+                                    "text-right text-xs tabular-nums",
+                                    rowDpi > 0 ? "text-emerald-700" : "text-muted-foreground",
+                                  )}
+                                  title={rowDpi > 0
+                                    ? `${fmt(rowDistributions)} distributed against ${fmt(cumCalled)} paid in`
+                                    : 'No distributions yet — all value to date is unrealised NAV'}>
+                                  {cumCalled > 0 ? `${rowDpi.toFixed(2)}x` : '—'}
+                                </TableCell>
                                 <TableCell className={cn(
                                   "text-right text-xs tabular-nums",
                                   rowIrr != null && rowIrr >= 0 && "text-emerald-700",
@@ -2586,10 +2648,12 @@ export default function IRRValuation({ data, user, selectedYear: selectedYearPro
                         <strong className="text-foreground"> Cum Called</strong> = total paid-in to date.
                         <strong className="text-foreground"> Unfunded</strong> = remaining commitment you haven&apos;t paid in yet.
                         <strong className="text-foreground"> Stake NAV</strong> = your ownership × the fund&apos;s net asset value at year-end.
-                        <strong className="text-foreground"> TVPI</strong> = Stake NAV ÷ Cum Called (Total Value to Paid-In; ≥ 1.00× means you&apos;re in the green).
+                        <strong className="text-foreground"> TVPI</strong> = Stake NAV ÷ Cum Called (Total Value to Paid-In; ≥ 1.00× means you&apos;re in the green) — <em>unrealised</em>, it is a valuation, not cash.
+                        <strong className="text-foreground"> DPI</strong> = cash actually distributed back to you ÷ Cum Called. At 0.00× nothing has been returned yet, so all of TVPI is still on paper.
                         <strong className="text-foreground"> IRR</strong> = money-weighted XIRR on your capital calls + this row&apos;s Stake NAV as terminal value at Dec 31; recomputes per row so you see the trajectory year by year.
                         Rows in <span className="text-amber-700 font-semibold">Calling</span> and <span className="text-amber-700 font-semibold">Deployment</span> phases show TVPI and IRR as <em>N/M</em> — the J-curve makes both sub-par by construction (fee drag + un-marked NAV), not by underperformance. Meaningful returns begin at the <span className="text-emerald-700 font-semibold">Hold</span> phase.
-                        Capital amounts are gross of management fees (the cheque you wrote).
+                        Capital amounts are gross of management fees (the cheque you wrote), and IRR is gross of management fees and carry — your net return will be lower.
+                        Because nothing has been realised, IRR here is an annualised <em>unrealised</em> mark driven by the portfolio valuation in the CFO&apos;s sheet; early-life figures swing hard on a single revaluation and are not comparable to a realised fund return.
                       </p>
                     </div>
                     );
