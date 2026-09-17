@@ -138,8 +138,62 @@ const FUND_LIFECYCLE = {
 function isFundStructured(vehicleName) {
   return !!FUND_COMMITMENTS[vehicleName];
 }
-function getLpCommitment(vehicleName, lpName) {
+/**
+ * An LP's commitment. The Fund Timeline sheet carries each LP's committed
+ * amount and is the live source of truth; FUND_COMMITMENTS.perLP is a
+ * stale hardcoded mirror kept only as a fallback for vehicles with no
+ * Timeline data. (They already disagree: the map had George Ayad at
+ * $125K while the sheet says $250K.)
+ */
+function getLpCommitment(vehicleName, lpName, fundTimeline) {
+  const fromTimeline = fundTimeline?.perLp?.[lpName]?.commitment;
+  if (fromTimeline != null) return fromTimeline;
   return FUND_COMMITMENTS[vehicleName]?.perLP?.[lpName] ?? null;
+}
+
+/**
+ * Fund-level committed capital — sum of the Timeline sheet's per-LP
+ * commitments, falling back to the hardcoded total when Timeline is
+ * unavailable. Derived rather than hardcoded so a new LP or a
+ * rebalanced commitment flows through without a code change.
+ */
+function fundCommittedTotal(vehicleName, fundTimeline) {
+  const perLp = fundTimeline?.perLp;
+  if (perLp) {
+    const entries = Object.values(perLp).filter(l => l?.commitment != null);
+    if (entries.length > 0) {
+      return entries.reduce((s, l) => s + l.commitment, 0);
+    }
+  }
+  return FUND_COMMITMENTS[vehicleName]?.totalCommitment ?? null;
+}
+
+/**
+ * Fund-level capital called through the end of the selected period.
+ *
+ * Sums real Timeline payments dated ≤ the period end — the SAME source
+ * the per-LP "Called" column uses, so the tile and the table below it
+ * reconcile. Do not sum the IRR sheet's Investment series here: for fund
+ * LPs it is a CUMULATIVE snapshot per period (Q1/Q2/Q3 of a year all
+ * repeat the running total), so adding the periods together multiplies
+ * every call by the number of periods it survives. That over-count is
+ * what produced $3.32M called against $2.13M committed — a negative
+ * unfunded balance and 156% called.
+ *
+ * Returns null when there is no Timeline data, so callers can fall back.
+ */
+function sumFundCalledThroughPeriod(fundTimeline, periodEndMs) {
+  const perLp = fundTimeline?.perLp;
+  if (!perLp || periodEndMs == null) return null;
+  let total = 0;
+  let sawFlows = false;
+  for (const lp of Object.values(perLp)) {
+    for (const f of lp?.flows ?? []) {
+      sawFlows = true;
+      if (Date.UTC(f.year, f.month - 1, f.day) <= periodEndMs) total += f.amount;
+    }
+  }
+  return sawFlows ? total : null;
 }
 
 /**
@@ -1489,9 +1543,19 @@ export default function IRRValuation({ data, user, selectedYear: selectedYearPro
         // Fund-structured vehicle? Compute commitment/called/unfunded.
         const fundInfo = FUND_COMMITMENTS[v.name];
         const isFund = !!fundInfo;
-        const fundTotalCommit = fundInfo?.totalCommitment ?? null;
-        const fundCalledToDate = isFund ? sumLpInvestmentsThroughYear(v, yearIdx) : null;
-        const fundUnfunded = isFund ? fundTotalCommit - fundCalledToDate : null;
+        // End of the selected period (Q1=Mar 31 … Q4=Dec 31), matching the
+        // terminal date computeLpReturns uses for the per-LP rows.
+        const periodEndMs = periods?.[yearIdx]?.endDate
+          ? Date.parse(periods[yearIdx].endDate)
+          : (years?.[yearIdx] != null ? Date.UTC(years[yearIdx], 11, 31) : null);
+        const fundTotalCommit = isFund ? fundCommittedTotal(v.name, fundTimeline) : null;
+        // Timeline flows ≤ period end; only fall back to the IRR-sheet
+        // series when this fund has no Timeline data at all.
+        const fundCalledToDate = isFund
+          ? (sumFundCalledThroughPeriod(fundTimeline, periodEndMs)
+             ?? sumLpInvestmentsThroughYear(v, yearIdx))
+          : null;
+        const fundUnfunded = isFund && fundTotalCommit != null ? fundTotalCommit - fundCalledToDate : null;
         const fundPctCalled = isFund && fundTotalCommit > 0 ? (fundCalledToDate / fundTotalCommit) * 100 : null;
 
         return (
@@ -1536,7 +1600,10 @@ export default function IRRValuation({ data, user, selectedYear: selectedYearPro
                   <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                     <KpiTile label="Total Committed" value={fmt(fundTotalCommit)} compact />
                     <KpiTile label="Called to Date" value={fmt(fundCalledToDate)} compact />
-                    <KpiTile label="Unfunded" value={fmt(fundUnfunded)} tone={fundUnfunded > 0 ? 'neutral' : 'positive'} compact />
+                    {/* Negative unfunded means called > committed — a data
+                        problem, not good news. Flag it rather than greening it. */}
+                    <KpiTile label="Unfunded" value={fmt(fundUnfunded)}
+                      tone={fundUnfunded < 0 ? 'negative' : fundUnfunded === 0 ? 'positive' : 'neutral'} compact />
                     <KpiTile label="% Called" value={fundPctCalled != null ? `${fundPctCalled.toFixed(0)}%` : '—'} compact />
                   </div>
                   {/* Mini progress bar — visual reinforcement of % called */}
@@ -2310,7 +2377,7 @@ export default function IRRValuation({ data, user, selectedYear: selectedYearPro
                           lpHoldYears, lpFirstYear } = r;
                         const isMe = lpName && lp.name === lpName;
                         const hasRecycling = recycledAlloc > 0;
-                        const lpCommitment = isFund ? getLpCommitment(v.name, lp.name) : null;
+                        const lpCommitment = isFund ? getLpCommitment(v.name, lp.name, fundTimeline) : null;
                         const lpCalledPct = lpCommitment ? (cumInvest / lpCommitment) * 100 : null;
                         // Cell tooltips: show the contribution breakdown,
                         // the LP's individual hold timeline (for CAGR rows),
