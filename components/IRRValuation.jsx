@@ -2,7 +2,7 @@
 import { useState, Fragment } from "react";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Table, TableHeader, TableBody, TableHead, TableRow, TableCell } from "@/components/ui/table";
-import { fmt, pct } from "@/lib/formatters";
+import { fmt, pct, currentPeriodIndex } from "@/lib/formatters";
 import { cn } from "@/lib/utils";
 
 // By-Company view uses a deliberately small color palette — three
@@ -95,11 +95,17 @@ const FUND_COMMITMENTS = {
     totalCommitment: 2_125_000,
     commitmentPeriodYears: [2024, 2027],
     // Calls go out in the Sep–Nov window of each year in the commitment
-    // period, in equal annual installments (4 years → 25% each). We anchor
-    // the call to the FIRST month of that window: once Sep 1 passes, the
-    // LP owes that installment, and anything unpaid after it is a
-    // receivable rather than uncalled commitment.
+    // period, in equal annual installments (4 years → 25% each).
+    //
+    // Two distinct dates, and conflating them cries wolf:
+    //   callScheduleMonth  — the call is ISSUED (Sep 1). From here the
+    //                        installment counts as called, not unfunded.
+    //   callWindowEndMonth — the last month the LP may pay in (Nov). Only
+    //                        after this closes is unpaid money OVERDUE.
+    // Anchoring overdue to Sep 1 flagged 7 LPs and $488K the moment
+    // September began, when they simply had not reached their due date.
     callScheduleMonth: 9,
+    callWindowEndMonth: 11,
     perLP: {
       'Fr. Botros Samy': 400_000,
       'Atef Rafla':      400_000,
@@ -204,6 +210,28 @@ function sumFundFundedThroughPeriod(fundTimeline, periodEndMs) {
 }
 
 /**
+ * Cumulative cash ONE LP has actually wired into a fund as of the period
+ * end, from real Timeline payments. Returns null when there is no
+ * Timeline record for that LP, so callers fall back to the sheet series.
+ *
+ * Every path needing a fund LP's basis must come through here. The IRR
+ * sheet's per-LP Investment column is a CUMULATIVE snapshot — Q1/Q2/Q3
+ * of a year all repeat the running total — so summing it across periods
+ * multiplies each payment by the number of periods it survives. That one
+ * mistake has now produced three separate wrong numbers on this page:
+ * 0.5x MOIC, $3.32M "called" on the fund tile, and $762K "Your
+ * Investment" on the Look-Through card for a man who has paid $200K.
+ */
+function lpFundedThroughPeriod(fundTimeline, lpName, periodEndMs) {
+  const flows = fundTimeline?.perLp?.[lpName]?.flows;
+  if (!flows?.length || periodEndMs == null) return null;
+  return flows.reduce(
+    (s, f) => s + (Date.UTC(f.year, f.month - 1, f.day) <= periodEndMs ? f.amount : 0),
+    0,
+  );
+}
+
+/**
  * The scheduled capital calls for one LP — equal annual installments
  * across the commitment period, each anchored to callScheduleMonth.
  *
@@ -220,12 +248,21 @@ function lpCallSchedule(vehicleName, commitment) {
   const installments = lastYear - firstYear + 1;
   if (!(installments > 0)) return [];
   const month = info.callScheduleMonth ?? 1;
+  const windowEnd = info.callWindowEndMonth ?? month;
   const per = commitment / installments;
-  return Array.from({ length: installments }, (_, i) => ({
-    year: firstYear + i,
-    dueMs: Date.UTC(firstYear + i, month - 1, 1),
-    amount: per,
-  }));
+  return Array.from({ length: installments }, (_, i) => {
+    const year = firstYear + i;
+    return {
+      year,
+      // Issued on the 1st of the call month…
+      dueMs: Date.UTC(year, month - 1, 1),
+      // …and payable until the last day of the window month. Date.UTC
+      // with day 0 rolls back to the final day of the preceding month,
+      // so windowEnd 11 (November) gives Nov 30.
+      windowEndMs: Date.UTC(year, windowEnd, 0),
+      amount: per,
+    };
+  });
 }
 
 /** Cumulative amount CALLED from one LP as of the period end. */
@@ -234,6 +271,23 @@ function lpCalledThroughPeriod(vehicleName, commitment, periodEndMs) {
   const sched = lpCallSchedule(vehicleName, commitment);
   if (!sched.length) return null;
   return sched.reduce((s, c) => s + (c.dueMs <= periodEndMs ? c.amount : 0), 0);
+}
+
+/**
+ * Cumulative amount that was actually DUE from one LP by the period end —
+ * only installments whose payment window has already closed.
+ *
+ * Overdue must be measured against this, not against `called`. LPs are
+ * called on Sep 1 but have until Nov 30 to wire; measuring against the
+ * call date marks the entire LP base delinquent every September, which
+ * at Q3 2026 wrongly reported $488K overdue across 7 LPs who were simply
+ * inside their window.
+ */
+function lpDueThroughPeriod(vehicleName, commitment, periodEndMs) {
+  if (commitment == null || periodEndMs == null) return null;
+  const sched = lpCallSchedule(vehicleName, commitment);
+  if (!sched.length) return null;
+  return sched.reduce((s, c) => s + (c.windowEndMs <= periodEndMs ? c.amount : 0), 0);
 }
 
 /**
@@ -248,7 +302,7 @@ function lpCalledThroughPeriod(vehicleName, commitment, periodEndMs) {
 function fundCalledThroughPeriod(vehicleName, fundTimeline, periodEndMs) {
   const perLp = fundTimeline?.perLp;
   if (!perLp || periodEndMs == null) return null;
-  let called = 0, overdue = 0, prepaid = 0, lpsOverdue = 0;
+  let called = 0, overdue = 0, prepaid = 0, lpsOverdue = 0, inWindow = 0;
   let any = false;
   for (const [name, lp] of Object.entries(perLp)) {
     const commitment = lp?.commitment ?? getLpCommitment(vehicleName, name, fundTimeline);
@@ -256,12 +310,16 @@ function fundCalledThroughPeriod(vehicleName, fundTimeline, periodEndMs) {
     if (lpCalled == null) continue;
     any = true;
     called += lpCalled;
-    const funded = (lp?.flows ?? []).reduce(
-      (s, f) => s + (Date.UTC(f.year, f.month - 1, f.day) <= periodEndMs ? f.amount : 0), 0);
-    const gap = lpCalled - funded;
-    if (gap > 0) { overdue += gap; lpsOverdue += 1; } else { prepaid += -gap; }
+    const funded = lpFundedThroughPeriod(fundTimeline, name, periodEndMs) ?? 0;
+    // Late only once the payment window has shut; anything called but
+    // still inside its window is collectible, not delinquent.
+    const due = lpDueThroughPeriod(vehicleName, commitment, periodEndMs) ?? lpCalled;
+    const late = Math.max(0, due - funded);
+    if (late > 0) { overdue += late; lpsOverdue += 1; }
+    prepaid += Math.max(0, funded - lpCalled);
+    inWindow += Math.max(0, lpCalled - funded - late);
   }
-  return any ? { called, overdue, prepaid, lpsOverdue } : null;
+  return any ? { called, overdue, prepaid, lpsOverdue, inWindow } : null;
 }
 
 /**
@@ -600,7 +658,8 @@ function computeLpReturns(lp, vehicle, yearIdx, years, fundTimeline, periods) {
     const flowsUpTo = timelineLp.flows.filter(f =>
       Date.UTC(f.year, f.month - 1, f.day) <= selectedPeriodEndMs
     );
-    const total = flowsUpTo.reduce((s, f) => s + f.amount, 0);
+    // Same total the Look-Through card and the fund tiles use.
+    const total = lpFundedThroughPeriod(fundTimeline, lp.name, selectedPeriodEndMs) ?? 0;
     // Map Timeline flows into the (yearIdx, amount) event shape the
     // rest of the function expects — yearIdx aligned to each flow's
     // year for CAGR / annual-fallback anchoring.
@@ -752,9 +811,13 @@ export default function IRRValuation({ data, user, selectedYear: selectedYearPro
   // double as the year-end snapshot.
   const formatPeriodLabel = (p) => p ? (p.isAnnualEnd ? `${p.label} (annual)` : p.label) : '';
   // The Dashboard header passes a period LABEL string ("Q4 2025", "FY 2024").
-  // If it isn't provided (standalone / stale prop), fall back to the most
-  // recent actual period with fund NAV data.
+  // If it isn't provided (standalone / stale prop), land on the period we
+  // are currently in — same rule as Dashboard's initial state, so the two
+  // agree. Only when the grid has no usable end dates do we fall back to
+  // the most recent period carrying fund NAV data.
   const fallbackPeriodIdx = (() => {
+    const nowIdx = currentPeriodIndex(periods);
+    if (nowIdx >= 0) return nowIdx;
     for (let i = periods.length - 1; i >= 0; i--) {
       const hasData = irr.vehicles.some(v => v.ownershipValue?.[i] != null && v.ownershipValue[i] > 0);
       if (hasData) return i;
@@ -856,6 +919,11 @@ export default function IRRValuation({ data, user, selectedYear: selectedYearPro
       return start != null && years[yIdx] >= start;
     };
 
+    // End of the selected period — the cut-off for "money in so far".
+    const ltPeriodEndMs = periods?.[yearIdx]?.endDate
+      ? Date.parse(periods[yearIdx].endDate)
+      : (years?.[yearIdx] != null ? Date.UTC(years[yearIdx], 11, 31) : null);
+
     // Pre-compute per-vehicle state.
     const lpInitialByVehicle = new Map();    // vehicleName → LP initial cash
     const lpRecycledByVehicle = new Map();   // vehicleName → LP recycled cash
@@ -868,11 +936,27 @@ export default function IRRValuation({ data, user, selectedYear: selectedYearPro
       const lpInVehicle = v.lps?.find(lp => lp.name === lpNameArg);
       if (!lpInVehicle) continue;
       let lpInit = 0, lpRec = 0, firstIdx = -1;
-      for (let i = 0; i <= yearIdx; i++) {
-        const val = lpInVehicle.investment?.[i] ?? 0;
-        if (val === 0) continue;
-        if (firstIdx === -1) firstIdx = i;
-        if (isRecycledYear(v.name, i)) lpRec += val; else lpInit += val;
+      // Fund LPs: basis is real Timeline cash, never the summed sheet
+      // series (which is cumulative — see lpFundedThroughPeriod). Funds
+      // carry no recycling, so all of it is initial capital.
+      const ltTimeline = irr?.fundTimelines?.[v.name];
+      const ltFunded = isFundStructured(v.name)
+        ? lpFundedThroughPeriod(ltTimeline, lpNameArg, ltPeriodEndMs)
+        : null;
+      if (ltFunded != null) {
+        lpInit = ltFunded;
+        const paidIdxs = (ltTimeline.perLp[lpNameArg].flows || [])
+          .filter(f => Date.UTC(f.year, f.month - 1, f.day) <= ltPeriodEndMs)
+          .map(f => years.indexOf(f.year))
+          .filter(i => i >= 0);
+        if (paidIdxs.length) firstIdx = Math.min(...paidIdxs);
+      } else {
+        for (let i = 0; i <= yearIdx; i++) {
+          const val = lpInVehicle.investment?.[i] ?? 0;
+          if (val === 0) continue;
+          if (firstIdx === -1) firstIdx = i;
+          if (isRecycledYear(v.name, i)) lpRec += val; else lpInit += val;
+        }
       }
       lpInitialByVehicle.set(v.name, lpInit);
       lpRecycledByVehicle.set(v.name, lpRec);
@@ -1636,6 +1720,7 @@ export default function IRRValuation({ data, user, selectedYear: selectedYearPro
         const fundOverdue = fundCallSummary?.overdue ?? 0;
         const fundPrepaid = fundCallSummary?.prepaid ?? 0;
         const fundLpsOverdue = fundCallSummary?.lpsOverdue ?? 0;
+        const fundInWindow = fundCallSummary?.inWindow ?? 0;
         const fundPctCalled = isFund && fundTotalCommit > 0 ? (fundCalledToDate / fundTotalCommit) * 100 : null;
         const fundPctFunded = isFund && fundTotalCommit > 0 ? (fundFundedToDate / fundTotalCommit) * 100 : null;
 
@@ -1716,6 +1801,11 @@ export default function IRRValuation({ data, user, selectedYear: selectedYearPro
                       {fundOverdue > 0 && (
                         <span className="font-semibold text-amber-700">
                           {fmt(fundOverdue)} overdue from {fundLpsOverdue} LP{fundLpsOverdue === 1 ? '' : 's'}
+                        </span>
+                      )}
+                      {fundInWindow > 0 && (
+                        <span className="text-muted-foreground">
+                          {fmt(fundInWindow)} due in the current call window
                         </span>
                       )}
                       {fundPrepaid > 0 && (
@@ -1844,7 +1934,11 @@ export default function IRRValuation({ data, user, selectedYear: selectedYearPro
                 // Unfunded stays "not yet called" and the gap between the
                 // two is what they currently owe.
                 const myCalled = isFund ? lpCalledThroughPeriod(v.name, myCommitment, periodEndMs) : null;
-                const myOutstanding = myCalled != null ? myCalled - myInvestment : null;
+                const myDue = isFund ? lpDueThroughPeriod(v.name, myCommitment, periodEndMs) : null;
+                const myOverdue = myDue != null ? Math.max(0, myDue - myInvestment) : 0;
+                const myPrepaid = myCalled != null ? Math.max(0, myInvestment - myCalled) : 0;
+                const myInWindow = myCalled != null
+                  ? Math.max(0, myCalled - myInvestment - myOverdue) : 0;
                 const myUnfunded = myCommitment ? myCommitment - (myCalled ?? myInvestment) : null;
                 return (
                 <div className="rounded-xl border-2 border-primary bg-gradient-to-br from-primary/15 via-primary/8 to-primary/5 shadow-md overflow-hidden">
@@ -1894,15 +1988,18 @@ export default function IRRValuation({ data, user, selectedYear: selectedYearPro
                         <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">Funded</p>
                         <p className={cn(
                           "text-sm font-bold tabular-nums mt-0.5",
-                          myOutstanding > 0 ? "text-amber-700" : "text-foreground"
+                          myOverdue > 0 ? "text-amber-700" : "text-foreground"
                         )}>
                           {fmt(myInvestment)} <span className="text-[10px] font-normal text-muted-foreground">({myCalledPct?.toFixed(0)}%)</span>
                         </p>
-                        {myOutstanding > 0 && (
-                          <p className="text-[10px] font-medium text-amber-700">{fmt(myOutstanding)} overdue</p>
+                        {myOverdue > 0 && (
+                          <p className="text-[10px] font-medium text-amber-700">{fmt(myOverdue)} overdue</p>
                         )}
-                        {myOutstanding < 0 && (
-                          <p className="text-[10px] font-normal text-emerald-700">{fmt(-myOutstanding)} prepaid</p>
+                        {myOverdue === 0 && myInWindow > 0 && (
+                          <p className="text-[10px] font-normal text-muted-foreground">{fmt(myInWindow)} due this window</p>
+                        )}
+                        {myOverdue === 0 && myInWindow === 0 && myPrepaid > 0 && (
+                          <p className="text-[10px] font-normal text-emerald-700">{fmt(myPrepaid)} prepaid</p>
                         )}
                       </div>
                       <div>
@@ -2518,7 +2615,16 @@ export default function IRRValuation({ data, user, selectedYear: selectedYearPro
                         const lpCalled = isFund
                           ? lpCalledThroughPeriod(v.name, lpCommitment, periodEndMs)
                           : null;
-                        const lpOutstanding = lpCalled != null ? lpCalled - cumInvest : null;
+                        // Overdue is measured against what was DUE (window
+                        // closed), not against what was called — an LP
+                        // inside their Sep–Nov window is not late.
+                        const lpDue = isFund
+                          ? lpDueThroughPeriod(v.name, lpCommitment, periodEndMs)
+                          : null;
+                        const lpOverdue = lpDue != null ? Math.max(0, lpDue - cumInvest) : 0;
+                        const lpPrepaid = lpCalled != null ? Math.max(0, cumInvest - lpCalled) : 0;
+                        const lpInWindow = lpCalled != null
+                          ? Math.max(0, lpCalled - cumInvest - lpOverdue) : 0;
                         const lpCalledPct = lpCommitment ? (cumInvest / lpCommitment) * 100 : null;
                         // Cell tooltips: show the contribution breakdown,
                         // the LP's individual hold timeline (for CAGR rows),
@@ -2569,7 +2675,7 @@ export default function IRRValuation({ data, user, selectedYear: selectedYearPro
                               </TableCell>
                             )}
                             <TableCell className="text-right tabular-nums" title={investTitle}>
-                              <span className={cn(lpOutstanding > 0 && "text-amber-700 font-semibold")}>
+                              <span className={cn(lpOverdue > 0 && "text-amber-700 font-semibold")}>
                                 {fmt(cumInvest)}
                               </span>
                               {hasRecycling && (
@@ -2577,17 +2683,22 @@ export default function IRRValuation({ data, user, selectedYear: selectedYearPro
                                   {fmt(initialContrib)} + {fmt(recycledAlloc)} recycled
                                 </div>
                               )}
-                              {isFund && !hasRecycling && lpOutstanding > 0 && (
+                              {isFund && !hasRecycling && lpOverdue > 0 && (
                                 <div className="text-[10px] font-medium text-amber-700">
-                                  {fmt(lpOutstanding)} overdue
+                                  {fmt(lpOverdue)} overdue
                                 </div>
                               )}
-                              {isFund && !hasRecycling && lpOutstanding < 0 && (
+                              {isFund && !hasRecycling && lpOverdue === 0 && lpInWindow > 0 && (
+                                <div className="text-[10px] font-normal text-muted-foreground">
+                                  {fmt(lpInWindow)} due this window
+                                </div>
+                              )}
+                              {isFund && !hasRecycling && lpOverdue === 0 && lpInWindow === 0 && lpPrepaid > 0 && (
                                 <div className="text-[10px] font-normal text-emerald-700">
-                                  {fmt(-lpOutstanding)} prepaid
+                                  {fmt(lpPrepaid)} prepaid
                                 </div>
                               )}
-                              {isFund && !hasRecycling && lpOutstanding === 0 && lpCalledPct != null && (
+                              {isFund && !hasRecycling && lpOverdue === 0 && lpInWindow === 0 && lpPrepaid === 0 && lpCalledPct != null && (
                                 <div className="text-[10px] text-muted-foreground font-normal">
                                   {lpCalledPct.toFixed(0)}% of commitment
                                 </div>
