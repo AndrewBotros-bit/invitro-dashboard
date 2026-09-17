@@ -1,6 +1,6 @@
 import { cookies } from 'next/headers';
 import { verifySessionToken, isAdmin, COOKIE_NAME } from '@/lib/auth';
-import { fetchDocumentBytes, keyBelongsToUser } from '@/lib/documents';
+import { fetchDocumentBytes, keyBelongsToUser, markDocumentSeen } from '@/lib/documents';
 
 /**
  * Authenticated document download.
@@ -31,6 +31,13 @@ export async function GET(request) {
 
   const doc = await fetchDocumentBytes(key);
   if (!doc) return new Response('Not found', { status: 404 });
+
+  // Record the read receipt so the "New" badge clears. Only for the LP
+  // themselves — an admin previewing a file must not mark it as read on
+  // the LP's behalf, or the LP loses the signal that it arrived.
+  if (!isAdmin(user)) {
+    await markDocumentSeen(user.username, key);
+  }
 
   return new Response(doc.buffer, {
     status: 200,

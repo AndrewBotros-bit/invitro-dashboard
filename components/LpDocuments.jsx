@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 
 /**
@@ -8,29 +8,29 @@ import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
  * per row. No upload — LPs can only download what an admin uploaded for
  * them.
  */
-export default function LpDocuments({ userName }) {
+export default function LpDocuments({ userName, onUnreadChange }) {
   const [docs, setDocs] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
-  useEffect(() => {
-    let cancelled = false;
-    async function load() {
-      setLoading(true); setError('');
-      try {
-        const res = await fetch('/api/documents');
-        const j = await res.json();
-        if (!res.ok) throw new Error(j.error || 'Failed to load documents');
-        if (!cancelled) setDocs(j.docs || []);
-      } catch (e) {
-        if (!cancelled) setError(e.message);
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
+  // Pulled out of the effect so a download can re-run it once the server
+  // has recorded the read receipt, clearing the badge without a refresh.
+  const reload = useCallback(async ({ quiet = false } = {}) => {
+    if (!quiet) { setLoading(true); setError(''); }
+    try {
+      const res = await fetch('/api/documents');
+      const j = await res.json();
+      if (!res.ok) throw new Error(j.error || 'Failed to load documents');
+      setDocs(j.docs || []);
+      onUnreadChange?.(j.unreadCount ?? 0);
+    } catch (e) {
+      if (!quiet) setError(e.message);
+    } finally {
+      if (!quiet) setLoading(false);
     }
-    load();
-    return () => { cancelled = true; };
-  }, []);
+  }, [onUnreadChange]);
+
+  useEffect(() => { reload(); }, [reload]);
 
   const fmtSize = n => n < 1024 ? `${n} B`
     : n < 1024 * 1024 ? `${(n / 1024).toFixed(1)} KB`
@@ -77,12 +77,23 @@ export default function LpDocuments({ userName }) {
                 </thead>
                 <tbody>
                   {docs.map(d => (
-                    <tr key={d.key} className="border-t hover:bg-muted/30">
-                      <td className="px-3 py-2 font-medium truncate">{d.filename}</td>
+                    <tr key={d.key} className={`border-t hover:bg-muted/30 ${d.isNew ? 'bg-primary/5' : ''}`}>
+                      <td className="px-3 py-2 font-medium truncate">
+                        {d.filename}
+                        {d.isNew && (
+                          <span className="ml-2 align-middle text-[10px] font-semibold uppercase tracking-wide text-primary bg-primary/10 px-1.5 py-0.5 rounded">
+                            New
+                          </span>
+                        )}
+                      </td>
                       <td className="px-3 py-2 text-right tabular-nums text-muted-foreground">{fmtSize(d.size)}</td>
                       <td className="px-3 py-2 text-right tabular-nums text-muted-foreground text-xs">{fmtDate(d.uploadedAt)}</td>
                       <td className="px-3 py-2 text-right">
+                        {/* The download itself is what clears "New" — the
+                            server records the receipt, so we re-list a
+                            moment later rather than guessing locally. */}
                         <a href={`/api/documents/download?key=${encodeURIComponent(d.key)}`}
+                           onClick={() => setTimeout(() => reload({ quiet: true }), 1500)}
                            className="inline-block text-xs px-3 py-1.5 rounded border font-medium hover:bg-primary hover:text-primary-foreground transition-colors">
                           Download
                         </a>

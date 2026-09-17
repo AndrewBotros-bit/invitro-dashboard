@@ -1,5 +1,5 @@
 "use client";
-import { useState, Fragment } from "react";
+import { useEffect, useState, Fragment } from "react";
 import { cn } from "@/lib/utils";
 import {
   BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip,
@@ -603,6 +603,19 @@ export default function InVitroDashboard({ data: rawData, user }) {
     }
     return ps[ps.length - 1].label;
   });
+  // Unread document count for the sidebar badge. Fetched once on mount so
+  // a newly-uploaded K-1 is visible from any page, then kept in sync by
+  // LpDocuments via onUnreadChange as the LP downloads things.
+  const [unreadDocuments, setUnreadDocuments] = useState(0);
+  useEffect(() => {
+    let cancelled = false;
+    fetch('/api/documents')
+      .then(r => (r.ok ? r.json() : null))
+      .then(j => { if (!cancelled && j) setUnreadDocuments(j.unreadCount ?? 0); })
+      .catch(() => {}); // badge is a nicety — never surface a failure here
+    return () => { cancelled = true; };
+  }, []);
+
   const [irrCompareEnabled, setIrrCompareEnabled] = useState(false);
   const [irrCompPeriod, setIrrCompPeriod] = useState(() => {
     // Default comparison: the period immediately before the current one.
@@ -1661,6 +1674,7 @@ export default function InVitroDashboard({ data: rawData, user }) {
         irrView={irrView}
         setIrrView={setIrrView}
         showIrrSubNav={!!perms.lpName}
+        unreadDocuments={unreadDocuments}
       />
 
       {/* Main content area — offset by sidebar width */}
@@ -4962,7 +4976,7 @@ export default function InVitroDashboard({ data: rawData, user }) {
           </>)}
 
           {activeSection === 'documents' && (
-            <LpDocuments userName={user?.name} />
+            <LpDocuments userName={user?.name} onUnreadChange={setUnreadDocuments} />
           )}
 
           {activeSection === 'irr' && (

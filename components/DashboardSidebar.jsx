@@ -73,6 +73,7 @@ export default function DashboardSidebar({
   setSidebarOpen,
   canSeeTab = () => true,
   canBreakdown = () => true,
+  unreadDocuments = 0,
   userName,
   userRole,
   irrView = 'by-company',
@@ -215,6 +216,16 @@ export default function DashboardSidebar({
                       >
                         <span className="text-base leading-none">{s.icon}</span>
                         <span>{s.label}</span>
+                        {/* Unread-document count. Sits on Documents so a
+                            newly-uploaded K-1 is visible from any page,
+                            not only once the LP opens the section. */}
+                        {s.id === 'documents' && unreadDocuments > 0 && (
+                          <span
+                            title={`${unreadDocuments} new document${unreadDocuments === 1 ? '' : 's'}`}
+                            className="ml-auto min-w-[18px] px-1.5 py-0.5 rounded-full bg-primary text-primary-foreground text-[10px] font-bold leading-none text-center">
+                            {unreadDocuments}
+                          </span>
+                        )}
                         {isExpandable && <Chevron expanded={showSubViews} />}
                       </button>
                       {showSubViews && (

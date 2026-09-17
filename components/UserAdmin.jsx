@@ -297,6 +297,238 @@ function ConfirmModal({ open, title, message, confirmLabel = 'Confirm', danger =
 
 // ─── Per-user documents panel (admin-side upload/download/delete) ─────────
 
+/**
+ * Bulk document upload — the K-1 workflow.
+ *
+ * Once a year the CFO has one K-1 per LP and, before this, had to edit
+ * each user in turn and upload into their panel: nine round trips for
+ * one task. Here they drop all the files at once, the component guesses
+ * the recipient from each filename, they correct any it got wrong, and
+ * one click sends them.
+ *
+ * Deliberately reuses the existing per-user endpoint once per file
+ * rather than adding a bulk route: the auth check, MIME whitelist, size
+ * cap and LP notification email are already right there, and a second
+ * upload path would be a second place for those to drift.
+ */
+function BulkDocumentUpload({ users }) {
+  const [rows, setRows] = useState([]);
+  const [busy, setBusy] = useState(false);
+
+  // Candidate recipients, most-specific label first so the dropdown reads
+  // like the LP roster rather than a list of usernames.
+  const candidates = useMemo(
+    () => users
+      .map(u => ({
+        username: u.username,
+        label: u.name ? `${u.name} (${u.username})` : u.username,
+        haystack: [u.username, u.name, u.permissions?.lpName]
+          .filter(Boolean).join(' ').toLowerCase(),
+      }))
+      .sort((a, b) => a.label.localeCompare(b.label)),
+    [users],
+  );
+
+  /**
+   * Guess the recipient from a filename. Scores each candidate by how
+   * many of their name tokens appear in the filename, so
+   * "K1_2026_Botros_Samy.pdf" beats a single-token coincidence.
+   *
+   * Returns '' when nothing matches AND when the top score is TIED.
+   * The tie case is not theoretical: this fund has three Karras LPs, so
+   * "2026 K1 - Karras.pdf" fits Mario, Daniella and Hala equally well.
+   * Picking the first would silently route one LP's K-1 to another —
+   * the worst thing this screen could do — so an ambiguous filename is
+   * left blank and the admin must choose.
+   */
+  function guessRecipient(filename) {
+    const hay = filename.toLowerCase().replace(/[^a-z0-9]+/g, ' ');
+    let bestScore = 0;
+    let bestUser = '';
+    let tied = false;
+    for (const c of candidates) {
+      const tokens = c.haystack.split(/[^a-z0-9]+/).filter(t => t.length >= 3);
+      if (!tokens.length) continue;
+      const hits = tokens.filter(t => hay.includes(t)).length;
+      if (hits === 0) continue;
+      if (hits > bestScore) {
+        bestScore = hits; bestUser = c.username; tied = false;
+      } else if (hits === bestScore && c.username !== bestUser) {
+        tied = true;
+      }
+    }
+    return bestScore > 0 && !tied ? bestUser : '';
+  }
+
+  function onPick(e) {
+    const files = Array.from(e.target.files || []);
+    setRows(files.map(f => ({
+      file: f,
+      username: guessRecipient(f.name),
+      state: 'pending',
+      message: '',
+    })));
+    e.target.value = '';
+  }
+
+  function setRowUser(i, username) {
+    setRows(rs => rs.map((r, k) => (k === i ? { ...r, username } : r)));
+  }
+
+  function removeRow(i) {
+    setRows(rs => rs.filter((_, k) => k !== i));
+  }
+
+  const ready = rows.filter(r => r.username && r.state !== 'done');
+  // Two files aimed at the same LP is legal (a K-1 plus a statement) but
+  // is more often a mis-assignment, so warn rather than block.
+  const duplicateTargets = useMemo(() => {
+    const seen = new Map();
+    for (const r of rows) {
+      if (!r.username) continue;
+      seen.set(r.username, (seen.get(r.username) || 0) + 1);
+    }
+    return [...seen.entries()].filter(([, n]) => n > 1).map(([u]) => u);
+  }, [rows]);
+
+  async function uploadAll() {
+    setBusy(true);
+    for (let i = 0; i < rows.length; i++) {
+      const r = rows[i];
+      if (!r.username || r.state === 'done') continue;
+      setRows(rs => rs.map((x, k) => (k === i ? { ...x, state: 'uploading', message: '' } : x)));
+      try {
+        const fd = new FormData();
+        fd.append('file', r.file);
+        const res = await fetch(`/api/admin/documents/${encodeURIComponent(r.username)}`, {
+          method: 'POST', body: fd,
+        });
+        const j = await res.json();
+        if (!res.ok) throw new Error(j.error || 'Upload failed');
+        const note = j.notify?.ok ? 'sent, email sent'
+          : j.notify?.skipped ? `sent, email skipped (${j.notify.reason})`
+          : j.notify?.error ? `sent, email failed: ${j.notify.error}`
+          : 'sent';
+        setRows(rs => rs.map((x, k) => (k === i ? { ...x, state: 'done', message: note } : x)));
+      } catch (err) {
+        setRows(rs => rs.map((x, k) => (k === i ? { ...x, state: 'error', message: err.message } : x)));
+      }
+    }
+    setBusy(false);
+  }
+
+  const doneCount = rows.filter(r => r.state === 'done').length;
+  const errCount = rows.filter(r => r.state === 'error').length;
+
+  return (
+    <Card>
+      <CardHeader className="pb-3">
+        <CardTitle className="text-sm">Bulk upload — one file per LP</CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        <p className="text-xs text-muted-foreground">
+          Drop this year&apos;s K-1s in one go. Each file is matched to an LP by filename —
+          check every row before sending, and set any that came through unmatched.
+          Each LP gets the same notification email as a single upload.
+        </p>
+
+        <input
+          type="file"
+          multiple
+          accept=".pdf,.png,.jpg,.jpeg,.csv,.xlsx,.xls"
+          onChange={onPick}
+          disabled={busy}
+          className="block w-full text-xs file:mr-3 file:py-1.5 file:px-3 file:rounded file:border file:text-xs file:font-medium file:bg-muted file:border-border hover:file:bg-muted/70"
+        />
+
+        {rows.length > 0 && (
+          <>
+            {duplicateTargets.length > 0 && (
+              <p className="text-xs text-amber-700 font-medium">
+                More than one file is going to: {duplicateTargets.join(', ')}. Intended?
+              </p>
+            )}
+            <div className="border rounded-lg overflow-hidden">
+              <table className="w-full text-xs">
+                <thead className="bg-muted/50 text-[10px] uppercase text-muted-foreground">
+                  <tr>
+                    <th className="text-left px-3 py-2">File</th>
+                    <th className="text-left px-3 py-2 w-64">Goes to</th>
+                    <th className="text-left px-3 py-2 w-56">Status</th>
+                    <th className="px-2 py-2 w-8" />
+                  </tr>
+                </thead>
+                <tbody>
+                  {rows.map((r, i) => (
+                    <tr key={`${r.file.name}-${i}`} className="border-t">
+                      <td className="px-3 py-2 font-medium truncate max-w-[220px]" title={r.file.name}>
+                        {r.file.name}
+                      </td>
+                      <td className="px-3 py-2">
+                        <select
+                          value={r.username}
+                          disabled={busy || r.state === 'done'}
+                          onChange={e => setRowUser(i, e.target.value)}
+                          className={cn(
+                            "w-full rounded border bg-background px-2 py-1 text-xs",
+                            !r.username && "border-amber-500 text-amber-700",
+                          )}
+                        >
+                          <option value="">— choose an LP —</option>
+                          {candidates.map(c => (
+                            <option key={c.username} value={c.username}>{c.label}</option>
+                          ))}
+                        </select>
+                      </td>
+                      <td className={cn(
+                        "px-3 py-2",
+                        r.state === 'done' && "text-emerald-700",
+                        r.state === 'error' && "text-red-600",
+                        r.state === 'uploading' && "text-muted-foreground",
+                      )}>
+                        {r.state === 'pending' && (r.username ? 'Ready' : 'Needs an LP')}
+                        {r.state === 'uploading' && 'Uploading…'}
+                        {r.state === 'done' && `Uploaded — ${r.message}`}
+                        {r.state === 'error' && r.message}
+                      </td>
+                      <td className="px-2 py-2 text-right">
+                        {!busy && r.state !== 'done' && (
+                          <button
+                            type="button"
+                            onClick={() => removeRow(i)}
+                            title="Remove from this batch"
+                            className="text-muted-foreground hover:text-red-600"
+                          >
+                            ✕
+                          </button>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            <div className="flex items-center gap-3">
+              <Button type="button" onClick={uploadAll} disabled={busy || ready.length === 0}>
+                {busy ? 'Uploading…' : `Upload ${ready.length} file${ready.length === 1 ? '' : 's'}`}
+              </Button>
+              {!busy && rows.length > 0 && (
+                <Button type="button" variant="outline" onClick={() => setRows([])}>Clear</Button>
+              )}
+              {(doneCount > 0 || errCount > 0) && (
+                <span className="text-xs text-muted-foreground">
+                  {doneCount} uploaded{errCount > 0 ? `, ${errCount} failed` : ''}
+                </span>
+              )}
+            </div>
+          </>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
 function DocumentsPanel({ username, userDisplayName }) {
   const [docs, setDocs] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -1260,6 +1492,10 @@ export default function UserAdmin({ currentUser, lpNames = [], lpCompaniesMap = 
               userDisplayName={form.name || editingUsername}
             />
           )}
+
+          {/* Bulk upload is always available — it is the annual K-1 run,
+              not something you do while editing one user. */}
+          <BulkDocumentUpload users={users} />
         </div>
       </div>
 

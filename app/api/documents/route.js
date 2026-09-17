@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { cookies } from 'next/headers';
 import { verifySessionToken, COOKIE_NAME } from '@/lib/auth';
-import { listUserDocuments } from '@/lib/documents';
+import { listUserDocuments, getSeenKeys } from '@/lib/documents';
 
 /**
  * LP-facing document list. Session-scoped — always returns only the
@@ -15,8 +15,19 @@ export async function GET() {
   const user = verifySessionToken(session.value);
   if (!user) return NextResponse.json({ error: 'Invalid session' }, { status: 401 });
   try {
-    const docs = await listUserDocuments(user.username);
-    return NextResponse.json({ docs });
+    const [docs, seen] = await Promise.all([
+      listUserDocuments(user.username),
+      getSeenKeys(user.username),
+    ]);
+    // `isNew` = never downloaded by this LP. Newest first so a fresh K-1
+    // is the first thing they see.
+    const withState = docs
+      .map(d => ({ ...d, isNew: !seen.has(d.key) }))
+      .sort((a, b) => new Date(b.uploadedAt || 0) - new Date(a.uploadedAt || 0));
+    return NextResponse.json({
+      docs: withState,
+      unreadCount: withState.filter(d => d.isNew).length,
+    });
   } catch (err) {
     return NextResponse.json({ error: err.message || 'List failed' }, { status: 500 });
   }
