@@ -10,7 +10,7 @@ import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/com
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import { Table, TableHeader, TableBody, TableHead, TableRow, TableCell, TableFooter } from "@/components/ui/table";
-import { fmt, fmtShort, pct } from "@/lib/formatters";
+import { fmt, fmtShort, pct, currentPeriodIndex } from "@/lib/formatters";
 import { buildColorMap, buildMonthlySeries, buildCashflowSeries, annualTotal, monthlyTotal, getAvailableMonths, filterSeriesToRange, buildYearlySeries, buildQuarterlySeries, rangeTotal, EXCLUDE_REVENUE, EXCLUDE_EBITDA, EXCLUDE_ALWAYS, PALETTE } from "@/lib/chartHelpers";
 import { Button } from "@/components/ui/button";
 import { generateInsights } from "@/lib/insights";
@@ -591,7 +591,11 @@ export default function InVitroDashboard({ data: rawData, user }) {
     const irr = data?.irrValuation;
     const ps = irr?.periods ?? [];
     if (!ps.length) return null;
-    // Prefer the most recent ACTUAL period that has fund NAV data.
+    // Land on the period we are currently IN — in Q3, open on Q3.
+    const nowIdx = currentPeriodIndex(ps);
+    if (nowIdx >= 0) return ps[nowIdx].label;
+    // Only if the grid carries no usable end dates: fall back to the most
+    // recent ACTUAL period that has fund NAV data.
     for (let i = ps.length - 1; i >= 0; i--) {
       if (!ps[i].isActual) continue;
       const hasData = irr.vehicles.some(v => v.ownershipValue?.[i] != null && v.ownershipValue[i] > 0);
