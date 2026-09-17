@@ -581,32 +581,32 @@ export default function InVitroDashboard({ data: rawData, user }) {
   //   1. 2026 if it's in the IRR years AND has data
   //   2. Most recent year with vehicle ownership data
   //   3. Last year in the IRR years array (no-data fallback)
-  const irrYearsAvailable = data?.irrValuation?.years ?? [];
-  const [irrYear, setIrrYear] = useState(() => {
+  // Period selector for the IRR & Valuation tab. The sheet is now
+  // quarterly (Q4 2025 onward), so the picker shows every period —
+  // FY 2021..2024 (annual snapshots), then Q4 2025, Q1 2026, ...
+  // Dec-ending periods are labeled "(annual)" so the reader knows those
+  // rows double as the year-end snapshot.
+  const irrPeriodsAvailable = data?.irrValuation?.periods ?? [];
+  const [irrPeriod, setIrrPeriod] = useState(() => {
     const irr = data?.irrValuation;
-    if (!irr || !irr.years?.length) return null;
-    const PREFERRED = 2026;
-    const prefIdx = irr.years.indexOf(PREFERRED);
-    if (prefIdx >= 0) {
-      const hasData = irr.vehicles.some(v => v.ownershipValue?.[prefIdx] != null && v.ownershipValue[prefIdx] > 0);
-      if (hasData) return PREFERRED;
-    }
-    // Fallback: most recent year with data
-    for (let i = irr.years.length - 1; i >= 0; i--) {
+    const ps = irr?.periods ?? [];
+    if (!ps.length) return null;
+    // Prefer the most recent ACTUAL period that has fund NAV data.
+    for (let i = ps.length - 1; i >= 0; i--) {
+      if (!ps[i].isActual) continue;
       const hasData = irr.vehicles.some(v => v.ownershipValue?.[i] != null && v.ownershipValue[i] > 0);
-      if (hasData) return irr.years[i];
+      if (hasData) return ps[i].label;
     }
-    return irr.years[irr.years.length - 1];
+    return ps[ps.length - 1].label;
   });
   const [irrCompareEnabled, setIrrCompareEnabled] = useState(false);
-  const [irrCompYear, setIrrCompYear] = useState(() => {
-    // Default comparison: the year directly before the default current
-    // year (2026 → 2025). Falls back to second-to-last in the array if
-    // 2025 isn't present.
-    const years = data?.irrValuation?.years ?? [];
-    if (years.includes(2025)) return 2025;
-    return years.length >= 2 ? years[years.length - 2] : null;
+  const [irrCompPeriod, setIrrCompPeriod] = useState(() => {
+    // Default comparison: the period immediately before the current one.
+    const ps = data?.irrValuation?.periods ?? [];
+    return ps.length >= 2 ? ps[ps.length - 2].label : null;
   });
+  // Format helper: adds "(annual)" suffix to Dec-ending periods.
+  const formatPeriodOption = (p) => p.isAnnualEnd ? `${p.label} (annual)` : p.label;
   const [compareEnabled, setCompareEnabled] = useState(false);
   const [compareFromKey, setCompareFromKey] = useState(null); // null = auto-compute
   const [compareToKey, setCompareToKey] = useState(null);
@@ -1677,13 +1677,15 @@ export default function InVitroDashboard({ data: rawData, user }) {
               // tabs (point-in-time per year, not a range).
               <>
                 <div className="flex items-center gap-1.5 bg-muted/60 rounded-lg px-2 py-1">
-                  <span className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">Year</span>
+                  <span className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">Period</span>
                   <select
-                    value={irrYear ?? ''}
-                    onChange={e => setIrrYear(Number(e.target.value))}
+                    value={irrPeriod ?? ''}
+                    onChange={e => setIrrPeriod(e.target.value)}
                     className="h-7 rounded-md bg-white border border-border/60 px-2 text-xs font-medium text-foreground shadow-sm focus:outline-none focus:ring-2 focus:ring-ring/30"
                   >
-                    {irrYearsAvailable.map(y => (<option key={y} value={y}>{y}</option>))}
+                    {irrPeriodsAvailable.map(p => (
+                      <option key={p.label} value={p.label}>{formatPeriodOption(p)}</option>
+                    ))}
                   </select>
                 </div>
                 <div className="flex items-center gap-1.5 bg-muted/60 rounded-lg px-2 py-1">
@@ -1693,11 +1695,11 @@ export default function InVitroDashboard({ data: rawData, user }) {
                       checked={irrCompareEnabled}
                       onChange={e => {
                         setIrrCompareEnabled(e.target.checked);
-                        // Default comparison year on enable: the year right
-                        // before the currently-selected one.
-                        if (e.target.checked && irrYear != null) {
-                          const idx = irrYearsAvailable.indexOf(irrYear);
-                          if (idx > 0) setIrrCompYear(irrYearsAvailable[idx - 1]);
+                        // Default compare period on enable: the period
+                        // immediately before the currently-selected one.
+                        if (e.target.checked && irrPeriod) {
+                          const idx = irrPeriodsAvailable.findIndex(p => p.label === irrPeriod);
+                          if (idx > 0) setIrrCompPeriod(irrPeriodsAvailable[idx - 1].label);
                         }
                       }}
                       className="h-3.5 w-3.5 rounded border-border accent-primary"
@@ -1706,13 +1708,13 @@ export default function InVitroDashboard({ data: rawData, user }) {
                   </label>
                   {irrCompareEnabled && (
                     <select
-                      value={irrCompYear ?? ''}
-                      onChange={e => setIrrCompYear(Number(e.target.value))}
+                      value={irrCompPeriod ?? ''}
+                      onChange={e => setIrrCompPeriod(e.target.value)}
                       className="h-7 rounded-md bg-white border border-border/60 px-2 text-xs font-medium text-foreground shadow-sm focus:outline-none focus:ring-2 focus:ring-ring/30"
                     >
-                      {irrYearsAvailable
-                        .filter(y => y !== irrYear /* can't compare a year to itself */)
-                        .map(y => (<option key={y} value={y}>{y}</option>))}
+                      {irrPeriodsAvailable
+                        .filter(p => p.label !== irrPeriod)
+                        .map(p => (<option key={p.label} value={p.label}>{formatPeriodOption(p)}</option>))}
                     </select>
                   )}
                 </div>
@@ -4963,8 +4965,8 @@ export default function InVitroDashboard({ data: rawData, user }) {
             <IRRValuation
               data={data}
               user={user}
-              selectedYear={irrYear}
-              compareYear={irrCompareEnabled ? irrCompYear : null}
+              selectedYear={irrPeriod}
+              compareYear={irrCompareEnabled ? irrCompPeriod : null}
               viewMode={irrView}
               /* Cross-section navigation: clicking a company name in
                  the IRR view jumps to that company's Overview in the

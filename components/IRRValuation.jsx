@@ -432,21 +432,33 @@ function xirr(flows, guess = 0.1) {
  *
  * Returns IRRs in percent units (43 means 43%).
  */
-function computeLpReturns(lp, vehicle, yearIdx, years, fundTimeline) {
-  // When the fund Timeline sheet provides a per-LP monthly schedule for
-  // this LP, its authoritative ownership% overrides the annual IRR-sheet
-  // number so what we display and what we XIRR-anchor on stay consistent.
+function computeLpReturns(lp, vehicle, yearIdx, years, fundTimeline, periods) {
+  // The IRR sheet is now quarterly (as of Sept 2026 sheet update) and is
+  // the source of truth for period-precise ownership % — it has a
+  // separate value for Q1/Q2/Q3/Q4 of each year. The Timeline sheet's
+  // Ownership tab only has annual snapshots, so it can't tell us Q2 2026
+  // vs Q3 2026. Prefer the IRR-sheet value; fall back to Timeline only
+  // when the IRR-sheet has nothing for this period (older sheet
+  // versions, edge rows).
   const timelineLp = fundTimeline?.perLp?.[lp.name];
   const timelineOwnByYear = timelineLp?.ownershipByYear;
   const selectedYearNum = years?.[yearIdx];
+  const irrSheetOwnPct = lp.ownership?.[yearIdx];
   const ownPctFromTimeline = timelineOwnByYear && selectedYearNum != null
     ? (timelineOwnByYear[selectedYearNum] ?? null)
     : null;
-  const ownPct = ownPctFromTimeline != null
-    ? ownPctFromTimeline * 100
-    : (lp.ownership?.[yearIdx] ?? 0);
+  const ownPct = irrSheetOwnPct != null && irrSheetOwnPct !== 0
+    ? irrSheetOwnPct
+    : (ownPctFromTimeline != null ? ownPctFromTimeline * 100 : 0);
   const vehicleValue = vehicle.ownershipValue?.[yearIdx] ?? 0;
   const lpValue = vehicleValue * (ownPct / 100);
+
+  // Terminal date for XIRR — end of the selected period (Q4=Dec 31,
+  // Q1=Mar 31, etc.). Falls back to Dec 31 of the selected year if
+  // the caller didn't pass periods (back-compat).
+  const selectedPeriodEndMs = periods?.[yearIdx]?.endDate
+    ? Date.parse(periods[yearIdx].endDate)
+    : (selectedYearNum != null ? Date.UTC(selectedYearNum, 11, 31) : null);
 
   const series = lp.investment ?? [];
   const recyclingStartYear = VEHICLE_RECYCLING_START_YEAR[vehicle.name];
@@ -491,11 +503,11 @@ function computeLpReturns(lp, vehicle, yearIdx, years, fundTimeline) {
       // sequence (Newton-Raphson can't find a rate that reconciles a
       // pay-out AFTER a supposed exit) and silently falls back to
       // annual buckets.
-      const terminalMs = selectedYearNum != null ? Date.UTC(selectedYearNum, 11, 31) : null;
+      const terminalMs = selectedPeriodEndMs;
       const timelineFlows = (timelineLp?.flows ?? []).filter(f =>
         terminalMs == null || Date.UTC(f.year, f.month - 1, f.day) <= terminalMs
       );
-      if (timelineFlows.length > 0 && selectedYearNum != null) {
+      if (timelineFlows.length > 0 && terminalMs != null) {
         const firstMs = Date.UTC(timelineFlows[0].year, timelineFlows[0].month - 1, timelineFlows[0].day);
         const YR_MS = 365.25 * 86400e3;
         const flows = timelineFlows.map(f => ({
@@ -582,22 +594,49 @@ export default function IRRValuation({ data, user, selectedYear: selectedYearPro
     );
   }
 
-  const years = irr.years;
-  // Year selection comes from the header (Dashboard owns the state). Fall
-  // back to "most recent year with data" if the prop isn't provided (e.g.
-  // standalone usage without the parent's header).
-  const fallbackYear = (() => {
-    for (let i = years.length - 1; i >= 0; i--) {
+  // Period-order-aligned arrays — periods[] carries the full detail,
+  // years[] is derived (year integer per period index) so all existing
+  // arithmetic against `years[yearIdx]` still gives a year number.
+  const periods = irr.periods || [];
+  const years = periods.map(p => p.year);
+  // Format a period label with an "(annual)" suffix on Dec-ending
+  // periods (FY 2021, Q4 2025, etc.) so the reader knows those rows
+  // double as the year-end snapshot.
+  const formatPeriodLabel = (p) => p ? (p.isAnnualEnd ? `${p.label} (annual)` : p.label) : '';
+  // The Dashboard header passes a period LABEL string ("Q4 2025", "FY 2024").
+  // If it isn't provided (standalone / stale prop), fall back to the most
+  // recent actual period with fund NAV data.
+  const fallbackPeriodIdx = (() => {
+    for (let i = periods.length - 1; i >= 0; i--) {
       const hasData = irr.vehicles.some(v => v.ownershipValue?.[i] != null && v.ownershipValue[i] > 0);
-      if (hasData) return years[i];
+      if (hasData) return i;
     }
-    return years[years.length - 1];
+    return periods.length - 1;
   })();
-  const selectedYear = selectedYearProp ?? fallbackYear;
-  const yearIdx = years.indexOf(selectedYear);
-  // Comparison year (optional). When set, vehicle KPI tiles render a delta
-  // badge underneath their primary value.
-  const compIdx = compareYear != null ? years.indexOf(compareYear) : -1;
+  const findIdx = (label) => {
+    if (!label) return -1;
+    // Accept either bare label ("Q4 2025") or the annotated form
+    // ("Q4 2025 (annual)") — normalize by stripping the suffix.
+    const bare = String(label).replace(/\s*\(annual\)\s*$/i, '').trim();
+    return periods.findIndex(p => p.label === bare);
+  };
+  const resolvedIdx = selectedYearProp != null
+    ? (typeof selectedYearProp === 'number'
+        // Back-compat: a numeric year prop lands on that year's annual snapshot.
+        ? periods.findIndex(p => p.year === selectedYearProp && p.isAnnualEnd)
+        : findIdx(selectedYearProp))
+    : fallbackPeriodIdx;
+  // `yearIdx` is the period index; kept as `yearIdx` so downstream code
+  // that reads `years[yearIdx]`, `vehicle.ownershipValue[yearIdx]`, etc.
+  // works unchanged.
+  const yearIdx = resolvedIdx >= 0 ? resolvedIdx : fallbackPeriodIdx;
+  const selectedYear = years[yearIdx];
+  const selectedPeriod = periods[yearIdx];
+  const compIdx = compareYear != null
+    ? (typeof compareYear === 'number'
+        ? periods.findIndex(p => p.year === compareYear && p.isAnnualEnd)
+        : findIdx(compareYear))
+    : -1;
   const compEnabled = compIdx >= 0 && compIdx !== yearIdx;
 
   // LP scoping
@@ -964,7 +1003,10 @@ export default function IRRValuation({ data, user, selectedYear: selectedYearPro
                 let consIrrMethod = 'cagr';
                 const fundTL = irr?.fundTimelines?.['InVitro Fund'];
                 // Filter to on/before terminal date — same fix as computeLpReturns.
-                const terminalMs = years?.[yearIdx] != null ? Date.UTC(years[yearIdx], 11, 31) : null;
+                // Terminal = end of selected PERIOD (quarter or annual snapshot).
+                const terminalMs = periods?.[yearIdx]?.endDate
+                  ? Date.parse(periods[yearIdx].endDate)
+                  : (years?.[yearIdx] != null ? Date.UTC(years[yearIdx], 11, 31) : null);
                 const lpFlows = (fundTL?.perLp?.[lpName]?.flows ?? []).filter(f =>
                   terminalMs == null || Date.UTC(f.year, f.month - 1, f.day) <= terminalMs
                 );
@@ -1411,7 +1453,7 @@ export default function IRRValuation({ data, user, selectedYear: selectedYearPro
         // LP-specific returns: ownership %, value, cumulative invested,
         // MOIC, IRR — computed using the actual sheet-provided investment
         // amounts (not vehicle investment × ownership %).
-        const myReturns = myLp ? computeLpReturns(myLp, v, yearIdx, years, fundTimeline) : null;
+        const myReturns = myLp ? computeLpReturns(myLp, v, yearIdx, years, fundTimeline, periods) : null;
         const myOwnPct = myReturns?.ownPct ?? 0;
         const myValue = myReturns?.lpValue ?? 0;
         const myInvestment = myReturns?.cumInvest ?? 0;
@@ -2001,19 +2043,14 @@ export default function IRRValuation({ data, user, selectedYear: selectedYearPro
                     // switches to the Timeline's authoritative per-year
                     // value when present.
                     const tlLp = fundTimeline?.perLp?.[myLp.name];
-                    const timelineCalledByYear = tlLp?.flows
-                      ? tlLp.flows.reduce((acc, f) => {
-                          acc[f.year] = (acc[f.year] ?? 0) + f.amount;
-                          return acc;
-                        }, {})
-                      : null;
+                    const hasTimelineFlows = tlLp?.flows?.length > 0;
                     return (
                     <div className="mt-4 pt-4 border-t border-primary/20">
                       <p className="text-[11px] font-semibold uppercase tracking-wide text-primary mb-2">
                         Capital Call Schedule
-                        {timelineCalledByYear && (
+                        {hasTimelineFlows && (
                           <span className="ml-2 text-[9px] font-normal text-muted-foreground">
-                            (month-precise · from Fund Timeline)
+                            (quarterly · IRR sheet valuation × Fund Timeline calls)
                           </span>
                         )}
                       </p>
@@ -2036,52 +2073,61 @@ export default function IRRValuation({ data, user, selectedYear: selectedYearPro
                             // First year of the LP's participation (year where
                             // called first goes positive) — used as a fallback
                             // when the vehicle has no lifecycle config.
+                            // First period the LP has actually paid into.
+                            // Used only as a fallback when no lifecycle
+                            // config exists for the vehicle.
                             let firstActiveIdx = -1;
-                            for (let i = 0; i < years.length; i++) {
-                              const y = years[i];
-                              const c = timelineCalledByYear
-                                ? (timelineCalledByYear[y] ?? 0)
+                            for (let i = 0; i < periods.length; i++) {
+                              const pEnd = Date.parse(periods[i].endDate);
+                              const called = tlLp?.flows
+                                ? tlLp.flows.filter(f => {
+                                    const ms = Date.UTC(f.year, f.month - 1, f.day);
+                                    const prevEnd = i > 0 ? Date.parse(periods[i-1].endDate) : -Infinity;
+                                    return ms > prevEnd && ms <= pEnd;
+                                  }).reduce((s, f) => s + f.amount, 0)
                                 : (myLp.investment?.[i] ?? 0);
-                              if (c > 0) { firstActiveIdx = i; break; }
+                              if (called > 0) { firstActiveIdx = i; break; }
                             }
                             const lifecycle = FUND_LIFECYCLE[v.name] ?? null;
-                            return years.map((year, idx) => {
+                            return periods.map((period, idx) => {
+                            const year = period.year;
                             const phase = lifecycle?.[year] ?? null;
-                            const called = timelineCalledByYear
-                              ? (timelineCalledByYear[year] ?? 0)
+                            // Called THIS PERIOD — from Timeline flows dated
+                            // within (prev period end, this period end]. When
+                            // Timeline isn't available, fall back to the
+                            // IRR-sheet period value (which the CFO now
+                            // populates per quarter directly).
+                            const prevEndMs = idx > 0 ? Date.parse(periods[idx-1].endDate) : -Infinity;
+                            const thisEndMs = Date.parse(period.endDate);
+                            const called = tlLp?.flows
+                              ? tlLp.flows.filter(f => {
+                                  const ms = Date.UTC(f.year, f.month - 1, f.day);
+                                  return ms > prevEndMs && ms <= thisEndMs;
+                                }).reduce((s, f) => s + f.amount, 0)
                               : (myLp.investment?.[idx] ?? 0);
-                            const cumCalled = timelineCalledByYear
-                              ? years.slice(0, idx + 1)
-                                  .reduce((a, y) => a + (timelineCalledByYear[y] ?? 0), 0)
+                            // Cum called — all Timeline flows dated on/before this period end.
+                            const cumCalled = tlLp?.flows
+                              ? tlLp.flows.filter(f => Date.UTC(f.year, f.month - 1, f.day) <= thisEndMs)
+                                  .reduce((s, f) => s + f.amount, 0)
                               : (myLp.investment ?? [])
                                   .slice(0, idx + 1)
                                   .reduce((a, v) => a + (v ?? 0), 0);
                             const pctCommitted = myCommitment ? (cumCalled / myCommitment) * 100 : null;
                             const unfunded = myCommitment ? Math.max(0, myCommitment - cumCalled) : null;
-                            const ownPctYr = tlLp?.ownershipByYear?.[year] != null
-                              ? tlLp.ownershipByYear[year] * 100
-                              : (myLp.ownership?.[idx] ?? 0);
+                            // Prefer IRR-sheet ownership (period-precise); fall back to Timeline (annual only).
+                            const irrOwnPeriod = myLp.ownership?.[idx];
+                            const ownPctYr = irrOwnPeriod != null && irrOwnPeriod !== 0
+                              ? irrOwnPeriod
+                              : (tlLp?.ownershipByYear?.[year] != null ? tlLp.ownershipByYear[year] * 100 : 0);
                             const vehVal = v.ownershipValue?.[idx];
                             const stakeNav = vehVal != null && ownPctYr > 0 ? vehVal * (ownPctYr / 100) : null;
                             const tvpiRaw = cumCalled > 0 && stakeNav != null ? stakeNav / cumCalled : null;
-                            // Suppress TVPI/IRR when the row is in a J-curve phase
-                            // (calling / deployment) per the fund's lifecycle config —
-                            // sub-1 TVPI and negative IRR in these years reflect the
-                            // fee drag + un-marked-up NAV, not real underperformance.
-                            // Falls back to the old "first active year" rule when
-                            // the vehicle has no lifecycle config.
                             const isJCurve = phase ? phase.jCurve : (idx === firstActiveIdx);
                             const tvpi = isJCurve ? null : tvpiRaw;
-                            // Per-year monthly XIRR — money-weighted return the LP
-                            // would show if they marked to fair value at Dec 31 of
-                            // this row's year. Uses the same Timeline monthly flows
-                            // as the top-of-card IRR, just filtered to on-or-before
-                            // the row-year terminal. First year of participation is
-                            // N/M (J-curve). Falls back to null when the row has no
-                            // stake NAV (early years the fund hadn't valued yet).
+                            // Per-period XIRR — terminal NAV = this row's Stake NAV at the period's real end date.
                             let rowIrr = null;
                             if (!isJCurve && stakeNav != null && stakeNav > 0 && tlLp?.flows?.length > 0) {
-                              const rowTerminalMs = Date.UTC(year, 11, 31);
+                              const rowTerminalMs = thisEndMs;
                               const rowFlowsBefore = tlLp.flows.filter(f =>
                                 Date.UTC(f.year, f.month - 1, f.day) <= rowTerminalMs
                               );
@@ -2097,13 +2143,16 @@ export default function IRRValuation({ data, user, selectedYear: selectedYearPro
                                 if (r != null) rowIrr = r * 100;
                               }
                             }
-                            // Skip pre-investment / post-exit empty years
+                            // Skip pre-investment / post-exit empty periods
                             if (called === 0 && cumCalled === 0 && (stakeNav == null || stakeNav === 0)) return null;
                             const isSelectedYear = idx === yearIdx;
                             return (
-                              <TableRow key={year} className={isSelectedYear ? 'bg-primary/10 font-medium' : ''}>
+                              <TableRow key={period.label} className={isSelectedYear ? 'bg-primary/10 font-medium' : ''}>
                                 <TableCell className="text-xs">
-                                  <div className="tabular-nums">{year}</div>
+                                  <div className="tabular-nums font-medium">
+                                    {period.label}
+                                    {period.isAnnualEnd && <span className="ml-1 text-[9px] text-muted-foreground font-normal">(annual)</span>}
+                                  </div>
                                   {phase && (
                                     <div className={cn(
                                       "text-[9px] font-normal uppercase tracking-wide leading-tight mt-0.5",
@@ -2229,7 +2278,7 @@ export default function IRRValuation({ data, user, selectedYear: selectedYearPro
                     </TableHeader>
                     <TableBody>
                       {rosterLps.map(lp => {
-                        const r = computeLpReturns(lp, v, yearIdx, years, fundTimeline);
+                        const r = computeLpReturns(lp, v, yearIdx, years, fundTimeline, periods);
                         const { ownPct, lpValue, cumInvest, initialContrib, recycledAlloc,
                           moic: lpMoic, irr: lpIrr, moicOnTotal, irrOnTotal, irrMethod,
                           lpHoldYears, lpFirstYear } = r;
