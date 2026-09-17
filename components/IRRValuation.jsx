@@ -72,6 +72,64 @@ const VEHICLE_CONVERSION_YEAR = {
 };
 
 /**
+ * Real transfer dates, where the period column alone would be misleading.
+ *
+ * The IRR sheet records investment by period, so without help a flow can
+ * only be dated to that period's end. For most entries that is close
+ * enough — the grid is quarterly, so the error is at most ~45 days. It is
+ * NOT close enough for a large early lump sum, where a six-month error
+ * compounds across the whole hold.
+ *
+ * Per Andrew, these are the months the transfer actually hit the bank:
+ *   - Curenta Enterprise's first $1,428,456 landed in June 2021, not at
+ *     the FY2021 year end.
+ *   - Barsoum Brothers' first two tranches were December 2021 and
+ *     December 2022 — which ARE those periods' ends, so they need no
+ *     override and are listed here only so the next reader knows they
+ *     were checked rather than assumed.
+ *
+ * Keyed by vehicle, then by the period's year. Month is 1-based.
+ */
+const VEHICLE_FIRST_FLOW_DATE = {
+  'Curenta Enterprise': { 2021: { month: 6, day: 1 } },
+};
+
+/** Resolve the date to use for a vehicle's flow in a given period. */
+function flowDateFor(vehicleName, period, year) {
+  const override = VEHICLE_FIRST_FLOW_DATE[vehicleName]?.[year];
+  if (override) return Date.UTC(year, override.month - 1, override.day ?? 1);
+  if (period?.endDate) {
+    const t = Date.parse(period.endDate);
+    if (Number.isFinite(t)) return t;
+  }
+  return year != null ? Date.UTC(year, 11, 31) : null;
+}
+
+/**
+ * Money-weighted XIRR from a series of dated outflows plus a terminal
+ * value. Shared by every IRR on this page so vehicles, shareholders and
+ * LPs cannot drift onto different conventions again.
+ *
+ * @param {Array<{ms:number, amount:number}>} contributions money IN (positive)
+ * @param {number} terminalValue NAV at the period end
+ * @param {number} terminalMs    period end
+ * @returns {number|null} percent, or null when unsolvable
+ */
+function xirrFromDatedFlows(contributions, terminalValue, terminalMs) {
+  const paid = (contributions || []).filter(f => f.amount > 0 && Number.isFinite(f.ms));
+  if (!paid.length || !(terminalValue > 0) || !Number.isFinite(terminalMs)) return null;
+  const firstMs = Math.min(...paid.map(f => f.ms));
+  const YR_MS = 365.25 * 86400e3;
+  const flows = paid.map(f => ({
+    amount: -f.amount,
+    yearsFromStart: (f.ms - firstMs) / YR_MS,
+  }));
+  flows.push({ amount: terminalValue, yearsFromStart: (terminalMs - firstMs) / YR_MS });
+  const rate = xirr(flows);
+  return rate == null ? null : rate * 100;
+}
+
+/**
  * Fund STRUCTURE — which vehicles are funds (committed capital, called in
  * instalments) rather than direct-holding vehicles, and the shape of their
  * call schedule.
@@ -608,19 +666,52 @@ function computeFundXirr(fundTimeline, navAtPeriodEnd, periodEndMs) {
   for (const lp of Object.values(perLp)) {
     for (const f of lp?.flows ?? []) {
       const ms = Date.UTC(f.year, f.month - 1, f.day);
-      if (ms <= periodEndMs) paid.push({ ms, amount: f.amount });
+      if (ms <= periodEndMs && f.amount > 0) paid.push({ ms, amount: f.amount });
     }
   }
-  if (!paid.length) return null;
-  const firstMs = Math.min(...paid.map(f => f.ms));
-  const YR_MS = 365.25 * 86400e3;
-  const flows = paid.map(f => ({
-    amount: -f.amount,
-    yearsFromStart: (f.ms - firstMs) / YR_MS,
-  }));
-  flows.push({ amount: navAtPeriodEnd, yearsFromStart: (periodEndMs - firstMs) / YR_MS });
-  const rate = xirr(flows);
-  return rate == null ? null : rate * 100;
+  return xirrFromDatedFlows(paid, navAtPeriodEnd, periodEndMs);
+}
+
+/**
+ * Vehicle-level money-weighted IRR — the same measure the LP rows use,
+ * one level up. Replaces the sheet's own IRR row for every vehicle.
+ *
+ * Flow source by vehicle type:
+ *   - FUND: capital CALLED from LPs (Fund Timeline), not capital
+ *     deployed into portcos. Those differ by the $54,500 of 2025 legal
+ *     expenses Andrew paid out of called capital; charging the fund for
+ *     money it consumed is what an LP actually experiences, and it keeps
+ *     the tile consistent with the LP rows beneath it.
+ *   - EVERY OTHER VEHICLE: the IRR sheet's Cumulative Investment row,
+ *     differenced back into per-period contributions and dated via
+ *     flowDateFor. That row now reconciles exactly to the sum of the
+ *     per-company investment rows for Barsoum Brothers, Curenta
+ *     Enterprise and InVitro Ventures.
+ */
+function computeVehicleXirr(vehicle, fundTimeline, periods, years, yearIdx, periodEndMs, navAtPeriodEnd) {
+  if (periodEndMs == null || !(navAtPeriodEnd > 0)) return null;
+
+  if (isFundStructured(vehicle.name)) {
+    return computeFundXirr(fundTimeline, navAtPeriodEnd, periodEndMs);
+  }
+
+  const cum = vehicle.investment;
+  if (!Array.isArray(cum)) return null;
+  // Cumulative -> per-period. Guard against a dip (a restatement) by
+  // never letting the running figure go backwards; a negative "flow"
+  // would be read as a distribution and invert the sign of the IRR.
+  const dated = [];
+  let prev = 0;
+  for (let i = 0; i <= yearIdx && i < cum.length; i++) {
+    const v = cum[i];
+    if (v == null) continue;
+    const delta = v - prev;
+    if (delta > 0.5) {
+      dated.push({ amount: delta, ms: flowDateFor(vehicle.name, periods?.[i], years?.[i]) });
+    }
+    prev = Math.max(prev, v);
+  }
+  return xirrFromDatedFlows(dated, navAtPeriodEnd, periodEndMs);
 }
 
 /**
@@ -716,19 +807,31 @@ function computeLpReturns(lp, vehicle, yearIdx, years, fundTimeline, periods) {
   const lpFirstYear = firstInvestIdx >= 0 && years ? years[firstInvestIdx] : null;
 
   // Returns calculator. MOIC = NAV / basis is unchanged across methods
-  // (no time dependence). IRR branches:
-  //   - Fund-structured vehicle: money-weighted XIRR computed from the
-  //     actual call timing. Matches Excel's =XIRR() formula and what
-  //     LP fund statements expect.
-  //   - Direct investment vehicle: CAGR on the vehicle's hold period
-  //     (matches the sheet's vehicle-rollup convention).
-  // If XIRR fails to converge for any reason, fall back to CAGR rather
-  // than show a missing value.
+  // (no time dependence).
+  //
+  // IRR is money-weighted XIRR for EVERY vehicle type — funds, direct
+  // equity vehicles and individual shareholders alike. Per Andrew:
+  // "let's unify the IRR% calculation across all vehicles, all
+  // shareholders and all LPs". Vehicle type changes only the PRECISION
+  // of the dates available, never the formula:
+  //   1. real payment dates  — fund LPs (Cash Flow Timeline, daily) and
+  //      InVitro Ventures shareholders (Cashflow rows 54-58, monthly)
+  //   2. period-end dates    — everyone else, from the IRR sheet's
+  //      per-period investment series, with VEHICLE_FIRST_FLOW_DATE
+  //      overriding where Andrew gave the real transfer month
+  // CAGR survives only as a last resort when a series has too few flows
+  // for XIRR to solve, so a cell shows a number rather than a dash.
+  //
+  // This deliberately no longer mirrors the sheet's own IRR row. That
+  // row uses =RATE(hold,0,-inv,NAV), and Google Sheets' RATE truncates
+  // the period count to a whole number — so every non-December quarter
+  // was annualised over too few years and read far too high (InVitro
+  // Ventures Q3 2026: 108.6% shown against 70.7% on a correct CAGR).
   const calcReturn = (basis, events) => {
     if (basis <= 0 || lpValue <= 0) return { moic: null, irr: null };
     const moic = lpValue / basis;
 
-    if (isFund) {
+    {
       // Preferred path: real monthly dates from the Timeline sheet.
       // Filter to only flows on or before the terminal NAV date — Timeline
       // holds the LP's full committed schedule (past + future calls); for
@@ -757,26 +860,28 @@ function computeLpReturns(lp, vehicle, yearIdx, years, fundTimeline, periods) {
         if (rate != null) return { moic, irr: rate * 100, method: 'monthly-xirr' };
       }
 
-      // Fallback: annual events from the IRR sheet, with terminal NAV
-      // at Dec 31 (year+1) rather than year-index instant.
-      if (events && events.length > 0 && years) {
-        const firstEventYear = years[events[0].yearIdx];
-        const selectedYearEnd = years[yearIdx] + 1;
-        const flows = events.map(e => ({
-          amount: -e.amount,
-          yearsFromStart: years[e.yearIdx] - firstEventYear,
+      // Period-dated path — used by every vehicle without a per-payment
+      // ledger, and by the fund if Timeline is ever unavailable. Each
+      // contribution is dated to its period's end, except where
+      // VEHICLE_FIRST_FLOW_DATE carries the real transfer month.
+      if (events && events.length > 0 && terminalMs != null) {
+        const dated = events.map(e => ({
+          amount: e.amount,
+          ms: flowDateFor(vehicle.name, periods?.[e.yearIdx], years?.[e.yearIdx]),
         }));
-        flows.push({ amount: lpValue, yearsFromStart: selectedYearEnd - firstEventYear });
-        const rate = xirr(flows);
-        if (rate != null) return { moic, irr: rate * 100, method: 'annual-xirr' };
+        const rate = xirrFromDatedFlows(dated, lpValue, terminalMs);
+        if (rate != null) return { moic, irr: rate, method: 'period-xirr' };
       }
     }
 
-    // CAGR fallback.
+    // CAGR only when XIRR has too little to solve with (a single flow in
+    // the same period as the terminal value, for instance). Kept so a
+    // cell shows a number rather than a dash, never as a parallel
+    // convention.
     const irr = lpHoldYears && lpHoldYears > 0
       ? (Math.pow(moic, 1 / lpHoldYears) - 1) * 100
       : null;
-    return { moic, irr, method: 'cagr' };
+    return { moic, irr, method: 'cagr-fallback' };
   };
 
   const onInitial = calcReturn(split.initial, split.initialEvents);
@@ -1782,14 +1887,18 @@ export default function IRRValuation({ data, user, selectedYear: selectedYearPro
         const fundPrepaid = fundCallSummary?.prepaid ?? 0;
         const fundLpsOverdue = fundCallSummary?.lpsOverdue ?? 0;
         const fundInWindow = fundCallSummary?.inWindow ?? 0;
-        // The sheet wins where it has a value. Where it does not — the
-        // fund's IRR row is blank until Q4 2026 — derive it from the
-        // Timeline calls against this period's NAV so the tile carries a
-        // number instead of a dash. Flagged in the tooltip as computed.
-        const irrIsDerived = irrPct == null && isFund;
-        const irrDisplayPct = irrIsDerived
-          ? computeFundXirr(fundTimeline, ownership, periodEndMs)
-          : irrPct;
+        // Computed here for EVERY vehicle rather than read from the
+        // sheet's IRR row, so vehicles, shareholders and LPs all share
+        // one convention. The sheet's row stays untouched but is no
+        // longer displayed — it is computed with RATE(), which truncates
+        // its period count to whole years and so overstates every
+        // non-December quarter (Barsoum +14.3pp, AllRx Holding +12.1pp,
+        // Curenta +5.7pp, InVitro Ventures +37.9pp at Q3 2026).
+        const irrComputedPct = computeVehicleXirr(
+          v, fundTimeline, periods, years, yearIdx, periodEndMs, ownership,
+        );
+        const irrDisplayPct = irrComputedPct != null ? irrComputedPct : irrPct;
+        const irrIsDerived = irrComputedPct != null;
         const fundPctCalled = isFund && fundTotalCommit > 0 ? (fundCalledToDate / fundTotalCommit) * 100 : null;
         const fundPctFunded = isFund && fundTotalCommit > 0 ? (fundFundedToDate / fundTotalCommit) * 100 : null;
 
@@ -1895,17 +2004,15 @@ export default function IRRValuation({ data, user, selectedYear: selectedYearPro
                 <KpiTile label="Total Investment" value={fmt(investment)}
                   delta={compEnabled && <DeltaBadge current={investment} prior={investmentPrior} compareYear={compareYear} />} />
                 <KpiTile
-                  label={isFund
-                    ? (irrIsDerived && irrDisplayPct != null ? 'IRR (computed, gross)' : 'IRR (gross, unrealised)')
-                    : 'IRR'}
-                  title={isFund
-                    ? [
-                        irrIsDerived && irrDisplayPct != null
-                          ? 'Not in the sheet for this period — XIRR of the Fund Timeline capital calls against this period’s NAV.'
-                          : null,
-                        'Annualised on an unrealised valuation mark, gross of management fees and carry. No distributions have been made.',
-                      ].filter(Boolean).join(' ')
-                    : undefined}
+                  label={irrIsDerived ? 'IRR (XIRR, gross)' : 'IRR'}
+                  title={[
+                    irrIsDerived
+                      ? (isFund
+                          ? 'Money-weighted XIRR of the Fund Timeline capital calls (capital CALLED from LPs, including the $54.5k of 2025 legal expenses paid out of it) against this period’s NAV.'
+                          : 'Money-weighted XIRR of this vehicle’s contributions against this period’s NAV. Contributions are dated to each period’s end, except where the real transfer month is known.')
+                      : null,
+                    'Annualised on an unrealised valuation mark, gross of management fees and carry. No distributions have been made.',
+                  ].filter(Boolean).join(' ')}
                   value={irrDisplayPct != null ? `${irrDisplayPct.toFixed(1)}%` : '—'}
                   tone={irrDisplayPct == null ? 'neutral' : irrDisplayPct >= 0 ? 'positive' : 'negative'}
                   delta={compEnabled && <DeltaBadge current={irrDisplayPct} prior={irrPrior} compareYear={compareYear} />} />
