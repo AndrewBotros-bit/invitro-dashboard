@@ -94,6 +94,12 @@ const FUND_COMMITMENTS = {
   'InVitro Fund': {
     totalCommitment: 2_125_000,
     commitmentPeriodYears: [2024, 2027],
+    // Calls go out in the Sep–Nov window of each year in the commitment
+    // period, in equal annual installments (4 years → 25% each). We anchor
+    // the call to the FIRST month of that window: once Sep 1 passes, the
+    // LP owes that installment, and anything unpaid after it is a
+    // receivable rather than uncalled commitment.
+    callScheduleMonth: 9,
     perLP: {
       'Fr. Botros Samy': 400_000,
       'Atef Rafla':      400_000,
@@ -169,20 +175,21 @@ function fundCommittedTotal(vehicleName, fundTimeline) {
 }
 
 /**
- * Fund-level capital called through the end of the selected period.
+ * Fund-level capital FUNDED through the end of the selected period —
+ * cash actually received.
  *
  * Sums real Timeline payments dated ≤ the period end — the SAME source
- * the per-LP "Called" column uses, so the tile and the table below it
- * reconcile. Do not sum the IRR sheet's Investment series here: for fund
- * LPs it is a CUMULATIVE snapshot per period (Q1/Q2/Q3 of a year all
- * repeat the running total), so adding the periods together multiplies
- * every call by the number of periods it survives. That over-count is
- * what produced $3.32M called against $2.13M committed — a negative
- * unfunded balance and 156% called.
+ * the per-LP rows use, so the tile and the table below it reconcile. Do
+ * not sum the IRR sheet's Investment series here: for fund LPs it is a
+ * CUMULATIVE snapshot per period (Q1/Q2/Q3 of a year all repeat the
+ * running total), so adding the periods together multiplies every call
+ * by the number of periods it survives. That over-count is what produced
+ * $3.32M called against $2.13M committed — a negative unfunded balance
+ * and 156% called.
  *
  * Returns null when there is no Timeline data, so callers can fall back.
  */
-function sumFundCalledThroughPeriod(fundTimeline, periodEndMs) {
+function sumFundFundedThroughPeriod(fundTimeline, periodEndMs) {
   const perLp = fundTimeline?.perLp;
   if (!perLp || periodEndMs == null) return null;
   let total = 0;
@@ -194,6 +201,67 @@ function sumFundCalledThroughPeriod(fundTimeline, periodEndMs) {
     }
   }
   return sawFlows ? total : null;
+}
+
+/**
+ * The scheduled capital calls for one LP — equal annual installments
+ * across the commitment period, each anchored to callScheduleMonth.
+ *
+ * This is the GP's demand schedule, deliberately independent of when
+ * the LP actually wires the money. Timeline flows tell us what was
+ * FUNDED; this tells us what was CALLED. The difference is a
+ * receivable, and without modelling the schedule separately a
+ * chronically late LP is indistinguishable from one who is current.
+ */
+function lpCallSchedule(vehicleName, commitment) {
+  const info = FUND_COMMITMENTS[vehicleName];
+  if (!info?.commitmentPeriodYears || commitment == null) return [];
+  const [firstYear, lastYear] = info.commitmentPeriodYears;
+  const installments = lastYear - firstYear + 1;
+  if (!(installments > 0)) return [];
+  const month = info.callScheduleMonth ?? 1;
+  const per = commitment / installments;
+  return Array.from({ length: installments }, (_, i) => ({
+    year: firstYear + i,
+    dueMs: Date.UTC(firstYear + i, month - 1, 1),
+    amount: per,
+  }));
+}
+
+/** Cumulative amount CALLED from one LP as of the period end. */
+function lpCalledThroughPeriod(vehicleName, commitment, periodEndMs) {
+  if (commitment == null || periodEndMs == null) return null;
+  const sched = lpCallSchedule(vehicleName, commitment);
+  if (!sched.length) return null;
+  return sched.reduce((s, c) => s + (c.dueMs <= periodEndMs ? c.amount : 0), 0);
+}
+
+/**
+ * Fund-level called total, plus the GROSS overdue / prepaid split.
+ *
+ * Overdue is summed only over LPs who are behind, never netted against
+ * LPs who are ahead. Netting would let one early payer conceal another's
+ * delinquency — at Q2 2026 Laila Pence is $62.5K prepaid and George Ayad
+ * is $25K overdue, and a net figure would report the fund as simply
+ * "$37.5K ahead" while money is in fact owed.
+ */
+function fundCalledThroughPeriod(vehicleName, fundTimeline, periodEndMs) {
+  const perLp = fundTimeline?.perLp;
+  if (!perLp || periodEndMs == null) return null;
+  let called = 0, overdue = 0, prepaid = 0, lpsOverdue = 0;
+  let any = false;
+  for (const [name, lp] of Object.entries(perLp)) {
+    const commitment = lp?.commitment ?? getLpCommitment(vehicleName, name, fundTimeline);
+    const lpCalled = lpCalledThroughPeriod(vehicleName, commitment, periodEndMs);
+    if (lpCalled == null) continue;
+    any = true;
+    called += lpCalled;
+    const funded = (lp?.flows ?? []).reduce(
+      (s, f) => s + (Date.UTC(f.year, f.month - 1, f.day) <= periodEndMs ? f.amount : 0), 0);
+    const gap = lpCalled - funded;
+    if (gap > 0) { overdue += gap; lpsOverdue += 1; } else { prepaid += -gap; }
+  }
+  return any ? { called, overdue, prepaid, lpsOverdue } : null;
 }
 
 /**
@@ -1549,14 +1617,27 @@ export default function IRRValuation({ data, user, selectedYear: selectedYearPro
           ? Date.parse(periods[yearIdx].endDate)
           : (years?.[yearIdx] != null ? Date.UTC(years[yearIdx], 11, 31) : null);
         const fundTotalCommit = isFund ? fundCommittedTotal(v.name, fundTimeline) : null;
-        // Timeline flows ≤ period end; only fall back to the IRR-sheet
-        // series when this fund has no Timeline data at all.
-        const fundCalledToDate = isFund
-          ? (sumFundCalledThroughPeriod(fundTimeline, periodEndMs)
+        // FUNDED = cash received (Timeline flows ≤ period end). Falls back
+        // to the IRR-sheet series only when a fund has no Timeline data.
+        const fundFundedToDate = isFund
+          ? (sumFundFundedThroughPeriod(fundTimeline, periodEndMs)
              ?? sumLpInvestmentsThroughYear(v, yearIdx))
           : null;
+        // CALLED = what the GP has demanded per the call schedule, with the
+        // gross overdue/prepaid split. Where no schedule is configured we
+        // fall back to funded, which collapses the two and shows no gap.
+        const fundCallSummary = isFund
+          ? fundCalledThroughPeriod(v.name, fundTimeline, periodEndMs)
+          : null;
+        const fundCalledToDate = isFund ? (fundCallSummary?.called ?? fundFundedToDate) : null;
+        // Unfunded = committed but not yet called. Overdue = called and
+        // still unpaid (gross, never netted against prepayers).
         const fundUnfunded = isFund && fundTotalCommit != null ? fundTotalCommit - fundCalledToDate : null;
+        const fundOverdue = fundCallSummary?.overdue ?? 0;
+        const fundPrepaid = fundCallSummary?.prepaid ?? 0;
+        const fundLpsOverdue = fundCallSummary?.lpsOverdue ?? 0;
         const fundPctCalled = isFund && fundTotalCommit > 0 ? (fundCalledToDate / fundTotalCommit) * 100 : null;
+        const fundPctFunded = isFund && fundTotalCommit > 0 ? (fundFundedToDate / fundTotalCommit) * 100 : null;
 
         return (
           <Card key={v.name} className="overflow-hidden">
@@ -1582,9 +1663,11 @@ export default function IRRValuation({ data, user, selectedYear: selectedYearPro
             </div>
             <CardContent className="space-y-6">
               {/* Fund Commitments panel — only for fund-structured vehicles.
-                  Shows the LP-facing commitment vocabulary: Committed
-                  (total pledge), Called (cash wired so far), Unfunded
-                  (remaining obligation), and % Called. */}
+                  Standard LP commitment vocabulary, with Called and Funded
+                  kept separate: Committed (total pledge), Called (demanded
+                  per the call schedule), Funded (cash actually received),
+                  Unfunded (committed but not yet called). Called − Funded
+                  is the receivable, shown under the bar. */}
               {isFund && (
                 <div className="rounded-lg border border-primary/30 bg-muted/30 p-3">
                   <div className="flex items-center justify-between mb-2">
@@ -1600,19 +1683,46 @@ export default function IRRValuation({ data, user, selectedYear: selectedYearPro
                   <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                     <KpiTile label="Total Committed" value={fmt(fundTotalCommit)} compact />
                     <KpiTile label="Called to Date" value={fmt(fundCalledToDate)} compact />
+                    <KpiTile label="Funded to Date" value={fmt(fundFundedToDate)}
+                      tone={fundOverdue > 0 ? 'negative' : 'neutral'} compact />
                     {/* Negative unfunded means called > committed — a data
                         problem, not good news. Flag it rather than greening it. */}
                     <KpiTile label="Unfunded" value={fmt(fundUnfunded)}
                       tone={fundUnfunded < 0 ? 'negative' : fundUnfunded === 0 ? 'positive' : 'neutral'} compact />
-                    <KpiTile label="% Called" value={fundPctCalled != null ? `${fundPctCalled.toFixed(0)}%` : '—'} compact />
                   </div>
-                  {/* Mini progress bar — visual reinforcement of % called */}
+                  {/* Two-segment bar over the committed track: solid = funded,
+                      amber = called but not yet received. The amber slice IS
+                      the receivable, so a delinquent fund reads at a glance. */}
                   {fundPctCalled != null && (
-                    <div className="mt-3 h-1.5 w-full bg-muted rounded-full overflow-hidden">
+                    <div className="mt-3 flex h-1.5 w-full bg-muted rounded-full overflow-hidden">
                       <div
                         className="h-full bg-primary transition-all"
-                        style={{ width: `${Math.min(100, fundPctCalled)}%` }}
+                        style={{ width: `${Math.max(0, Math.min(100, fundPctFunded))}%` }}
                       />
+                      {fundOverdue > 0 && fundTotalCommit > 0 && (
+                        <div
+                          className="h-full bg-amber-500 transition-all"
+                          style={{ width: `${Math.max(0, Math.min(100, (fundOverdue / fundTotalCommit) * 100))}%` }}
+                          title={`${fmt(fundOverdue)} called but not yet received`}
+                        />
+                      )}
+                    </div>
+                  )}
+                  {fundPctCalled != null && (
+                    <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px]">
+                      <span className="text-muted-foreground">
+                        {fundPctCalled.toFixed(0)}% called · {fundPctFunded.toFixed(0)}% funded
+                      </span>
+                      {fundOverdue > 0 && (
+                        <span className="font-semibold text-amber-700">
+                          {fmt(fundOverdue)} overdue from {fundLpsOverdue} LP{fundLpsOverdue === 1 ? '' : 's'}
+                        </span>
+                      )}
+                      {fundPrepaid > 0 && (
+                        <span className="font-medium text-emerald-700">
+                          {fmt(fundPrepaid)} prepaid ahead of schedule
+                        </span>
+                      )}
                     </div>
                   )}
                 </div>
@@ -1727,9 +1837,15 @@ export default function IRRValuation({ data, user, selectedYear: selectedYearPro
                 const myMoicTotal = myReturns?.moicOnTotal;
                 const myIrrTotal = myReturns?.irrOnTotal;
                 const hasRecycling = myRecycled > 0;
-                const myCommitment = isFund ? getLpCommitment(v.name, myLp.name) : null;
+                const myCommitment = isFund ? getLpCommitment(v.name, myLp.name, fundTimeline) : null;
                 const myCalledPct = myCommitment ? (myInvestment / myCommitment) * 100 : null;
-                const myUnfunded = myCommitment ? myCommitment - myInvestment : null;
+                // myInvestment is cash this LP has actually wired. myCalled
+                // is what the schedule has demanded of them by now, so
+                // Unfunded stays "not yet called" and the gap between the
+                // two is what they currently owe.
+                const myCalled = isFund ? lpCalledThroughPeriod(v.name, myCommitment, periodEndMs) : null;
+                const myOutstanding = myCalled != null ? myCalled - myInvestment : null;
+                const myUnfunded = myCommitment ? myCommitment - (myCalled ?? myInvestment) : null;
                 return (
                 <div className="rounded-xl border-2 border-primary bg-gradient-to-br from-primary/15 via-primary/8 to-primary/5 shadow-md overflow-hidden">
                   {/* Prominent header — Ownership % rendered as a LARGE
@@ -1765,16 +1881,29 @@ export default function IRRValuation({ data, user, selectedYear: selectedYearPro
 
                   {/* Fund-specific "My Commitment" mini-strip */}
                   {myCommitment && (
-                    <div className="mb-4 grid grid-cols-3 gap-3 p-3 bg-background rounded-md border border-primary/20">
+                    <div className="mb-4 grid grid-cols-2 md:grid-cols-4 gap-3 p-3 bg-background rounded-md border border-primary/20">
                       <div>
                         <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">My Commitment</p>
                         <p className="text-sm font-bold tabular-nums text-foreground mt-0.5">{fmt(myCommitment)}</p>
                       </div>
                       <div>
                         <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">Called</p>
-                        <p className="text-sm font-bold tabular-nums text-foreground mt-0.5">
+                        <p className="text-sm font-bold tabular-nums text-foreground mt-0.5">{fmt(myCalled ?? myInvestment)}</p>
+                      </div>
+                      <div>
+                        <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">Funded</p>
+                        <p className={cn(
+                          "text-sm font-bold tabular-nums mt-0.5",
+                          myOutstanding > 0 ? "text-amber-700" : "text-foreground"
+                        )}>
                           {fmt(myInvestment)} <span className="text-[10px] font-normal text-muted-foreground">({myCalledPct?.toFixed(0)}%)</span>
                         </p>
+                        {myOutstanding > 0 && (
+                          <p className="text-[10px] font-medium text-amber-700">{fmt(myOutstanding)} overdue</p>
+                        )}
+                        {myOutstanding < 0 && (
+                          <p className="text-[10px] font-normal text-emerald-700">{fmt(-myOutstanding)} prepaid</p>
+                        )}
                       </div>
                       <div>
                         <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">Unfunded</p>
@@ -1801,7 +1930,9 @@ export default function IRRValuation({ data, user, selectedYear: selectedYearPro
                         cash — so cost basis is initialContrib, not the
                         cumulative total. The recycled portion is surfaced
                         in the "Capital Activity" breakdown below. */}
-                    <KpiTile label={isFund ? 'Called to Date' : 'Cost Basis'} value={fmt(isFund ? myInvestment : myInitial)} compact />
+                    {/* myInvestment is cash received, so this is Funded, not
+                        Called — it's also the IRR/MOIC basis below. */}
+                    <KpiTile label={isFund ? 'Funded to Date' : 'Cost Basis'} value={fmt(isFund ? myInvestment : myInitial)} compact />
                     <KpiTile label={isFund ? 'My IRR' : 'IRR'}
                       value={myIrr != null ? `${myIrr.toFixed(1)}%` : '—'}
                       tone={myIrr == null ? 'neutral' : myIrr >= 0 ? 'positive' : 'negative'} compact />
@@ -2362,9 +2493,12 @@ export default function IRRValuation({ data, user, selectedYear: selectedYearPro
                         <TableHead>LP / Shareholder</TableHead>
                         <TableHead className="text-right">Ownership %</TableHead>
                         <TableHead className="text-right">Ownership Value</TableHead>
-                        {/* Committed column only for fund-structured vehicles */}
+                        {/* Committed + Called columns only for fund-structured
+                            vehicles. Called is the schedule; the next column
+                            is cash actually received against it. */}
                         {isFund && <TableHead className="text-right">Committed</TableHead>}
-                        <TableHead className="text-right">{isFund ? 'Called' : 'Cum. Investment'}</TableHead>
+                        {isFund && <TableHead className="text-right">Called</TableHead>}
+                        <TableHead className="text-right">{isFund ? 'Funded' : 'Cum. Investment'}</TableHead>
                         <TableHead className="text-right">IRR</TableHead>
                         <TableHead className="text-right">MOIC</TableHead>
                       </TableRow>
@@ -2378,6 +2512,13 @@ export default function IRRValuation({ data, user, selectedYear: selectedYearPro
                         const isMe = lpName && lp.name === lpName;
                         const hasRecycling = recycledAlloc > 0;
                         const lpCommitment = isFund ? getLpCommitment(v.name, lp.name, fundTimeline) : null;
+                        // cumInvest is cash RECEIVED. lpCalled is what the
+                        // schedule has demanded by now; the gap is overdue
+                        // (positive) or prepaid (negative).
+                        const lpCalled = isFund
+                          ? lpCalledThroughPeriod(v.name, lpCommitment, periodEndMs)
+                          : null;
+                        const lpOutstanding = lpCalled != null ? lpCalled - cumInvest : null;
                         const lpCalledPct = lpCommitment ? (cumInvest / lpCommitment) * 100 : null;
                         // Cell tooltips: show the contribution breakdown,
                         // the LP's individual hold timeline (for CAGR rows),
@@ -2422,14 +2563,31 @@ export default function IRRValuation({ data, user, selectedYear: selectedYearPro
                                 {lpCommitment != null ? fmt(lpCommitment) : '—'}
                               </TableCell>
                             )}
+                            {isFund && (
+                              <TableCell className="text-right tabular-nums text-muted-foreground">
+                                {lpCalled != null ? fmt(lpCalled) : '—'}
+                              </TableCell>
+                            )}
                             <TableCell className="text-right tabular-nums" title={investTitle}>
-                              {fmt(cumInvest)}
+                              <span className={cn(lpOutstanding > 0 && "text-amber-700 font-semibold")}>
+                                {fmt(cumInvest)}
+                              </span>
                               {hasRecycling && (
                                 <div className="text-[10px] text-muted-foreground font-normal">
                                   {fmt(initialContrib)} + {fmt(recycledAlloc)} recycled
                                 </div>
                               )}
-                              {isFund && lpCalledPct != null && !hasRecycling && (
+                              {isFund && !hasRecycling && lpOutstanding > 0 && (
+                                <div className="text-[10px] font-medium text-amber-700">
+                                  {fmt(lpOutstanding)} overdue
+                                </div>
+                              )}
+                              {isFund && !hasRecycling && lpOutstanding < 0 && (
+                                <div className="text-[10px] font-normal text-emerald-700">
+                                  {fmt(-lpOutstanding)} prepaid
+                                </div>
+                              )}
+                              {isFund && !hasRecycling && lpOutstanding === 0 && lpCalledPct != null && (
                                 <div className="text-[10px] text-muted-foreground font-normal">
                                   {lpCalledPct.toFixed(0)}% of commitment
                                 </div>
