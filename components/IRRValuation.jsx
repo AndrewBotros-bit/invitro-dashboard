@@ -90,6 +90,18 @@ const VEHICLE_CONVERSION_YEAR = {
  *
  * Keyed by vehicle, then by the period's year. Month is 1-based.
  */
+/**
+ * Hide every IRR figure on the page, leaving MOIC and TVPI.
+ *
+ * Set false at Andrew's request: an annualised rate on an unrealised
+ * mark over a short, back-loaded hold produces three-digit numbers that
+ * are arithmetically correct but hard to present — while MOIC and TVPI
+ * say the same thing without annualising. Everything that computes IRR
+ * is left intact and still runs; only the display is gated, so flipping
+ * this back to true restores every figure with no other change.
+ */
+const SHOW_IRR = false;
+
 const VEHICLE_FIRST_FLOW_DATE = {
   'Curenta Enterprise': { 2021: { month: 6, day: 1 } },
 };
@@ -1496,6 +1508,7 @@ export default function IRRValuation({ data, user, selectedYear: selectedYearPro
                           )}>{consMoic != null ? `${consMoic.toFixed(2)}×` : '—'}</p>
                           <p className="text-[9px] text-violet-700/80 mt-0.5">unrealised</p>
                         </div>
+                        {SHOW_IRR && (
                         <div>
                           <p className="text-[10px] text-violet-700 uppercase tracking-wide">IRR</p>
                           <p className={cn(
@@ -1507,6 +1520,7 @@ export default function IRRValuation({ data, user, selectedYear: selectedYearPro
                               carry are modelled — say so where the number is. */}
                           <p className="text-[9px] text-violet-700/80 mt-0.5">gross · unrealised</p>
                         </div>
+                        )}
                       </div>
                     </div>
                     <div className="px-4 py-2">
@@ -2020,7 +2034,7 @@ export default function IRRValuation({ data, user, selectedYear: selectedYearPro
                   delta={compEnabled && <DeltaBadge current={ownership} prior={ownershipPrior} compareYear={compareYear} />} />
                 <KpiTile label="Total Investment" value={fmt(investment)}
                   delta={compEnabled && <DeltaBadge current={investment} prior={investmentPrior} compareYear={compareYear} />} />
-                <KpiTile
+                {SHOW_IRR && <KpiTile
                   label={irrIsDerived ? 'IRR (XIRR, gross)' : 'IRR'}
                   title={[
                     irrIsDerived
@@ -2032,7 +2046,7 @@ export default function IRRValuation({ data, user, selectedYear: selectedYearPro
                   ].filter(Boolean).join(' ')}
                   value={irrDisplayPct != null ? `${irrDisplayPct.toFixed(1)}%` : '—'}
                   tone={irrDisplayPct == null ? 'neutral' : irrDisplayPct >= 0 ? 'positive' : 'negative'}
-                  delta={compEnabled && <DeltaBadge current={irrDisplayPct} prior={irrPrior} compareYear={compareYear} />} />
+                  delta={compEnabled && <DeltaBadge current={irrDisplayPct} prior={irrPrior} compareYear={compareYear} />} />}
                 <KpiTile label="MOIC" value={moic != null ? `${moic.toFixed(1)}x` : '—'}
                   tone={moic == null ? 'neutral' : moic >= 1 ? 'positive' : 'negative'}
                   delta={compEnabled && <DeltaBadge current={moic} prior={moicPrior} compareYear={compareYear} />} />
@@ -2235,12 +2249,12 @@ export default function IRRValuation({ data, user, selectedYear: selectedYearPro
                     {/* myInvestment is cash received, so this is Funded, not
                         Called — it's also the IRR/MOIC basis below. */}
                     <KpiTile label={isFund ? 'Funded to Date' : 'Cost Basis'} value={fmt(isFund ? myInvestment : myInitial)} compact />
-                    <KpiTile label={isFund ? 'My IRR (gross, unrealised)' : 'IRR'}
+                    {SHOW_IRR && <KpiTile label={isFund ? 'My IRR (gross, unrealised)' : 'IRR'}
                       title={isFund
                         ? 'Annualised on an unrealised NAV mark, gross of management fees and carry. Nothing has been distributed, so this is a valuation-driven figure, not a realised return.'
                         : undefined}
                       value={myIrr != null ? `${myIrr.toFixed(1)}%` : '—'}
-                      tone={myIrr == null ? 'neutral' : myIrr >= 0 ? 'positive' : 'negative'} compact />
+                      tone={myIrr == null ? 'neutral' : myIrr >= 0 ? 'positive' : 'negative'} compact />}
                     <KpiTile label={isFund ? 'My MOIC (unrealised)' : 'MOIC'}
                       title={isFund ? `Stake NAV ÷ ${fmt(myInvestment)} paid in. Nothing has been distributed, so this is entirely paper value.` : undefined}
                       value={myMoic != null ? `${myMoic.toFixed(1)}x` : '—'}
@@ -2599,7 +2613,7 @@ export default function IRRValuation({ data, user, selectedYear: selectedYearPro
                             <TableHead className="text-right text-xs">Portfolio Valuation</TableHead>
                             <TableHead className="text-right text-xs">Stake NAV</TableHead>
                             <TableHead className="text-right text-xs">TVPI</TableHead>
-                            <TableHead className="text-right text-xs">IRR</TableHead>
+                            {SHOW_IRR && <TableHead className="text-right text-xs">IRR</TableHead>}
                           </TableRow>
                         </TableHeader>
                         <TableBody>
@@ -2739,14 +2753,14 @@ export default function IRRValuation({ data, user, selectedYear: selectedYearPro
                                 )} title={isJCurve ? `N/M — ${phase?.label ?? 'first year'} phase (J-curve; TVPI sub-1 by construction, not by underperformance)` : undefined}>
                                   {tvpi != null ? `${tvpi.toFixed(2)}x` : (isJCurve ? 'N/M' : '—')}
                                 </TableCell>
-                                <TableCell className={cn(
+                                {SHOW_IRR && <TableCell className={cn(
                                   "text-right text-xs tabular-nums",
                                   rowIrr != null && rowIrr >= 0 && "text-emerald-700",
                                   rowIrr != null && rowIrr < 0 && "text-red-600",
                                   rowIrr == null && isJCurve && "text-muted-foreground italic",
                                 )} title={isJCurve ? `N/M — ${phase?.label ?? 'first year'} phase (J-curve; IRR negative by construction, not by underperformance)` : undefined}>
                                   {rowIrr != null ? `${rowIrr.toFixed(1)}%` : (isJCurve ? 'N/M' : '—')}
-                                </TableCell>
+                                </TableCell>}
                               </TableRow>
                             );
                           });
@@ -2761,10 +2775,10 @@ export default function IRRValuation({ data, user, selectedYear: selectedYearPro
                         <strong className="text-foreground"> Stake NAV</strong> = your ownership × the fund&apos;s net asset value at year-end.
                         <strong className="text-foreground"> Portfolio Valuation</strong> = combined valuation of the portfolio companies the fund held that period — the figure Stake NAV is derived from. The fund&apos;s ownership share of it is the fund&apos;s NAV, and your ownership share of that is your Stake NAV, so a move here drives everything to its right.
                         <strong className="text-foreground"> TVPI</strong> = Stake NAV ÷ Cum Called (Total Value to Paid-In; ≥ 1.00× means you&apos;re in the green) — <em>unrealised</em>, it is a valuation, not cash. Nothing has been distributed to date.
-                        <strong className="text-foreground"> IRR</strong> = money-weighted XIRR on your capital calls + this row&apos;s Stake NAV as terminal value at Dec 31; recomputes per row so you see the trajectory year by year.
-                        Rows in <span className="text-amber-700 font-semibold">Calling</span> and <span className="text-amber-700 font-semibold">Deployment</span> phases show TVPI and IRR as <em>N/M</em> — the J-curve makes both sub-par by construction (fee drag + un-marked NAV), not by underperformance. Meaningful returns begin at the <span className="text-emerald-700 font-semibold">Hold</span> phase.
-                        Capital amounts are gross of management fees (the cheque you wrote), and IRR is gross of management fees and carry — your net return will be lower.
-                        Because nothing has been realised, IRR here is an annualised <em>unrealised</em> mark driven by the portfolio valuation in the CFO&apos;s sheet; early-life figures swing hard on a single revaluation and are not comparable to a realised fund return.
+                        {SHOW_IRR && <><strong className="text-foreground"> IRR</strong> = money-weighted XIRR on your capital calls + this row&apos;s Stake NAV as terminal value at Dec 31; recomputes per row so you see the trajectory year by year.</>}
+                        Rows in <span className="text-amber-700 font-semibold">Calling</span> and <span className="text-amber-700 font-semibold">Deployment</span> phases show TVPI as <em>N/M</em> — the J-curve makes both sub-par by construction (fee drag + un-marked NAV), not by underperformance. Meaningful returns begin at the <span className="text-emerald-700 font-semibold">Hold</span> phase.
+                        Capital amounts are gross of management fees (the cheque you wrote), and returns are gross of management fees and carry — your net return will be lower.
+                        Because nothing has been realised, the multiples here are an <em>unrealised</em> mark driven by the portfolio valuation in the CFO&apos;s sheet; early-life figures swing hard on a single revaluation and are not comparable to a realised fund return.
                       </p>
                     </div>
                     );
@@ -2837,7 +2851,7 @@ export default function IRRValuation({ data, user, selectedYear: selectedYearPro
                         {isFund && <TableHead className="text-right">Committed</TableHead>}
                         {isFund && <TableHead className="text-right">Called</TableHead>}
                         <TableHead className="text-right">{isFund ? 'Funded' : 'Cum. Investment'}</TableHead>
-                        <TableHead className="text-right">IRR</TableHead>
+                        {SHOW_IRR && <TableHead className="text-right">IRR</TableHead>}
                         <TableHead className="text-right">MOIC</TableHead>
                       </TableRow>
                     </TableHeader>
@@ -2950,14 +2964,14 @@ export default function IRRValuation({ data, user, selectedYear: selectedYearPro
                                 </div>
                               )}
                             </TableCell>
-                            <TableCell
+                            {SHOW_IRR && <TableCell
                               title={irrTitle}
                               className={cn(
                                 "text-right tabular-nums",
                                 lpIrr != null && (lpIrr >= 0 ? "text-emerald-600" : "text-red-500")
                               )}>
                               {lpIrr != null ? `${lpIrr.toFixed(1)}%` : '—'}
-                            </TableCell>
+                            </TableCell>}
                             <TableCell
                               title={moicTitle}
                               className={cn(
