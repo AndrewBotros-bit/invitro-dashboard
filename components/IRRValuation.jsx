@@ -893,9 +893,26 @@ function computeLpReturns(lp, vehicle, yearIdx, years, fundTimeline, periods) {
     initialContrib: split.initial,
     recycledAlloc: split.recycled,
     cumInvest,
-    // Default `moic` and `irr` use the LP-friendly Carta-style framing.
-    moic: onInitial.moic,
-    irr: onInitial.irr,
+    // Headline `moic` and `irr` are on TOTAL CAPITAL DEPLOYED — initial
+    // cash plus recycled profits — not on initial cash alone.
+    //
+    // The initial-cash framing divides today's value by only the money
+    // the LP originally wrote a cheque for, which for a heavily recycled
+    // position produces a figure nobody can defend in a room: Ramy
+    // Barsoum contributed $98k and had $1.03m of profits redeployed on
+    // his behalf, so initial-cash showed 147.02x and a 278.7% IRR. On
+    // total deployed the same position is 12.8x — still excellent, and
+    // actually explainable.
+    //
+    // It also makes the roster agree with the Consolidated Look-Through
+    // card, which already apportions initAttribution + recAttribution
+    // and so has always been on the total basis. The two were showing
+    // different multiples for the same LP.
+    //
+    // Both framings stay available; the tooltip still carries
+    // initial-cash for anyone who wants it.
+    moic: onTotal.moic,
+    irr: onTotal.irr,
     moicOnInitial: onInitial.moic,
     moicOnTotal: onTotal.moic,
     irrOnInitial: onInitial.irr,
@@ -908,8 +925,8 @@ function computeLpReturns(lp, vehicle, yearIdx, years, fundTimeline, periods) {
     irrMethod: isFund ? 'xirr' : 'cagr',
     // Which flavor of XIRR actually ran (monthly-xirr | annual-xirr | cagr).
     // Kept for the "month-precise" badge on the Capital Call Schedule.
-    xirrPath: onInitial.method ?? 'cagr',
-    xirrHasMonthlyDates: onInitial.method === 'monthly-xirr',
+    xirrPath: onTotal.method ?? 'cagr',
+    xirrHasMonthlyDates: onTotal.method === 'monthly-xirr',
   };
 }
 
@@ -2828,7 +2845,8 @@ export default function IRRValuation({ data, user, selectedYear: selectedYearPro
                       {rosterLps.map(lp => {
                         const r = computeLpReturns(lp, v, yearIdx, years, fundTimeline, periods);
                         const { ownPct, lpValue, cumInvest, initialContrib, recycledAlloc,
-                          moic: lpMoic, irr: lpIrr, moicOnTotal, irrOnTotal, irrMethod,
+                          moic: lpMoic, irr: lpIrr, moicOnTotal, irrOnTotal,
+                          moicOnInitial, irrOnInitial, irrMethod,
                           lpHoldYears, lpFirstYear } = r;
                         const isMe = lpName && lp.name === lpName;
                         const hasRecycling = recycledAlloc > 0;
@@ -2860,8 +2878,10 @@ export default function IRRValuation({ data, user, selectedYear: selectedYearPro
                           : isFund && lpCommitment
                             ? `Called: ${fmt(cumInvest)} of ${fmt(lpCommitment)} committed (${lpCalledPct?.toFixed(0)}%)`
                             : `Initial contribution: ${fmt(initialContrib)}`;
+                        // Shown value is total deployed; name that explicitly
+                        // so nobody reads the headline as initial-cash.
                         const moicTitle = hasRecycling
-                          ? `MOIC on initial cash: ${lpMoic?.toFixed(2)}x\nMOIC on total deployed: ${moicOnTotal?.toFixed(2)}x`
+                          ? `Shown: MOIC on total capital deployed (${fmt(cumInvest)} — initial cash plus recycled profits): ${moicOnTotal?.toFixed(2)}x\nFor reference, on initial cash only (${fmt(initialContrib)}): ${moicOnInitial?.toFixed(2)}x`
                           : '';
                         const irrTitle = (() => {
                           const lines = [];
@@ -2871,8 +2891,10 @@ export default function IRRValuation({ data, user, selectedYear: selectedYearPro
                             lines.push(`Annualized over ${lpHoldYears} yr (joined ${lpFirstYear})`);
                           }
                           if (hasRecycling) {
-                            lines.push(`IRR on initial cash: ${lpIrr?.toFixed(1)}%`);
-                            lines.push(`IRR on total deployed: ${irrOnTotal?.toFixed(1)}%`);
+                            // Shown figure is total deployed; initial-cash is
+                            // the secondary now, not the headline.
+                            lines.push(`Shown: IRR on total capital deployed (${fmt(cumInvest)} — initial cash plus recycled profits): ${irrOnTotal?.toFixed(1)}%`);
+                            lines.push(`For reference, on initial cash only (${fmt(initialContrib)}): ${irrOnInitial?.toFixed(1)}%`);
                           }
                           return lines.join('\n');
                         })();
