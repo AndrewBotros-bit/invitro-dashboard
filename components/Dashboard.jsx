@@ -481,7 +481,22 @@ export default function InVitroDashboard({ data: rawData, user }) {
     return perms.companies === '*' || (Array.isArray(perms.companies) && perms.companies.includes('Consolidated'));
   };
 
-  const canSeeTab = (tab) => perms.tabs === '*' || (Array.isArray(perms.tabs) && perms.tabs.includes(tab));
+  const canSeeTab = (tab) => {
+    // Documents is an investor's own folder, so any account mapped to an
+    // LP can always reach it — no separate grant needed.
+    //
+    // It was gated like any other tab, and only 6 of 27 accounts had
+    // 'documents' in their tabs array. The result: eight of the nine LPs
+    // with a 2025 K-1 uploaded had no Documents item in their sidebar at
+    // all. The file was stored, private and badged, and completely
+    // unreachable. A permission that hides a person's own tax document
+    // from them is not protecting anything.
+    //
+    // Staff and kiosk accounts (no lpName) keep the old behaviour and
+    // still need the tab granted explicitly.
+    if (tab === 'documents' && perms.lpName) return true;
+    return perms.tabs === '*' || (Array.isArray(perms.tabs) && perms.tabs.includes(tab));
+  };
   // View mode gate: missing perms.viewModes → default all (backward compat).
   // '*' → all. Array → only those. Fallback to allow all if the array is
   // empty (defensive — API validation should prevent this).
