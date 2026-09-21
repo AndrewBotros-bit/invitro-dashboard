@@ -1,6 +1,6 @@
 import { cookies } from 'next/headers';
 import { redirect } from 'next/navigation';
-import { verifySessionToken, isAdmin, COOKIE_NAME } from '@/lib/auth';
+import { verifySessionAndRefresh, isAdmin, COOKIE_NAME } from '@/lib/auth';
 import { fetchAllData } from '@/lib/data';
 import UserAdmin from '@/components/UserAdmin';
 
@@ -14,7 +14,7 @@ export const dynamic = 'force-dynamic';
 
 export default async function AdminUsersPage() {
   const session = cookies().get(COOKIE_NAME);
-  const user = session?.value ? verifySessionToken(session.value) : null;
+  const user = session?.value ? verifySessionAndRefresh(session.value) : null;
 
   if (!user) redirect('/login');
   if (!isAdmin(user)) {

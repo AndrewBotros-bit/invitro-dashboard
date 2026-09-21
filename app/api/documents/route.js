@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { cookies } from 'next/headers';
-import { verifySessionToken, COOKIE_NAME } from '@/lib/auth';
+import { verifySessionAndRefresh, COOKIE_NAME } from '@/lib/auth';
 import { listUserDocuments, getSeenKeys, documentOwnerKey } from '@/lib/documents';
 
 /**
@@ -12,7 +12,7 @@ export async function GET() {
   const cookieStore = cookies();
   const session = cookieStore.get(COOKIE_NAME);
   if (!session?.value) return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
-  const user = verifySessionToken(session.value);
+  const user = verifySessionAndRefresh(session.value);
   if (!user) return NextResponse.json({ error: 'Invalid session' }, { status: 401 });
   try {
     // Keyed by investor, not login — an LP with two accounts sees the

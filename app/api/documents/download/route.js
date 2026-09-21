@@ -1,5 +1,5 @@
 import { cookies } from 'next/headers';
-import { verifySessionToken, isAdmin, COOKIE_NAME } from '@/lib/auth';
+import { verifySessionAndRefresh, isAdmin, COOKIE_NAME } from '@/lib/auth';
 import { fetchDocumentBytes, keyBelongsToUser, markDocumentSeen, documentOwnerKey } from '@/lib/documents';
 
 /**
@@ -16,7 +16,7 @@ export async function GET(request) {
   const cookieStore = cookies();
   const session = cookieStore.get(COOKIE_NAME);
   if (!session?.value) return new Response('Not authenticated', { status: 401 });
-  const user = verifySessionToken(session.value);
+  const user = verifySessionAndRefresh(session.value);
   if (!user) return new Response('Invalid session', { status: 401 });
 
   const { searchParams } = new URL(request.url);

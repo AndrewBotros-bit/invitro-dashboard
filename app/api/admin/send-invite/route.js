@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { cookies } from 'next/headers';
-import { verifySessionToken, isAdmin, COOKIE_NAME } from '@/lib/auth';
+import { verifySessionAndRefresh, isAdmin, COOKIE_NAME } from '@/lib/auth';
 
 const FROM = process.env.INVITE_FROM_EMAIL || 'InVitro Dashboard <onboarding@resend.dev>';
 const DASHBOARD_URL = process.env.NEXT_PUBLIC_DASHBOARD_URL || 'https://invitro-dashboard-1.vercel.app';
@@ -9,7 +9,7 @@ function requireAdmin() {
   const cookieStore = cookies();
   const session = cookieStore.get(COOKIE_NAME);
   if (!session?.value) return { error: 'Not authenticated', status: 401 };
-  const user = verifySessionToken(session.value);
+  const user = verifySessionAndRefresh(session.value);
   if (!user) return { error: 'Invalid session', status: 401 };
   if (!isAdmin(user)) return { error: 'Admin access required', status: 403 };
   return { user };
