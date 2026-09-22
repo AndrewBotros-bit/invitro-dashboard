@@ -253,7 +253,9 @@
     "permissions": {
       "companies": [
         "AllCare External",
-        "Osta"
+        "Osta",
+        "Needles",
+        "InVitro Studio"
       ],
       "tabs": [
         "overview",
@@ -286,7 +288,7 @@
         "hcDetails": false,
         "shareholderSplit": false
       },
-      "lpName": "George Ayad"
+      "lpName": "Ambrish Mody"
     }
   },
   {
