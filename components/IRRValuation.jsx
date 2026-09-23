@@ -1654,6 +1654,8 @@ export default function IRRValuation({ data, user, selectedYear: selectedYearPro
                 // truth for the field, no per-portco overrides at
                 // render time.
                 const portcoGM = fin.grossMargin?.[yearIdx];
+                // "ARR (last month x 12), $" on the IRR sheet.
+                const portcoARR = fin.arr?.[yearIdx];
                 // Total cumulative investment INTO this portco across all
                 // sources (every vehicle + every direct shareholder).
                 // Through the selected year only.
@@ -1725,8 +1727,16 @@ export default function IRRValuation({ data, user, selectedYear: selectedYearPro
                         <p className="text-sm font-bold tabular-nums text-foreground mt-0.5">{portcoMultiple != null ? `${portcoMultiple.toFixed(1)}×` : '—'}</p>
                       </div>
                       <div>
-                        <p className="text-[10px] uppercase tracking-wide text-muted-foreground">FY Revenue</p>
-                        <p className="text-sm font-bold tabular-nums text-foreground mt-0.5">{portcoRevenue != null ? fmt(portcoRevenue) : '—'}</p>
+                        {/* ARR rather than the period's revenue: the
+                            revenue row is quarterly from Q4-25 on, so a
+                            tile labelled "FY Revenue" was showing one
+                            quarter. ARR is already annualised, which is
+                            what the label promised. */}
+                        <p className="text-[10px] uppercase tracking-wide text-muted-foreground">ARR</p>
+                        <p className="text-sm font-bold tabular-nums text-foreground mt-0.5"
+                           title={portcoRevenue != null ? `Revenue this period: ${fmt(portcoRevenue)}` : undefined}>
+                          {portcoARR != null ? fmt(portcoARR) : '—'}
+                        </p>
                         {portcoGM != null && (
                           <p className="text-[9px] text-muted-foreground">{portcoGM.toFixed(0)}% gross margin</p>
                         )}
