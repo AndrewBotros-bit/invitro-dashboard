@@ -253,9 +253,7 @@
     "permissions": {
       "companies": [
         "AllCare External",
-        "Osta",
-        "Needles",
-        "InVitro Studio"
+        "Osta"
       ],
       "tabs": [
         "overview",
@@ -288,7 +286,7 @@
         "hcDetails": false,
         "shareholderSplit": false
       },
-      "lpName": "Ambrish Mody"
+      "lpName": "Fr. Botros Samy"
     }
   },
   {
