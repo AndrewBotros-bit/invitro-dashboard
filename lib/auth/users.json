@@ -252,6 +252,7 @@
     "role": "viewer",
     "permissions": {
       "companies": [
+        "AllRx External",
         "AllCare External",
         "Osta"
       ],
@@ -286,7 +287,7 @@
         "hcDetails": false,
         "shareholderSplit": false
       },
-      "lpName": "Fr. Botros Samy"
+      "lpName": "Mario Karras"
     }
   },
   {
