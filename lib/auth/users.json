@@ -254,7 +254,9 @@
       "companies": [
         "AllRx External",
         "AllCare External",
-        "Osta"
+        "Osta",
+        "Needles",
+        "InVitro Studio"
       ],
       "tabs": [
         "overview",
@@ -287,7 +289,7 @@
         "hcDetails": false,
         "shareholderSplit": false
       },
-      "lpName": "Mario Karras"
+      "lpName": "Ayman Ismail"
     }
   },
   {
