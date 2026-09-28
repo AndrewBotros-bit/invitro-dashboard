@@ -1,12 +1,13 @@
 import { NextResponse } from 'next/server';
 import { cookies } from 'next/headers';
-import { verifySessionAndRefresh, isAdmin, findUser, COOKIE_NAME } from '@/lib/auth';
+import { verifySessionAndRefresh, isAdmin, findUser, readUsers, COOKIE_NAME } from '@/lib/auth';
 import {
   listUserDocuments,
   uploadUserDocument,
   deleteUserDocument,
   keyBelongsToUser,
   documentOwnerKey,
+  recipientsForOwner,
 } from '@/lib/documents';
 import { sendDocumentUploadedEmail } from '@/lib/document-email';
 
@@ -82,9 +83,11 @@ export async function POST(request, { params }) {
   try {
     const { key } = await uploadUserDocument(documentOwnerKey(target), file.name, buf, file.type);
     // Best-effort email notification; upload succeeds either way.
+    // Goes to EVERY login that shares this investor's folder, not just the
+    // account the file was uploaded against — the folder is keyed by
+    // investor, so several people may have just gained a document.
     const notify = await sendDocumentUploadedEmail({
-      toEmail: target.email,
-      toName: target.name,
+      recipients: recipientsForOwner(readUsers(), target),
       filename: file.name,
       senderName: guard.user.name,
     });

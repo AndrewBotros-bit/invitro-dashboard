@@ -405,9 +405,12 @@ function BulkDocumentUpload({ users }) {
         });
         const j = await res.json();
         if (!res.ok) throw new Error(j.error || 'Upload failed');
-        const note = j.notify?.ok ? 'sent, email sent'
+        const note = j.notify?.ok
+          ? `sent, emailed ${j.notify.sent} recipient${j.notify.sent === 1 ? '' : 's'}` +
+            (j.notify.failed ? ` (${j.notify.failed} failed)` : '')
           : j.notify?.skipped ? `sent, email skipped (${j.notify.reason})`
           : j.notify?.error ? `sent, email failed: ${j.notify.error}`
+          : j.notify?.failed ? `sent, all ${j.notify.failed} emails failed`
           : 'sent';
         setRows(rs => rs.map((x, k) => (k === i ? { ...x, state: 'done', message: note } : x)));
       } catch (err) {
@@ -566,10 +569,12 @@ function DocumentsPanel({ username, userDisplayName }) {
       });
       const j = await res.json();
       if (!res.ok) throw new Error(j.error || 'Upload failed');
-      const emailNote = j.notify?.ok ? ' — email sent'
+      const emailNote = j.notify?.ok
+        ? ` — emailed ${j.notify.sent} recipient${j.notify.sent === 1 ? '' : 's'}` +
+          (j.notify.failed ? ` (${j.notify.failed} failed)` : '')
         : j.notify?.skipped ? ` — email skipped (${j.notify.reason})`
         : j.notify?.error ? ` — email failed: ${j.notify.error}`
-        : '';
+        : j.notify?.failed ? ` — all ${j.notify.failed} emails failed` : '';
       setStatus(`Uploaded "${file.name}"${emailNote}`);
       await refresh();
     } catch (err) {
