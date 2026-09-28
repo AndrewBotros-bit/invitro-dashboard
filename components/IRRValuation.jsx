@@ -3,6 +3,7 @@ import { useState, Fragment } from "react";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Table, TableHeader, TableBody, TableHead, TableRow, TableCell } from "@/components/ui/table";
 import { fmt, pct, currentPeriodIndex } from "@/lib/formatters";
+import { roundAsOf } from "@/lib/data/parseCapTable";
 import { cn } from "@/lib/utils";
 
 // By-Company view uses a deliberately small color palette — three
@@ -101,6 +102,23 @@ const VEHICLE_CONVERSION_YEAR = {
  * this back to true restores every figure with no other change.
  */
 const SHOW_IRR = false;
+
+/**
+ * Priced-round marks on the fund card — the AllCare cap-table valuation
+ * shown alongside the ARR-multiple mark the dashboard uses everywhere else.
+ *
+ * OFF until Andrew signs off. The two numbers disagree by a wide margin
+ * (Q3 2026: $38.2M round post-money vs $59.2M at 11.5x ARR), and AllCare is
+ * effectively the Fund's entire NAV, so publishing this moves the Fund's
+ * headline MOIC from 1.8x to 1.2x in front of every LP. That is a decision
+ * for the CFO, not a deploy.
+ *
+ * Preview it without touching code or production:
+ *   NEXT_PUBLIC_SHOW_FUND_ROUND_MARKS=1 npm run dev
+ * To publish, set the same variable in Vercel and redeploy — NEXT_PUBLIC_*
+ * is inlined at build time, so a redeploy is required either way.
+ */
+const SHOW_FUND_ROUND_MARKS = process.env.NEXT_PUBLIC_SHOW_FUND_ROUND_MARKS === '1';
 
 const VEHICLE_FIRST_FLOW_DATE = {
   'Curenta Enterprise': { 2021: { month: 6, day: 1 } },
@@ -2061,6 +2079,99 @@ export default function IRRValuation({ data, user, selectedYear: selectedYearPro
                   tone={moic == null ? 'neutral' : moic >= 1 ? 'positive' : 'negative'}
                   delta={compEnabled && <DeltaBadge current={moic} prior={moicPrior} compareYear={compareYear} />} />
               </div>
+
+              {/* Priced-round marks — the fund-side counterpart to the
+                  SPV "Last Priced Round" card. An SPV shareholder owns
+                  shares in the vehicle, so that card prices THEIR shares at
+                  the vehicle's round. A fund LP owns no shares in the fund,
+                  only a share of its capital, so there is no fund-level
+                  round to quote. What does exist is the round the FUND
+                  itself bought into at the portfolio company — same
+                  narrative purpose, correct layer.
+
+                  Sits directly under the Ownership Value / MOIC tiles on
+                  purpose: those tiles are the ARR-multiple mark, and this is
+                  the number a third party actually paid. Where they
+                  disagree, the reader sees it immediately instead of
+                  discovering it in a term sheet. */}
+              {SHOW_FUND_ROUND_MARKS && isFund && (() => {
+                const capTables = irr?.capTables ?? {};
+                const marks = cos.map(({ co, own, valuation }) => {
+                  const round = roundAsOf(capTables[co.name], years[yearIdx]);
+                  const holding = round?.holders?.[v.name];
+                  if (!round || !holding?.shares || !holding?.stakeValue) return null;
+                  return {
+                    company: co.name,
+                    round,
+                    holding,
+                    fmvStake: (own / 100) * valuation,
+                    fmvValuation: valuation,
+                  };
+                }).filter(Boolean);
+                if (marks.length === 0) return null;
+                return (
+                  <div className="mt-4 p-3 bg-amber-50/60 border border-amber-200 rounded-md">
+                    <p className="text-[11px] font-semibold uppercase tracking-wide text-amber-900 mb-2">
+                      Latest Priced Round (Portfolio Marks)
+                    </p>
+                    {marks.map(({ company, round, holding, fmvStake, fmvValuation }) => {
+                      const diff = holding.stakeValue - fmvStake;
+                      return (
+                        <div key={company} className="mb-3 last:mb-0">
+                          <div className="flex items-baseline justify-between gap-2 flex-wrap mb-1.5">
+                            <p className="text-xs font-semibold text-amber-900">
+                              {company}
+                              <span className="ml-2 font-normal text-amber-800">
+                                Round {round.index} · {round.year}
+                              </span>
+                            </p>
+                            <p className="text-[10px] text-amber-800 tabular-nums">
+                              ${round.pricePerShare?.toFixed(4)}/share · {fmt(round.postMoney)} post-money
+                              {round.totalRaised > 0 && <> · {fmt(round.totalRaised)} raised</>}
+                            </p>
+                          </div>
+                          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                            <div>
+                              <p className="text-[10px] uppercase tracking-wide text-muted-foreground">Fund&apos;s shares</p>
+                              <p className="text-sm font-bold tabular-nums text-foreground">
+                                {Math.round(holding.shares).toLocaleString()}
+                              </p>
+                            </div>
+                            <div>
+                              <p className="text-[10px] uppercase tracking-wide text-muted-foreground">Stake @ round price</p>
+                              <p className="text-sm font-bold tabular-nums text-foreground">{fmt(holding.stakeValue)}</p>
+                            </div>
+                            <div>
+                              <p className="text-[10px] uppercase tracking-wide text-muted-foreground">
+                                Stake @ portfolio mark
+                              </p>
+                              <p className="text-sm font-bold tabular-nums text-foreground"
+                                 title={`Company marked at ${fmt(fmvValuation)} on the ARR multiple`}>
+                                {fmt(fmvStake)}
+                              </p>
+                            </div>
+                            <div>
+                              <p className="text-[10px] uppercase tracking-wide text-muted-foreground">Difference</p>
+                              <p className={cn(
+                                "text-sm font-bold tabular-nums",
+                                diff >= 0 ? "text-emerald-700" : "text-red-700",
+                              )}>
+                                {diff >= 0 ? '+' : '−'}{fmt(Math.abs(diff))}
+                              </p>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                    <p className="text-[10px] text-amber-700 italic mt-2">
+                      What a third party paid in the most recent priced round, versus the
+                      revenue-multiple mark used in the tiles above. Both are legitimate and
+                      they routinely disagree — a round is an arm&apos;s-length price on one
+                      date, the multiple is a continuous fundamental view.
+                    </p>
+                  </div>
+                );
+              })()}
 
               {/* My Performance — relocated to after "Companies Invested In" so the narrative reads vehicle-portfolio first, then LP-specific impact. */}
 
