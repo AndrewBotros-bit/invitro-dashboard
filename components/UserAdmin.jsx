@@ -298,6 +298,188 @@ function ConfirmModal({ open, title, message, confirmLabel = 'Confirm', danger =
 // ─── Per-user documents panel (admin-side upload/download/delete) ─────────
 
 /**
+ * Announce documents that are already stored.
+ *
+ * Ten K-1s were uploaded while RESEND_API_KEY was unset, so the upload-time
+ * notification silently reached nobody. Re-uploading each file would fix that
+ * but rewrites every blob under a new key, orphaning read receipts and
+ * re-flagging documents as "New" for LPs who had already downloaded them.
+ * This sends mail only.
+ *
+ * Two-step by design: the first click loads and shows exactly which addresses
+ * will receive mail; a second, separate click sends. A bulk outward-facing
+ * action should never be one mis-click away.
+ */
+function NotifyExistingDocuments() {
+  const [folders, setFolders] = useState(null);
+  const [selected, setSelected] = useState(() => new Set());
+  const [loading, setLoading] = useState(false);
+  const [sending, setSending] = useState(false);
+  const [results, setResults] = useState([]);
+  const [error, setError] = useState('');
+
+  async function load() {
+    setLoading(true); setError(''); setResults([]);
+    try {
+      const res = await fetch('/api/admin/documents');
+      const j = await res.json();
+      if (!res.ok) throw new Error(j.error || 'Load failed');
+      setFolders(j.folders);
+      // Pre-select everything that CAN be delivered; an LP with no address
+      // on file is shown but not checked, so the count never overstates.
+      setSelected(new Set(
+        j.folders.flatMap(f => f.recipients.length ? f.docs.map(d => `${f.username}|${d.key}`) : []),
+      ));
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  function toggle(id) {
+    setSelected(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  }
+
+  async function send() {
+    setSending(true); setError(''); setResults([]);
+    const jobs = [];
+    for (const f of folders ?? []) {
+      for (const d of f.docs) {
+        const id = `${f.username}|${d.key}`;
+        if (selected.has(id)) jobs.push({ f, d, id });
+      }
+    }
+    const out = [];
+    for (const { f, d } of jobs) {
+      try {
+        const res = await fetch(`/api/admin/documents/${encodeURIComponent(f.username)}/notify`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ key: d.key }),
+        });
+        const j = await res.json();
+        if (!res.ok) throw new Error(j.error || 'Failed');
+        const n = j.notify;
+        out.push({
+          who: f.displayName, file: d.filename,
+          ok: !!n?.ok, sent: n?.sent ?? 0,
+          note: n?.ok ? `emailed ${n.sent}${n.failed ? `, ${n.failed} failed` : ''}`
+              : n?.skipped ? `skipped — ${n.reason}`
+              : `failed — ${n?.error || 'no deliveries'}`,
+        });
+      } catch (err) {
+        out.push({ who: f.displayName, file: d.filename, ok: false, sent: 0, note: err.message });
+      }
+      setResults([...out]);
+    }
+    setSending(false);
+  }
+
+  const selectedCount = selected.size;
+  const totalRecipients = (folders ?? [])
+    .flatMap(f => f.docs.filter(d => selected.has(`${f.username}|${d.key}`)).map(() => f.recipients.length))
+    .reduce((a, b) => a + b, 0);
+  const sentTotal = results.filter(r => r.ok).reduce((n, r) => n + r.sent, 0);
+
+  return (
+    <Card className="mt-4">
+      <CardHeader className="pb-3">
+        <CardTitle className="text-sm">Notify LPs about documents already uploaded</CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        <p className="text-xs text-muted-foreground">
+          Sends the &ldquo;new document&rdquo; email for files already in the portal. Nothing is
+          re-uploaded and no existing document changes &mdash; LPs who have already downloaded
+          theirs will not see it flagged as new again.
+        </p>
+
+        {!folders && (
+          <button type="button" onClick={load} disabled={loading}
+            className="text-sm px-3 py-1.5 rounded border font-medium hover:bg-muted disabled:opacity-50">
+            {loading ? 'Loading…' : 'Review who would be emailed'}
+          </button>
+        )}
+
+        {folders && folders.length === 0 && (
+          <p className="text-sm text-muted-foreground">No documents in the store yet.</p>
+        )}
+
+        {folders && folders.length > 0 && (
+          <>
+            <div className="border rounded-lg overflow-hidden">
+              <table className="w-full text-sm">
+                <thead className="bg-muted/50 text-xs uppercase text-muted-foreground">
+                  <tr>
+                    <th className="text-left px-3 py-2 w-8"></th>
+                    <th className="text-left px-3 py-2">LP</th>
+                    <th className="text-left px-3 py-2">Document</th>
+                    <th className="text-left px-3 py-2">Will be emailed to</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {folders.flatMap(f => f.docs.map(d => {
+                    const id = `${f.username}|${d.key}`;
+                    const none = f.recipients.length === 0;
+                    return (
+                      <tr key={id} className={cn('border-t', none && 'opacity-60')}>
+                        <td className="px-3 py-2">
+                          <input type="checkbox" checked={selected.has(id)} disabled={none}
+                            onChange={() => toggle(id)} />
+                        </td>
+                        <td className="px-3 py-2 font-medium">{f.displayName}</td>
+                        <td className="px-3 py-2 truncate max-w-[18rem]" title={d.filename}>{d.filename}</td>
+                        <td className="px-3 py-2 text-xs text-muted-foreground">
+                          {none
+                            ? <span className="text-amber-700">no email on file</span>
+                            : f.recipients.map(r => r.email).join(', ')}
+                        </td>
+                      </tr>
+                    );
+                  }))}
+                </tbody>
+              </table>
+            </div>
+
+            <div className="flex items-center gap-3">
+              <button type="button" onClick={send} disabled={sending || selectedCount === 0}
+                className="text-sm px-3 py-1.5 rounded bg-primary text-primary-foreground font-medium disabled:opacity-50">
+                {sending ? 'Sending…' : `Send ${totalRecipients} email${totalRecipients === 1 ? '' : 's'}`}
+              </button>
+              <span className="text-xs text-muted-foreground">
+                {selectedCount} document{selectedCount === 1 ? '' : 's'} selected
+              </span>
+              <button type="button" onClick={load} disabled={loading || sending}
+                className="text-xs px-2 py-1 rounded border hover:bg-muted disabled:opacity-50">
+                Refresh
+              </button>
+            </div>
+          </>
+        )}
+
+        {results.length > 0 && (
+          <div className="text-xs space-y-1 pt-1">
+            <p className="font-medium">{sentTotal} email{sentTotal === 1 ? '' : 's'} sent</p>
+            {results.map((r, i) => (
+              <p key={i} className={r.ok ? 'text-emerald-700' : 'text-red-600'}>
+                {r.who} — {r.file}: {r.note}
+              </p>
+            ))}
+          </div>
+        )}
+
+        {error && <p className="text-sm text-red-600 font-medium">{error}</p>}
+      </CardContent>
+    </Card>
+  );
+}
+
+
+/**
  * Bulk document upload — the K-1 workflow.
  *
  * Once a year the CFO has one K-1 per LP and, before this, had to edit
@@ -538,6 +720,40 @@ function DocumentsPanel({ username, userDisplayName }) {
   const [uploading, setUploading] = useState(false);
   const [status, setStatus] = useState('');
   const [error, setError] = useState('');
+  // Key of the document currently being announced, so only its own button
+  // shows a spinner rather than the whole row set going dead.
+  const [notifying, setNotifying] = useState(null);
+
+  /**
+   * Re-send the "new document" email for a file already in the store.
+   * Deliberately does not re-upload: rewriting the blob would orphan the
+   * read receipt and re-flag the document as New for LPs who already have it.
+   */
+  async function onNotify(key, filename) {
+    setNotifying(key); setError(''); setStatus('');
+    try {
+      const res = await fetch(`/api/admin/documents/${encodeURIComponent(username)}/notify`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ key }),
+      });
+      const j = await res.json();
+      if (!res.ok) throw new Error(j.error || 'Notify failed');
+      const n = j.notify;
+      if (n?.ok) {
+        setStatus(`Emailed ${n.sent} recipient${n.sent === 1 ? '' : 's'} about "${filename}"` +
+          (n.failed ? ` — ${n.failed} failed` : ''));
+      } else if (n?.skipped) {
+        setError(`Not sent — ${n.reason}`);
+      } else {
+        setError(`Not sent — ${n?.error || 'all deliveries failed'}`);
+      }
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setNotifying(null);
+    }
+  }
 
   async function refresh() {
     if (!username) return;
@@ -631,7 +847,7 @@ function DocumentsPanel({ username, userDisplayName }) {
                   <th className="text-left px-3 py-2">Filename</th>
                   <th className="text-right px-3 py-2">Size</th>
                   <th className="text-right px-3 py-2">Uploaded</th>
-                  <th className="text-right px-3 py-2 w-24">Actions</th>
+                  <th className="text-right px-3 py-2 w-32">Actions</th>
                 </tr>
               </thead>
               <tbody>
@@ -645,6 +861,12 @@ function DocumentsPanel({ username, userDisplayName }) {
                         <a href={`/api/documents/download?key=${encodeURIComponent(d.key)}`}
                            className="text-xs px-2 py-1 rounded border hover:bg-muted"
                            title="Download">↓</a>
+                        <button type="button"
+                          onClick={() => onNotify(d.key, d.filename)}
+                          disabled={notifying === d.key}
+                          className="text-xs px-2 py-1 rounded border hover:bg-muted disabled:opacity-50"
+                          title="Email the LP that this document is available (does not re-upload)">
+                          {notifying === d.key ? '…' : '✉'}</button>
                         <button type="button"
                           onClick={() => onDelete(d.key, d.filename)}
                           className="text-xs px-2 py-1 rounded border text-red-600 hover:bg-red-50"
@@ -1501,6 +1723,7 @@ export default function UserAdmin({ currentUser, lpNames = [], lpCompaniesMap = 
           {/* Bulk upload is always available — it is the annual K-1 run,
               not something you do while editing one user. */}
           <BulkDocumentUpload users={users} />
+          <NotifyExistingDocuments />
         </div>
       </div>
 
