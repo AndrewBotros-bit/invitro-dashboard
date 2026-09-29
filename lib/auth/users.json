@@ -1069,7 +1069,7 @@
   {
     "username": "Andrew.Test",
     "name": "Andrew Botros (Test)",
-    "passwordHash": "$2b$10$XQIE130Jq8y1PN.bDcoZuOakfwKkRGnoemQY15wXplpK4jPS696KW",
+    "passwordHash": "$2b$10$VnDEGjLjscsyAPfkInhazOEycjjUHqfRGIYRpJz3dOYpKYDB6VnTq",
     "role": "viewer",
     "permissions": {
       "companies": [
