@@ -1065,5 +1065,49 @@
       "lpName": "Marie Youssef"
     },
     "email": "samersamir666@yahoo.com"
+  },
+  {
+    "username": "Andrew.Test",
+    "name": "Andrew Botros (Test)",
+    "passwordHash": "$2b$10$XQIE130Jq8y1PN.bDcoZuOakfwKkRGnoemQY15wXplpK4jPS696KW",
+    "role": "viewer",
+    "permissions": {
+      "companies": [
+        "AllCare External",
+        "Osta"
+      ],
+      "tabs": [
+        "overview",
+        "revenue",
+        "profitability",
+        "expenses",
+        "insights",
+        "cashflow",
+        "kpis",
+        "irr"
+      ],
+      "viewModes": [
+        "quarterly",
+        "yearly"
+      ],
+      "breakdowns": {
+        "revenueDrilldown": [
+          "AllCare"
+        ],
+        "expenseDrilldown": [
+          "AllCare"
+        ],
+        "expenseGLDetail": false,
+        "gpDrilldown": [
+          "AllCare"
+        ],
+        "cashflowDrilldown": false,
+        "auditConsole": false,
+        "hcDetails": false,
+        "shareholderSplit": false
+      },
+      "lpName": "Andrew Botros"
+    },
+    "email": "andrew.botros@invitrocapital.com"
   }
 ]
