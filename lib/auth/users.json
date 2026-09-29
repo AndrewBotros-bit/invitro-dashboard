@@ -252,11 +252,8 @@
     "role": "viewer",
     "permissions": {
       "companies": [
-        "AllRx External",
         "AllCare External",
-        "Osta",
-        "Needles",
-        "InVitro Studio"
+        "Osta"
       ],
       "tabs": [
         "overview",
@@ -289,7 +286,7 @@
         "hcDetails": false,
         "shareholderSplit": false
       },
-      "lpName": "Ayman Ismail"
+      "lpName": "George Ayad"
     }
   },
   {
