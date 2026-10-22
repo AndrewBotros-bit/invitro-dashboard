@@ -14,6 +14,24 @@ import { fmt, fmtShort, pct, currentPeriodIndex } from "@/lib/formatters";
 import { buildColorMap, buildMonthlySeries, buildCashflowSeries, annualTotal, monthlyTotal, getAvailableMonths, filterSeriesToRange, buildYearlySeries, buildQuarterlySeries, rangeTotal, EXCLUDE_REVENUE, EXCLUDE_EBITDA, EXCLUDE_ALWAYS, PALETTE } from "@/lib/chartHelpers";
 import { Button } from "@/components/ui/button";
 import { generateInsights } from "@/lib/insights";
+import { DERIVED_NET_REVENUE } from "@/lib/data/parsePnL";
+
+/**
+ * Companies whose Gross Margin % is struck against NET revenue.
+ *
+ * AllCare's margin is taken on revenue net of payer adjustments, and the
+ * sheet publishes only the resulting percentage — not the net figure. So
+ * Gross Profit over the sheet's Revenues understates it by 2-6pp (31.7%
+ * against a stated 38% for Nov-25). parsePnL recovers the implied base as
+ * DERIVED_NET_REVENUE and margins for these companies are struck against
+ * that, which reproduces the sheet exactly for a month and aggregates
+ * correctly for a quarter or a year.
+ *
+ * AllRx is deliberately absent: its stated margin equals GP / Revenues to
+ * the cent across all 65 months, so it needs no special base. Add a name
+ * here if another portco starts reporting on a net basis.
+ */
+const SHEET_MARGIN_COMPANIES = new Set(['AllCare', 'AllCare External']);
 import { Drawer, DrawerContent, DrawerHeader, DrawerTitle, DrawerDescription, DrawerClose } from "@/components/ui/drawer";
 import DashboardSidebar from "@/components/DashboardSidebar";
 import LpDocuments from "@/components/LpDocuments";
@@ -862,16 +880,26 @@ export default function InVitroDashboard({ data: rawData, user }) {
   const currRevenue = monthlyTotal(data.pnl, 'Revenues', currentYear, currentMonth, dynExcludeRevenue);
   const prevEbitda = monthlyTotal(data.pnl, 'EBITDA', prevMonthYear, prevMonth, dynExcludeEbitda);
   const currEbitda = monthlyTotal(data.pnl, 'EBITDA', currentYear, currentMonth, dynExcludeEbitda);
+  // Selecting a company narrows dynExcludeRevenue to just that company, so
+  // these totals are company-scoped. For a net-basis company the margin
+  // denominator is the derived base, not gross revenue — otherwise the KPI
+  // card and the sheet disagree by several points.
+  const marginBaseMetric = SHEET_MARGIN_COMPANIES.has(selectedCompany)
+    ? DERIVED_NET_REVENUE
+    : 'Revenues';
+  const prevMarginBase = monthlyTotal(data.pnl, marginBaseMetric, prevMonthYear, prevMonth, dynExcludeRevenue);
+  const currMarginBase = monthlyTotal(data.pnl, marginBaseMetric, currentYear, currentMonth, dynExcludeRevenue);
   const prevGrossProfit = consolidatedGPMonth(prevMonthYear, prevMonth, dynExcludeRevenue);
-  const prevGrossMargin = prevRevenue > 0 ? prevGrossProfit / prevRevenue : null;
+  const prevGrossMargin = prevMarginBase > 0 ? prevGrossProfit / prevMarginBase : null;
   const currGrossProfit = consolidatedGPMonth(currentYear, currentMonth, dynExcludeRevenue);
-  const currGrossMargin = currRevenue > 0 ? currGrossProfit / currRevenue : null;
+  const currGrossMargin = currMarginBase > 0 ? currGrossProfit / currMarginBase : null;
 
   // Range-based KPI totals (used when viewMode === 'yearly')
   const rangeRevenue = rangeTotal(data.pnl, 'Revenues', rangeFrom, rangeTo, dynExcludeRevenue);
   const rangeEbitda = rangeTotal(data.pnl, 'EBITDA', rangeFrom, rangeTo, dynExcludeEbitda);
   const rangeGrossProfit = consolidatedGPRange(rangeFrom, rangeTo, dynExcludeRevenue);
-  const rangeGrossMargin = rangeRevenue > 0 ? rangeGrossProfit / rangeRevenue : null;
+  const rangeMarginBase = rangeTotal(data.pnl, marginBaseMetric, rangeFrom, rangeTo, dynExcludeRevenue);
+  const rangeGrossMargin = rangeMarginBase > 0 ? rangeGrossProfit / rangeMarginBase : null;
 
   // Cashflow: use selected company's data, or consolidated "ALL Holdings"
   const consolidatedCF = selectedCompany
@@ -1200,9 +1228,11 @@ export default function InVitroDashboard({ data: rawData, user }) {
   const ebitdaMargin = totalRevCurrent > 0 ? totalEbitdaCurrent / totalRevCurrent : null;
 
   const totalGrossProfitCurrent = consolidatedGPYear(currentYear, dynExcludeRevenue);
-  const grossMarginCurrent = totalRevCurrent > 0 ? totalGrossProfitCurrent / totalRevCurrent : null;
+  const marginBaseCurrent = annualTotal(data.pnl, marginBaseMetric, currentYear, dynExcludeRevenue);
+  const grossMarginCurrent = marginBaseCurrent > 0 ? totalGrossProfitCurrent / marginBaseCurrent : null;
   const totalGrossProfitPrior = consolidatedGPYear(priorYear, dynExcludeRevenue);
-  const grossMarginPrior = totalRevPrior > 0 ? totalGrossProfitPrior / totalRevPrior : null;
+  const marginBasePrior = annualTotal(data.pnl, marginBaseMetric, priorYear, dynExcludeRevenue);
+  const grossMarginPrior = marginBasePrior > 0 ? totalGrossProfitPrior / marginBasePrior : null;
   const grossMarginChange = grossMarginCurrent !== null && grossMarginPrior !== null
     ? grossMarginCurrent - grossMarginPrior
     : null;
@@ -1594,13 +1624,38 @@ export default function InVitroDashboard({ data: rawData, user }) {
         ostaGP2ByQuarterLabel
       )
     : filterSeriesToRange(patchedGpByMonth, rangeFrom, rangeTo, availableMonths);
+  // AllCare's margin is struck against NET revenue, which the sheet does
+  // not publish — only the resulting percentage. Dividing the sheet's Gross
+  // Profit by the sheet's Revenues therefore understates it by 2-6pp. The
+  // parser recovers the implied base (GP / margin) as a derived metric, and
+  // the margin is taken against THAT, so a month reproduces the sheet
+  // exactly and a quarter aggregates the way revenue does rather than
+  // averaging percentages.
+  //
+  // Scoped to the companies that actually need it. AllRx's stated margin
+  // agrees with GP / Revenues to the cent across every month, so it is left
+  // on the plain calculation; add a name here if another portco starts
+  // reporting on a net basis.
+  const netRevByMonth = viewMode === 'yearly'
+    ? buildYearlySeries(data.pnl, DERIVED_NET_REVENUE, dynExcludeRevenue, yearFrom, yearTo)
+    : viewMode === 'quarterly'
+    ? buildQuarterlySeries(data.pnl, DERIVED_NET_REVENUE, dynExcludeRevenue, rangeFrom, rangeTo)
+    : filterSeriesToRange(
+        buildMonthlySeries(data.pnl, DERIVED_NET_REVENUE, dynExcludeRevenue, null),
+        rangeFrom, rangeTo, availableMonths,
+      );
   const grossMarginPctByMonth = revenueByMonth.map((revPoint, i) => {
     const gpPoint = gpByMonth[i] || {};
+    const netRevPoint = netRevByMonth[i] || {};
     const pctPoint = { month: revPoint.month };
     for (const name of revenueCompanies) {
-      const rev = revPoint[name] ?? 0;
+      // Fall back to gross revenue if the derived base is missing for this
+      // period — a blank margin cell upstream must not blank the chart.
+      const base = SHEET_MARGIN_COMPANIES.has(name) && netRevPoint[name] > 0
+        ? netRevPoint[name]
+        : (revPoint[name] ?? 0);
       const gp = gpPoint[name] ?? 0;
-      pctPoint[name] = rev > 0 ? (gp / rev) * 100 : null;
+      pctPoint[name] = base > 0 ? (gp / base) * 100 : null;
     }
     return pctPoint;
   });

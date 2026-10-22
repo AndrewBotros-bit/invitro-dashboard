@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { parsePnL, detectMonthColumns } from '@/lib/data/parsePnL';
+import { parsePnL, detectMonthColumns, DERIVED_NET_REVENUE } from '@/lib/data/parsePnL';
 import { MOCK_PNL_ROWS } from '@/tests/fixtures/pnlRows';
 
 describe('detectMonthColumns', () => {
@@ -37,12 +37,50 @@ describe('parsePnL', () => {
     const result = parsePnL(MOCK_PNL_ROWS);
     const allrx = result.find(c => c.name === 'AllRx');
     const curenta = result.find(c => c.name === 'Curenta');
-    // AllRx has Cost of Sales, Gross Profit, Gorss Margin % that Curenta lacks
-    expect(Object.keys(allrx.metrics)).toHaveLength(6);
+    // AllRx has Cost of Sales, Gross Profit, Gorss Margin % that Curenta
+    // lacks — 6 rows read from the sheet, plus the derived net-revenue
+    // base that having both Gross Profit and a margin row earns it.
+    expect(Object.keys(allrx.metrics)).toHaveLength(7);
     expect(Object.keys(curenta.metrics)).toHaveLength(3);
     expect(allrx.metrics['Revenue']).toBeDefined();
     expect(allrx.metrics['Cost of Sales']).toBeDefined();
     expect(curenta.metrics['Cost of Sales']).toBeUndefined();
+  });
+
+  describe('derived net revenue', () => {
+    it('recovers the base the margin was struck against', () => {
+      const allrx = parsePnL(MOCK_PNL_ROWS).find(c => c.name === 'AllRx');
+      const gp = allrx.metrics['Gross Profit'];
+      const margin = allrx.metrics['Gorss Margin, %'];
+      const net = allrx.metrics[DERIVED_NET_REVENUE];
+      expect(net).toBeDefined();
+      expect(net).toHaveLength(gp.length);
+      for (let i = 0; i < net.length; i++) {
+        const m = margin[i].value;
+        if (m == null || m === 0 || gp[i].value == null) continue;
+        // Dividing GP back by the derived base must return the sheet's
+        // own margin — that is the whole contract.
+        expect(gp[i].value / net[i].value).toBeCloseTo(m, 10);
+        expect(net[i]).toMatchObject({ year: gp[i].year, month: gp[i].month });
+      }
+    });
+
+    it('is absent for a company with no margin row', () => {
+      const curenta = parsePnL(MOCK_PNL_ROWS).find(c => c.name === 'Curenta');
+      expect(curenta.metrics[DERIVED_NET_REVENUE]).toBeUndefined();
+    });
+
+    it('yields null rather than Infinity on a zero or blank margin', () => {
+      const rows = JSON.parse(JSON.stringify(MOCK_PNL_ROWS));
+      const marginRow = rows.find(r => String(r?.[2] ?? '').startsWith('Gorss Margin'));
+      marginRow[4] = 0;      // zero margin
+      marginRow[5] = null;   // blank margin
+      const allrx = parsePnL(rows).find(c => c.name === 'AllRx');
+      const net = allrx.metrics[DERIVED_NET_REVENUE];
+      expect(net[0].value).toBeNull();
+      expect(net[1].value).toBeNull();
+      expect(Number.isFinite(net[0].value ?? 0)).toBe(true);
+    });
   });
 
   it('returns MonthlyValue objects with year, month, value', () => {
@@ -79,5 +117,36 @@ describe('parsePnL', () => {
     const testCo = result.find(c => c.name === 'TestCo');
     expect(testCo.metrics['Revenue'][0].value).toBe(100);
     expect(testCo.metrics['Revenue'][1].value).toBeNull();
+  });
+});
+
+describe('percentage cells', () => {
+  it('reads a formatted percentage as a fraction, not null', () => {
+    // The P&L tabs are fetched as FORMATTED_VALUE, so margins arrive as
+    // "38%". Number("38%") is NaN, which silently nulled every margin row
+    // in the sheet and made the metric unusable.
+    const rows = JSON.parse(JSON.stringify(MOCK_PNL_ROWS));
+    const marginRow = rows.find(r => String(r?.[2] ?? '').startsWith('Gorss Margin'));
+    marginRow[4] = '38%';
+    marginRow[5] = '-6927%';
+    marginRow[6] = '0%';
+    const allrx = parsePnL(rows).find(c => c.name === 'AllRx');
+    const m = allrx.metrics['Gorss Margin, %'];
+    expect(m[0].value).toBeCloseTo(0.38, 10);
+    expect(m[1].value).toBeCloseTo(-69.27, 10);
+    expect(m[2].value).toBe(0);
+  });
+
+  it('leaves ordinary numbers and accounting negatives untouched', () => {
+    const rows = JSON.parse(JSON.stringify(MOCK_PNL_ROWS));
+    const revRow = rows.find(r => String(r?.[2] ?? '') === 'Revenue');
+    revRow[4] = '1,234';
+    revRow[5] = '(185,965)';
+    revRow[6] = '$500';
+    const allrx = parsePnL(rows).find(c => c.name === 'AllRx');
+    const r = allrx.metrics['Revenue'];
+    expect(r[0].value).toBe(1234);
+    expect(r[1].value).toBe(-185965);
+    expect(r[2].value).toBe(500);
   });
 });
