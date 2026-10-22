@@ -150,3 +150,28 @@ describe('percentage cells', () => {
     expect(r[2].value).toBe(500);
   });
 });
+
+describe('repeated metric rows', () => {
+  it('keeps the first occurrence when a block restates a metric', () => {
+    // "AllCare P&L External" carries two presentations of AllCare. Their
+    // margin rows disagree: the first states the real margin, the second
+    // restates GP over gross revenue. Last-write-wins kept the redundant
+    // one and threw away the only row carrying information.
+    const rows = JSON.parse(JSON.stringify(MOCK_PNL_ROWS));
+    const marginRow = rows.find(r => String(r?.[2] ?? '').startsWith('Gorss Margin'));
+    const restated = [...marginRow];
+    restated[1] = '';          // no company name -> same block continues
+    restated[4] = '50%';
+    marginRow[4] = '53%';
+    rows.splice(rows.indexOf(marginRow) + 1, 0, restated);
+
+    const allrx = parsePnL(rows).find(c => c.name === 'AllRx');
+    expect(allrx.metrics['Gorss Margin, %'][0].value).toBeCloseTo(0.53, 10);
+  });
+
+  it('still starts a fresh metric set for a genuinely new company', () => {
+    const result = parsePnL(MOCK_PNL_ROWS);
+    expect(result.map(c => c.name)).toEqual(['AllRx', 'Curenta']);
+    expect(result[1].metrics['Revenue']).toBeDefined();
+  });
+});

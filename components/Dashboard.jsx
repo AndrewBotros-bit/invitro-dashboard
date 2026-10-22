@@ -17,19 +17,16 @@ import { generateInsights } from "@/lib/insights";
 import { DERIVED_NET_REVENUE } from "@/lib/data/parsePnL";
 
 /**
- * Companies whose Gross Margin % is struck against NET revenue.
+ * Companies whose Gross Margin % is NOT Gross Profit over the Revenues row.
  *
- * AllCare's margin is taken on revenue net of payer adjustments, and the
- * sheet publishes only the resulting percentage — not the net figure. So
- * Gross Profit over the sheet's Revenues understates it by 2-6pp (31.7%
- * against a stated 38% for Nov-25). parsePnL recovers the implied base as
- * DERIVED_NET_REVENUE and margins for these companies are struck against
- * that, which reproduces the sheet exactly for a month and aggregates
- * correctly for a quarter or a year.
+ * AllCare states its own margin and the denominator behind it is not
+ * published, so recalculating gives a different number — 50% against a
+ * stated 53% for Oct-26. parsePnL recovers the implied base and margins for
+ * these companies are struck against that, reproducing the sheet exactly
+ * for a month and matching its own total columns for a year.
  *
  * AllRx is deliberately absent: its stated margin equals GP / Revenues to
- * the cent across all 65 months, so it needs no special base. Add a name
- * here if another portco starts reporting on a net basis.
+ * the cent across all 65 months, so it needs no special base.
  */
 const SHEET_MARGIN_COMPANIES = new Set(['AllCare', 'AllCare External']);
 import { Drawer, DrawerContent, DrawerHeader, DrawerTitle, DrawerDescription, DrawerClose } from "@/components/ui/drawer";
@@ -881,9 +878,9 @@ export default function InVitroDashboard({ data: rawData, user }) {
   const prevEbitda = monthlyTotal(data.pnl, 'EBITDA', prevMonthYear, prevMonth, dynExcludeEbitda);
   const currEbitda = monthlyTotal(data.pnl, 'EBITDA', currentYear, currentMonth, dynExcludeEbitda);
   // Selecting a company narrows dynExcludeRevenue to just that company, so
-  // these totals are company-scoped. For a net-basis company the margin
-  // denominator is the derived base, not gross revenue — otherwise the KPI
-  // card and the sheet disagree by several points.
+  // these totals are company-scoped. For a company that states its own
+  // margin the denominator is the derived base, not gross revenue —
+  // otherwise the KPI card and the sheet disagree by several points.
   const marginBaseMetric = SHEET_MARGIN_COMPANIES.has(selectedCompany)
     ? DERIVED_NET_REVENUE
     : 'Revenues';
