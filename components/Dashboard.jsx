@@ -51,7 +51,7 @@ const FIGURE_FOOTNOTES = {
       + 'positive true-up: collections on earlier months\u2019 claims beat the original '
       + 'estimate. Under ASC 606 a revision to variable consideration for services already '
       + 'delivered is recognised in the period of change, so it sits in Sep\u201926; it is '
-      + 'not run-rate. Normalised view at the 6% plan adjustment rate below.',
+      + 'not run-rate. Normalised view at the 6% plan adjustment rate below to land at 51.5% as normal monthly Gross Margin %.',
   },
 };
 FIGURE_FOOTNOTES['AllCare External|2026|9'] = FIGURE_FOOTNOTES['AllCare|2026|9'];
