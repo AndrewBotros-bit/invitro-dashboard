@@ -29,6 +29,38 @@ import { DERIVED_NET_REVENUE } from "@/lib/data/parsePnL";
  * the cent across all 65 months, so it needs no special base.
  */
 const SHEET_MARGIN_COMPANIES = new Set(['AllCare', 'AllCare External']);
+
+/**
+ * Per-figure footnotes on the Company Performance Summary.
+ *
+ * Keyed company|year|month, and only the gross-margin sub-label carries one
+ * today. Sep'26 needs explaining because the stated margin (60.9%) sits far
+ * above Gross Profit over gross revenue (70.5% the other way round for
+ * block 2) and reflects a prior-period true-up rather than trading in the
+ * month — exactly the kind of figure an LP asks about.
+ *
+ * NOTE: this text ships in the repository. While github.com/AndrewBotros-bit
+ * /invitro-dashboard is public, anything written here is world-readable.
+ * The durable home for these is a notes row in the sheet, so the CFO can
+ * edit them without a deploy and they inherit the sheet's access controls.
+ */
+const FIGURE_FOOTNOTES = {
+  'AllCare|2026|9': {
+    marker: '1',
+    text: "Sep'26 payer adjustments are -$49k, so net revenue exceeds gross. This is a "
+      + 'positive true-up: collections on earlier months\u2019 claims beat the original '
+      + 'estimate. Under ASC 606 a revision to variable consideration for services already '
+      + 'delivered is recognised in the period of change, so it sits in Sep\u201926; it is '
+      + 'not run-rate. Normalised view at the 6% plan adjustment rate below.',
+  },
+};
+FIGURE_FOOTNOTES['AllCare External|2026|9'] = FIGURE_FOOTNOTES['AllCare|2026|9'];
+
+/** Footnote for a given company and period, or null. */
+function figureFootnote(company, period) {
+  if (!company || period?.month == null) return null;
+  return FIGURE_FOOTNOTES[`${company}|${period.year}|${period.month}`] ?? null;
+}
 import { Drawer, DrawerContent, DrawerHeader, DrawerTitle, DrawerDescription, DrawerClose } from "@/components/ui/drawer";
 import DashboardSidebar from "@/components/DashboardSidebar";
 import LpDocuments from "@/components/LpDocuments";
@@ -2313,7 +2345,7 @@ export default function InVitroDashboard({ data: rawData, user }) {
                     const gmBase = marginBaseMetric === 'Revenues'
                       ? rev
                       : sumPnlInPeriod(marginBaseMetric, p, dynExcludeRevenue);
-                    return { ...p, rev, gp, exp, ebitda, opCF, gmBase };
+                    return { ...p, rev, gp, exp, ebitda, opCF, gmBase, footnote: figureFootnote(selectedCompany, p) };
                   });
                   const totals = perPeriod.reduce(
                     (acc, p) => ({ rev: acc.rev + p.rev, gp: acc.gp + p.gp, exp: acc.exp + p.exp, ebitda: acc.ebitda + p.ebitda, opCF: acc.opCF + p.opCF, gmBase: acc.gmBase + p.gmBase }),
@@ -2328,7 +2360,7 @@ export default function InVitroDashboard({ data: rawData, user }) {
                   const LINE_ITEMS = [
                     { key: 'rev',    label: 'Revenue',                bold: false, color: () => 'text-foreground', sub: null },
                     { key: 'gp',     label: 'Gross Profit',           bold: false, color: (v) => v >= 0 ? 'text-emerald-600' : 'text-red-500',
-                      sub: (row) => ({ label: 'margin', value: fmtPct(pct(row.gp, row.gmBase ?? row.rev)) }) },
+                      sub: (row) => ({ label: 'margin', value: fmtPct(pct(row.gp, row.gmBase ?? row.rev)), marker: row.footnote?.marker }) },
                     { key: 'exp',    label: selectedCompany === 'InVitro Studio'
                                           ? 'Expenses (Fixed + Direct)'
                                           : selectedCompany
@@ -2341,7 +2373,14 @@ export default function InVitroDashboard({ data: rawData, user }) {
                     { key: 'opCF',   label: 'Operating Cash Flow',    bold: true,  color: (v) => v >= 0 ? 'text-emerald-600' : 'text-red-500', sub: null },
                   ];
 
+                  // De-duplicated footnotes for whichever periods are on
+                  // screen, so the note only appears when its month does.
+                  const footnotes = [...new Set(
+                    perPeriod.map(p => p.footnote).filter(Boolean),
+                  )].sort((a, b) => a.marker.localeCompare(b.marker));
+
                   return (
+                    <>
                     <Table>
                       <TableHeader>
                         <TableRow>
@@ -2368,7 +2407,11 @@ export default function InVitroDashboard({ data: rawData, user }) {
                                   <TableCell key={row.key} className={`text-right tabular-nums whitespace-nowrap ${item.bold ? 'font-bold' : ''}`}>
                                     <div className={item.color(val)}>{fmt(val)}</div>
                                     {sub && (
-                                      <div className="text-[9px] text-muted-foreground font-normal mt-0.5">{sub.value} {sub.label}</div>
+                                      <div className="text-[9px] text-muted-foreground font-normal mt-0.5">
+                                        {sub.value}
+                                        {sub.marker && <sup className="text-primary font-semibold ml-0.5">{sub.marker}</sup>}
+                                        {' '}{sub.label}
+                                      </div>
                                     )}
                                   </TableCell>
                                 );
@@ -2384,6 +2427,17 @@ export default function InVitroDashboard({ data: rawData, user }) {
                         })}
                       </TableBody>
                     </Table>
+                    {footnotes.length > 0 && (
+                      <div className="mt-3 pt-3 border-t border-border/60 space-y-1.5">
+                        {footnotes.map(n => (
+                          <p key={n.marker} className="text-[10px] leading-relaxed text-muted-foreground">
+                            <sup className="text-primary font-semibold mr-1">{n.marker}</sup>
+                            {n.text}
+                          </p>
+                        ))}
+                      </div>
+                    )}
+                    </>
                   );
                 })()}
               </CardContent>
