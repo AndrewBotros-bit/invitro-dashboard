@@ -130,7 +130,6 @@
         "expenses",
         "insights",
         "cashflow",
-        "kpis",
         "irr"
       ],
       "viewModes": "*",
