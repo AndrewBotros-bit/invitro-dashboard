@@ -2305,11 +2305,19 @@ export default function InVitroDashboard({ data: rawData, user }) {
                     const exp = sumExpInPeriod(p, dynExcludeEbitda);
                     const ebitda = sumPnlInPeriod('EBITDA', p, dynExcludeEbitda);
                     const opCF = sumOpCFInPeriod(p);
-                    return { ...p, rev, gp, exp, ebitda, opCF };
+                    // Gross margin is struck against gmBase, not rev. They
+                    // are the same number except for companies that publish
+                    // their own margin (see SHEET_MARGIN_COMPANIES), where
+                    // the stated figure uses a denominator the sheet does
+                    // not show. EBITDA margin stays on rev either way.
+                    const gmBase = marginBaseMetric === 'Revenues'
+                      ? rev
+                      : sumPnlInPeriod(marginBaseMetric, p, dynExcludeRevenue);
+                    return { ...p, rev, gp, exp, ebitda, opCF, gmBase };
                   });
                   const totals = perPeriod.reduce(
-                    (acc, p) => ({ rev: acc.rev + p.rev, gp: acc.gp + p.gp, exp: acc.exp + p.exp, ebitda: acc.ebitda + p.ebitda, opCF: acc.opCF + p.opCF }),
-                    { rev: 0, gp: 0, exp: 0, ebitda: 0, opCF: 0 }
+                    (acc, p) => ({ rev: acc.rev + p.rev, gp: acc.gp + p.gp, exp: acc.exp + p.exp, ebitda: acc.ebitda + p.ebitda, opCF: acc.opCF + p.opCF, gmBase: acc.gmBase + p.gmBase }),
+                    { rev: 0, gp: 0, exp: 0, ebitda: 0, opCF: 0, gmBase: 0 }
                   );
 
                   // Sub-metric formatters: returns null when undefined (e.g.
@@ -2320,7 +2328,7 @@ export default function InVitroDashboard({ data: rawData, user }) {
                   const LINE_ITEMS = [
                     { key: 'rev',    label: 'Revenue',                bold: false, color: () => 'text-foreground', sub: null },
                     { key: 'gp',     label: 'Gross Profit',           bold: false, color: (v) => v >= 0 ? 'text-emerald-600' : 'text-red-500',
-                      sub: (row) => ({ label: 'margin', value: fmtPct(pct(row.gp, row.rev)) }) },
+                      sub: (row) => ({ label: 'margin', value: fmtPct(pct(row.gp, row.gmBase ?? row.rev)) }) },
                     { key: 'exp',    label: selectedCompany === 'InVitro Studio'
                                           ? 'Expenses (Fixed + Direct)'
                                           : selectedCompany
