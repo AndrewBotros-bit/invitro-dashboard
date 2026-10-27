@@ -1939,9 +1939,19 @@ export default function IRRValuation({ data, user, selectedYear: selectedYearPro
           ? fundCalledThroughPeriod(v.name, fundTimeline, periodEndMs)
           : null;
         const fundCalledToDate = isFund ? (fundCallSummary?.called ?? fundFundedToDate) : null;
-        // Unfunded = committed but not yet called. Overdue = called and
-        // still unpaid (gross, never netted against prepayers).
-        const fundUnfunded = isFund && fundTotalCommit != null ? fundTotalCommit - fundCalledToDate : null;
+        // Unfunded = committed but not yet RECEIVED — the fund's actual
+        // receivable from its LPs.
+        //
+        // This used to subtract called rather than funded, which gave the
+        // same answer only while nobody paid early. With $325k now prepaid
+        // it read $563k against a real receivable of $313k, and contradicted
+        // the "86% funded" on the same row (14% of $2.25M is $315k, not
+        // $563k). The old figure was uncalled capital — the 2027 instalment
+        // — under a label that means something else.
+        //
+        // Overdue stays separate: called and still unpaid, gross, never
+        // netted against prepayers.
+        const fundUnfunded = isFund && fundTotalCommit != null ? fundTotalCommit - fundFundedToDate : null;
         const fundOverdue = fundCallSummary?.overdue ?? 0;
         const fundPrepaid = fundCallSummary?.prepaid ?? 0;
         const fundLpsOverdue = fundCallSummary?.lpsOverdue ?? 0;
