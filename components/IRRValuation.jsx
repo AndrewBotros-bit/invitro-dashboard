@@ -2280,16 +2280,24 @@ export default function IRRValuation({ data, user, selectedYear: selectedYearPro
                 const myCommitment = isFund ? getLpCommitment(v.name, myLp.name, fundTimeline) : null;
                 const myCalledPct = myCommitment ? (myInvestment / myCommitment) * 100 : null;
                 // myInvestment is cash this LP has actually wired. myCalled
-                // is what the schedule has demanded of them by now, so
-                // Unfunded stays "not yet called" and the gap between the
-                // two is what they currently owe.
+                // is what the schedule has demanded of them by now; the gap
+                // between the two is what they currently owe (or, when
+                // negative, what they have paid ahead).
                 const myCalled = isFund ? lpCalledThroughPeriod(v.name, myCommitment, periodEndMs) : null;
                 const myDue = isFund ? lpDueThroughPeriod(v.name, myCommitment, periodEndMs) : null;
                 const myOverdue = myDue != null ? Math.max(0, myDue - myInvestment) : 0;
                 const myPrepaid = myCalled != null ? Math.max(0, myInvestment - myCalled) : 0;
                 const myInWindow = myCalled != null
                   ? Math.max(0, myCalled - myInvestment - myOverdue) : 0;
-                const myUnfunded = myCommitment ? myCommitment - (myCalled ?? myInvestment) : null;
+                // Unfunded = committed less actually wired, matching the
+                // fund-level tile. Subtracting called instead told an LP who
+                // had paid in full that they still had capital outstanding:
+                // the card showed "Funded 100%" and a non-zero Unfunded at
+                // once, the balance being that LP's own prepayment counted
+                // as a shortfall. Clamped at zero so an overpayment reads as
+                // nil rather than negative; the excess is already reported
+                // on the same card as prepaid.
+                const myUnfunded = myCommitment ? Math.max(0, myCommitment - myInvestment) : null;
                 return (
                 <div className="rounded-xl border-2 border-primary bg-gradient-to-br from-primary/15 via-primary/8 to-primary/5 shadow-md overflow-hidden">
                   {/* Prominent header — Ownership % rendered as a LARGE
